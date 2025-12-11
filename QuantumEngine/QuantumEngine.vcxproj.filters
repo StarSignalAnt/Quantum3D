@@ -1,0 +1,254 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Core">
+      <UniqueIdentifier>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Vulkan">
+      <UniqueIdentifier>{B2C3D4E5-F678-90AB-CDEF-123456789012}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Rendering">
+      <UniqueIdentifier>{C3D4E5F6-7890-ABCD-EF12-345678901234}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="UI">
+      <UniqueIdentifier>{D4E5F678-90AB-CDEF-1234-567890123456}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Docking">
+      <UniqueIdentifier>{E5F67890-ABCD-EF12-3456-789012345678}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty">
+      <UniqueIdentifier>{F6789012-CDEF-1234-5678-901234567890}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Scene">
+      <UniqueIdentifier>{12345678-ABCD-EF12-3456-789ABCDEF012}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Core Headers -->
+    <ClInclude Include="framework.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <ClInclude Include="pch.h">
+      <Filter>Core</Filter>
+    </ClInclude>
+    <!-- Vulkan Headers -->
+    <ClInclude Include="VividApplication.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividDevice.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividSwapChain.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividCommandBuffer.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividRenderPass.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividRenderer.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividBuffer.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="VividPipeline.h">
+      <Filter>Vulkan</Filter>
+    </ClInclude>
+    <!-- Rendering Headers -->
+    <ClInclude Include="Draw2D.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="Texture2D.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="Font.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderingPipelines.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="Material.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="Mesh3D.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="ModelImporter.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <!-- UI Headers -->
+    <ClInclude Include="AppInput.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="AppUI.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UIControl.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="UITheme.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="ThemeDarkUI.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="IButton.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="IWindow.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="IVerticalScroller.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <ClInclude Include="IHorizontalScroller.h">
+      <Filter>UI</Filter>
+    </ClInclude>
+    <!-- Docking Headers -->
+    <ClInclude Include="DockTypes.h">
+      <Filter>Docking</Filter>
+    </ClInclude>
+    <ClInclude Include="DockNode.h">
+      <Filter>Docking</Filter>
+    </ClInclude>
+    <ClInclude Include="DockLayout.h">
+      <Filter>Docking</Filter>
+    </ClInclude>
+    <ClInclude Include="IDock.h">
+      <Filter>Docking</Filter>
+    </ClInclude>
+    <ClInclude Include="ISplitter.h">
+      <Filter>Docking</Filter>
+    </ClInclude>
+    <!-- ThirdParty Headers -->
+    <ClInclude Include="stb_image.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <ClInclude Include="stb_truetype.h">
+      <Filter>ThirdParty</Filter>
+    </ClInclude>
+    <!-- Scene Headers -->
+    <ClInclude Include="GraphNode.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneGraph.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Core Sources -->
+    <ClCompile Include="pch.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <ClCompile Include="VividEngine.cpp">
+      <Filter>Core</Filter>
+    </ClCompile>
+    <!-- Vulkan Sources -->
+    <ClCompile Include="VividApplication.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividDevice.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividSwapChain.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividCommandBuffer.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividRenderPass.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividRenderer.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividBuffer.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <ClCompile Include="VividPipeline.cpp">
+      <Filter>Vulkan</Filter>
+    </ClCompile>
+    <!-- Rendering Sources -->
+    <ClCompile Include="Draw2D.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="Texture2D.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="Font.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderingPipelines.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="Material.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="Mesh3D.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="ModelImporter.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <!-- UI Sources -->
+    <ClCompile Include="AppInput.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="AppUI.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="UIControl.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="UITheme.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="ThemeDarkUI.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="IButton.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="IWindow.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="IVerticalScroller.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <ClCompile Include="IHorizontalScroller.cpp">
+      <Filter>UI</Filter>
+    </ClCompile>
+    <!-- Docking Sources -->
+    <ClCompile Include="DockNode.cpp">
+      <Filter>Docking</Filter>
+    </ClCompile>
+    <ClCompile Include="DockLayout.cpp">
+      <Filter>Docking</Filter>
+    </ClCompile>
+    <ClCompile Include="IDock.cpp">
+      <Filter>Docking</Filter>
+    </ClCompile>
+    <ClCompile Include="ISplitter.cpp">
+      <Filter>Docking</Filter>
+    </ClCompile>
+    <!-- ThirdParty Sources -->
+    <ClCompile Include="stb_image_impl.cpp">
+      <Filter>ThirdParty</Filter>
+    </ClCompile>
+    <ClCompile Include="stb_truetype_impl.cpp">
+      <Filter>ThirdParty</Filter>
+    </ClCompile>
+    <!-- Scene Sources -->
+    <ClCompile Include="GraphNode.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneGraph.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
+</Project>

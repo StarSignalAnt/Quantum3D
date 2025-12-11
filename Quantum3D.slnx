@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="Quantum3D/Quantum3D.vcxproj" Id="6babb469-f965-4ea3-85ce-28645d76e0a4" />
+  <Project Path="QuantumEngine/QuantumEngine.vcxproj" Id="038b0f93-fbea-4c20-8d4e-3e34166d7c06" />
+</Solution>
