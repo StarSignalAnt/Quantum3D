@@ -26,7 +26,7 @@ struct UniformBufferObject {
   glm::vec3 lightPos;
   float padding2;
   glm::vec3 lightColor;
-  float padding3; // Align to 16 bytes
+  float lightRange; // 0 = infinite range, otherwise max light distance
 };
 
 SceneRenderer::SceneRenderer(Vivid::VividDevice *device,
@@ -546,15 +546,15 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
       auto light = m_SceneGraph->GetLights()[0];
       ubo.lightPos = light->GetWorldPosition();
       ubo.lightColor = light->GetColor();
+      ubo.lightRange = light->GetRange();
     } else {
       // Fallback: Light above and to the side
       ubo.lightPos = glm::vec3(3.0f, 8.0f, -2.0f);
       // White light - good intensity for PBR
       ubo.lightColor = glm::vec3(150.0f, 150.0f, 150.0f);
+      ubo.lightRange = 0.0f; // Infinite range
     }
     ubo.padding2 = 0.0f;
-    ubo.padding3 = 0.0f;
-    ubo.padding3 = 0.0f;
 
     m_UniformBuffer->WriteToBuffer(&ubo, sizeof(ubo));
 

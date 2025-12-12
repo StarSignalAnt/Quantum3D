@@ -17,6 +17,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 lightPos;
     float padding2;
     vec3 lightColor;
+    float lightRange; // 0 = infinite range, otherwise max light distance
 } ubo;
 
 // Outputs

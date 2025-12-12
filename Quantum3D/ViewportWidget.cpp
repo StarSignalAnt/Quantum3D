@@ -136,6 +136,7 @@ void ViewportWidget::initScene() {
     m_MainLight = std::make_shared<Quantum::LightNode>("MainLight");
     m_MainLight->SetColor(glm::vec3(150.0f, 150.0f, 150.0f));
     m_MainLight->SetLocalPosition(2.0f, 4.0f, 2.0f); // Position light
+    m_MainLight->SetRange(60.0f);
     m_SceneGraph->AddLight(m_MainLight);
 
     // Initialize Editor Camera

@@ -17,6 +17,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 lightPos;
     float padding2;
     vec3 lightColor;
+    float lightRange; // 0 = infinite range, otherwise max light distance
 } ubo;
 
 // Textures
@@ -156,9 +157,25 @@ void main() {
     float H_len = length(H_raw);
     vec3 H = H_len > 0.0001 ? H_raw / H_len : N;  // Fallback to N if V and L are opposite
     
-    float distance    = length(ubo.lightPos - fragWorldPos);
+    // Calculate distance from pixel to light
+    float xd = ubo.lightPos.x - fragWorldPos.x;
+    float yd = ubo.lightPos.y - fragWorldPos.y;
+    float zd = ubo.lightPos.z - fragWorldPos.z;
+    float distance = sqrt(xd*xd + yd*yd + zd*zd);
+    
+    // Range-based linear falloff:
+    // - At light position (distance=0): rangeFactor = 1.0 (full intensity)
+    // - At halfway (distance=range/2): rangeFactor = 0.5 (half intensity)
+    // - At range or beyond: rangeFactor = 0.0 (no light)
+    // When lightRange is 0, it means infinite range (no falloff)
+    float rangeFactor = 1.0;
+    if (ubo.lightRange > 0.0) {
+        rangeFactor = max(0.0, 1.0 - distance / ubo.lightRange);
+    }
+    float lc = rangeFactor;
+    
     float attenuation = 1.0 / (distance * distance + 0.001);  // Avoid div by zero
-    vec3 radiance     = ubo.lightColor * attenuation;  // Use light color directly
+    vec3 radiance     = ubo.lightColor * attenuation * rangeFactor;  // Apply range falloff
 
     // Cook-Torrance BRDF for specular only
     float NDF = DistributionGGX(N, H, roughness);   
@@ -182,29 +199,16 @@ void main() {
     // Combine diffuse and specular
     Lo += (diffuse + specular) * radiance * NdotL; 
 
-    // ADDED: Simple ambient to prevent pitch black shadows
-    vec3 ambient = vec3(0.03) * albedo * ao;
-    
-    // ADDED: Fake ambient specular for metals (simulates environment reflection)
-    // Without a real environment map, metals look dead. This fakes a sky-like reflection.
-    vec3 R = reflect(-V, N); // Reflection direction
-    // Fake sky gradient: blue-ish at top, darker at horizon
-    float skyGradient = R.y * 0.5 + 0.5; // Map Y from [-1,1] to [0,1]
-    vec3 fakeSkyColor = mix(vec3(0.1, 0.1, 0.12), vec3(0.4, 0.5, 0.7), skyGradient);
-    // Fresnel for grazing angle boost (metals reflect more at edges)
-    vec3 F_ambient = fresnelSchlick(max(dot(N, V), 0.0), F0);
-    // Reduce reflection by roughness (rough surfaces blur the environment)
-    float roughnessAttenuation = 1.0 - roughness;
-    vec3 ambientSpecular = fakeSkyColor * F_ambient * roughnessAttenuation * 0.5;
-    // Only apply to metallic surfaces (blend by metallic factor)
-    ambient += ambientSpecular * metallic;
+    // No ambient lighting - will be added later as GI
+    vec3 ambient = vec3(0.0);
     
     vec3 color = Lo + ambient + emissive; // Add emissive term
 
     // HDR tonemapping
-    color = color / (color + vec3(1.0));
+   // color = color / (color + vec3(1.0));
     // Gamma correction
-    color = pow(color, vec3(1.0/2.2)); 
+   // color = pow(color, vec3(1.0/2.2)); 
 
-    outColor = vec4(color, 1.0);
+
+    outColor = vec4(color*lc, 1.0);
 }
