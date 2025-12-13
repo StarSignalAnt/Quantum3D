@@ -1,100 +1,39 @@
-// Test file for QLang core features
-// Testing: comments, booleans, comparisons, this, local vars
 
-/* Multi-line comment test
-   This should be ignored by the tokenizer
-*/
+class Node
 
-class other
+    int32 val = 250;
 
-    int32 check = 90;
+end
 
-    method void other()
-        printf("other created");
-    end 
+class Test<T>
 
-    method int32 GetValue()
-        return check;
-    end 
+    T Val;
+    Test<T> Next = null;
 
-    method void Value(int32 p1, int32 p2)
-        // Test local variable
-        int32 sum = p1 + p2;
-        printf("Value params:", p1, p2, "sum:", sum);
+
+
+    method void Test(T node)
+
+        Val = node;
+
+        if Val !=null
+
+            printf("T:",Val.val+1000+100);
+
+        else
+
+            printf("Val = null");
+
+        end 
+
+
     end 
 
 end 
 
-class Test
+Node n1 = new Node();
 
-    int32 num = 43;
-    string name = "Antony";
-    bool active = true;
-    other ot = new other();
-
-    method void Test(int32 a,int32 b)
-
-        printf("Test:",a,b);
-
-    end 
-
-    method void Test()
-        // Constructor with this reference
-        this.num = 100;
-        printf("Test constructed, num:", this.num);
-    end 
-
-    method void TestMeth()
-        printf("Testing Method!", num, name, ot.GetValue());
-    end 
-
-    method int32 TestMeth(int32 v,string name)
-
-        printf("TestMethd:",v,name);        
-        return 100;
-
-    end 
+Test<Node> t1 = new Test<Node>(n1);
 
 
-end 
-
-// Main program
-Test t1 = new Test();
-
-int32 val = 45;
-
-t1.TestMeth();
-val = 5;
-printf("VAL:",val);
-
-if val > 50
-
-    printf("VAL>50");
-
-elseif val>40
-
-    printf("VAL>40");
-
-else
-
-    printf("VAL<40");
-
-end 
-
-for int32 x = 200 to 0 : -1
-
-
-        printf("X:",x+-10);
-
-
-
-next
-
-float32 loop = 0;
-
-while loop<100
-
-    loop++;
-    printf("LOOP:",loop);
-
-wend 
+//3:18

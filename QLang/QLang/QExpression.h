@@ -1,6 +1,7 @@
 #pragma once
 
 #include "QAction.h"
+#include "QError.h"
 #include "Tokenizer.h"
 #include <iostream>
 #include <vector>
@@ -19,6 +20,99 @@ public:
   }
 
   const std::vector<Token> &GetElements() const { return m_Elements; }
+
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    if (m_Elements.empty())
+      return;
+
+    auto IsValue = [](TokenType type) {
+      return type == TokenType::T_IDENTIFIER || type == TokenType::T_INTEGER ||
+             type == TokenType::T_FLOAT || type == TokenType::T_STRING ||
+             type == TokenType::T_TRUE || type == TokenType::T_FALSE ||
+             type == TokenType::T_NULL || type == TokenType::T_RPAREN ||
+             type == TokenType::T_RBRACKET;
+    };
+
+    for (size_t i = 0; i < m_Elements.size(); ++i) {
+      const Token &token = m_Elements[i];
+
+      // Check for two values in a row (Missing Operator)
+      if (i > 0) {
+        const Token &prev = m_Elements[i - 1];
+        if (IsValue(prev.type) && IsValue(token.type)) {
+          // Special case: function call 'Id (' is allowed? No, '(' is NOT a
+          // value. Special case: array access 'Id [' is allowed? No, '[' is NOT
+          // a value. So IsValue definition above excludes LPAREN/LBRACKET,
+          // which is correct. But RPAREN/RBRACKET ARE values (end of sub-expr).
+          // So 'a 100' -> Id Int -> Error.
+          // 'a b' -> Id Id -> Error.
+          // '(a) b' -> RPAREN Id -> Error.
+          collector->ReportError(
+              QErrorSeverity::Error, "Expected operator between values",
+              token.line, token.column, static_cast<int>(token.value.length()));
+        }
+      }
+
+      if (token.type == TokenType::T_OPERATOR) {
+        // Check for operator at the end
+        if (i == m_Elements.size() - 1) {
+          // Unary Postfix IS allowed at end? e.g. i++
+          bool isPostfix = (token.value == "++" || token.value == "--");
+          if (!isPostfix) {
+            collector->ReportError(QErrorSeverity::Error,
+                                   "Expression cannot end with operator '" +
+                                       token.value + "'",
+                                   token.line, token.column,
+                                   static_cast<int>(token.value.length()));
+          }
+        }
+
+        // Check validity based on previous token
+        bool requiresUnary =
+            (i == 0) || (m_Elements[i - 1].type == TokenType::T_OPERATOR) ||
+            (m_Elements[i - 1].type == TokenType::T_LPAREN);
+
+        if (requiresUnary) {
+          bool isUnary = (token.value == "!" || token.value == "-");
+          // Prefix ++/-- also allowed? C++ allows ++i.
+          // Let's assume yes.
+          if (token.value == "++" || token.value == "--")
+            isUnary = true;
+
+          if (!isUnary) {
+            if (i == 0) {
+              collector->ReportError(QErrorSeverity::Error,
+                                     "Expression cannot start with operator '" +
+                                         token.value + "'",
+                                     token.line, token.column,
+                                     static_cast<int>(token.value.length()));
+            } else {
+              collector->ReportError(
+                  QErrorSeverity::Error,
+                  "Unexpected operator '" + token.value + "'", token.line,
+                  token.column, static_cast<int>(token.value.length()));
+            }
+          }
+        } else {
+          // Operator follows a value (Binary or Postfix)
+          bool isPostfix = (token.value == "++" || token.value == "--");
+          if (isPostfix) {
+            // If postfix, NEXT token cannot be a Value.
+            // e.g. i++ 100
+            if (i + 1 < m_Elements.size()) {
+              const Token &next = m_Elements[i + 1];
+              if (IsValue(next.type)) {
+                collector->ReportError(
+                    QErrorSeverity::Error,
+                    "Unexpected value after postfix operator", next.line,
+                    next.column, static_cast<int>(next.value.length()));
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
   void Print(int indent = 0) const override {
     PrintIndent(indent);

@@ -17,6 +17,24 @@ public:
 
   std::string GetName() const override { return m_Name; }
 
+  // Generic type parameters (e.g., T, K, V)
+  void SetTypeParameters(const std::vector<std::string> &params) {
+    m_TypeParameters = params;
+    std::cout << "[DEBUG] QClass(" << m_Name << ") - set type parameters: ";
+    for (size_t i = 0; i < params.size(); i++) {
+      std::cout << params[i];
+      if (i < params.size() - 1)
+        std::cout << ", ";
+    }
+    std::cout << std::endl;
+  }
+
+  const std::vector<std::string> &GetTypeParameters() const {
+    return m_TypeParameters;
+  }
+
+  bool IsGeneric() const { return !m_TypeParameters.empty(); }
+
   void AddMember(std::shared_ptr<QVariableDecl> member) {
     m_Members.push_back(member);
     std::cout << "[DEBUG] QClass(" << m_Name
@@ -37,9 +55,30 @@ public:
     return m_Methods;
   }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    for (const auto &member : m_Members) {
+      if (member)
+        member->CheckForErrors(collector);
+    }
+    for (const auto &method : m_Methods) {
+      if (method)
+        method->CheckForErrors(collector);
+    }
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
-    std::cout << "Class: " << m_Name << " {" << std::endl;
+    std::cout << "Class: " << m_Name;
+    if (IsGeneric()) {
+      std::cout << "<";
+      for (size_t i = 0; i < m_TypeParameters.size(); i++) {
+        std::cout << m_TypeParameters[i];
+        if (i < m_TypeParameters.size() - 1)
+          std::cout << ", ";
+      }
+      std::cout << ">";
+    }
+    std::cout << " {" << std::endl;
 
     // Print members
     for (const auto &member : m_Members) {
@@ -57,6 +96,7 @@ public:
 
 private:
   std::string m_Name;
+  std::vector<std::string> m_TypeParameters; // Generic type params (T, K, V)
   std::vector<std::shared_ptr<QVariableDecl>> m_Members;
   std::vector<std::shared_ptr<QMethod>> m_Methods;
 };

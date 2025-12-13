@@ -25,6 +25,15 @@ public:
     return m_Classes;
   }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    for (const auto &cls : m_Classes) {
+      if (cls)
+        cls->CheckForErrors(collector);
+    }
+    if (m_Code)
+      m_Code->CheckForErrors(collector);
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "QProgram {" << std::endl;

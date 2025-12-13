@@ -4,6 +4,7 @@
 #include "QAssign.h"
 #include "QClassInstance.h"
 #include "QContext.h"
+#include "QError.h"
 #include "QFor.h"
 #include "QIncrement.h"
 #include "QInstanceDecl.h"
@@ -24,6 +25,21 @@ public:
     std::cout << "[DEBUG] QRunner created" << std::endl;
   }
 
+  QRunner(std::shared_ptr<QContext> context,
+          std::shared_ptr<QErrorCollector> errorCollector)
+      : m_Context(context), m_ErrorCollector(errorCollector) {
+    std::cout << "[DEBUG] QRunner created with error collector" << std::endl;
+  }
+
+  // Error access
+  std::shared_ptr<QErrorCollector> GetErrorCollector() const {
+    return m_ErrorCollector;
+  }
+  bool HasErrors() const {
+    return m_ErrorCollector && m_ErrorCollector->HasErrors();
+  }
+  const QCallStack &GetCallStack() const { return m_CallStack; }
+
   ~QRunner() { std::cout << "[DEBUG] QRunner destroyed" << std::endl; }
 
   // Run a program
@@ -43,11 +59,110 @@ public:
     std::cout << "[DEBUG] QRunner::Run() - execution complete" << std::endl;
   }
 
+  // ========== Introspection API ==========
+
+  // Find a variable by name and return its value
+  // Returns std::monostate{} if not found
+  QValue FindVar(const std::string &name) {
+    return m_Context->GetVariable(name);
+  }
+
+  // Set a variable by name
+  void SetVar(const std::string &name, const QValue &value) {
+    m_Context->SetVariable(name, value);
+  }
+
+  // Check if a variable exists
+  bool HasVar(const std::string &name) { return m_Context->HasVariable(name); }
+
+  // Find a class instance by variable name
+  // Returns nullptr if not found or if variable is not a class instance
+  std::shared_ptr<QClassInstance> FindClassInstance(const std::string &name) {
+    QValue val = m_Context->GetVariable(name);
+    if (std::holds_alternative<std::shared_ptr<QClassInstance>>(val)) {
+      return std::get<std::shared_ptr<QClassInstance>>(val);
+    }
+    return nullptr;
+  }
+
+  // Get the context (for advanced use)
+  std::shared_ptr<QContext> GetContext() { return m_Context; }
+
+  // Report a runtime error
+  void ReportRuntimeError(const std::string &message, int line = 0,
+                          int column = 0, int length = 0) {
+    if (m_ErrorCollector) {
+      m_ErrorCollector->ReportRuntimeError(message, m_CallStack, line, column,
+                                           length);
+    } else {
+      std::cerr << "[RUNTIME ERROR] " << message << std::endl;
+      if (!m_CallStack.IsEmpty()) {
+        std::cerr << m_CallStack.GetStackTrace() << std::endl;
+      }
+    }
+  }
+
 private:
   std::shared_ptr<QContext> m_Context;
   std::unordered_map<std::string, std::shared_ptr<QClass>> m_Classes;
-  QValue m_ReturnValue = std::monostate{};
   bool m_HasReturn = false;
+  QValue m_ReturnValue;
+
+  // Error handling
+  std::shared_ptr<QErrorCollector> m_ErrorCollector;
+  QCallStack m_CallStack;
+
+  // Helper methods
+  void ExecuteStatement(std::shared_ptr<QStatement> stmt) {
+    if (auto varDecl = std::dynamic_pointer_cast<QVariableDecl>(stmt)) {
+      ExecuteVariableDecl(varDecl);
+    } else if (auto assign = std::dynamic_pointer_cast<QAssign>(stmt)) {
+      ExecuteAssign(assign);
+    } else if (auto methodCall = std::dynamic_pointer_cast<QMethodCall>(stmt)) {
+      ExecuteMethodCall(methodCall);
+    } else if (auto memberAssign =
+                   std::dynamic_pointer_cast<QMemberAssign>(stmt)) {
+      ExecuteMemberAssign(memberAssign);
+    } else if (auto ifStmt = std::dynamic_pointer_cast<QIf>(stmt)) {
+      ExecuteIf(ifStmt);
+    } else if (auto whileStmt = std::dynamic_pointer_cast<QWhile>(stmt)) {
+      ExecuteWhile(whileStmt);
+    } else if (auto forStmt = std::dynamic_pointer_cast<QFor>(stmt)) {
+      ExecuteFor(forStmt);
+    } else if (auto returnStmt = std::dynamic_pointer_cast<QReturn>(stmt)) {
+      ExecuteReturn(returnStmt);
+    } else if (auto increment = std::dynamic_pointer_cast<QIncrement>(stmt)) {
+      ExecuteIncrement(increment);
+    } else if (auto instanceDecl =
+                   std::dynamic_pointer_cast<QInstanceDecl>(stmt)) {
+      ExecuteInstanceDecl(instanceDecl);
+    } else {
+      // It's a base QStatement, which represents a function call in our parser
+      std::string funcName = stmt->GetName();
+      std::cout << "[DEBUG] QRunner::ExecuteStatement() - executing function: "
+                << funcName << std::endl;
+
+      // Build arguments from parameters
+      std::vector<QValue> args;
+      auto params = stmt->GetParameters();
+      if (params) {
+        for (const auto &expr : params->GetParameters()) {
+          QValue value = EvaluateExpression(expr);
+          args.push_back(value);
+        }
+      }
+
+      // Check if this is a registered function
+      if (m_Context->HasFunc(funcName)) {
+        QValue result = m_Context->CallFunc(funcName, args);
+        std::cout << "[DEBUG] QRunner::ExecuteStatement() - function returned: "
+                  << ValueToString(result) << std::endl;
+      } else {
+        // Since we don't track statement line/col easily yet, pass 0
+        ReportRuntimeError("unknown function or statement: " + funcName);
+      }
+    }
+  }
 
   // Execute a QCode block
   void ExecuteCode(std::shared_ptr<QCode> code) {
@@ -175,9 +290,10 @@ private:
   }
 
   // Find the best matching method for a given name and arguments
-  std::shared_ptr<QMethod> FindMethod(std::shared_ptr<QClass> classDef,
-                                      const std::string &methodName,
-                                      const std::vector<QValue> &args) {
+  std::shared_ptr<QMethod> FindMethod(
+      std::shared_ptr<QClass> classDef, const std::string &methodName,
+      const std::vector<QValue> &args,
+      const std::unordered_map<std::string, std::string> &typeMapping = {}) {
     std::cout << "[DEBUG] FindMethod() - looking for: " << methodName
               << " with " << args.size() << " args" << std::endl;
 
@@ -198,8 +314,30 @@ private:
       for (size_t i = 0; i < params.size(); i++) {
         // Basic type checking
         TokenType paramType = params[i].type;
+        const std::string &paramTypeName = params[i].typeName;
         const auto &argValue = args[i];
 
+        // If parameter type is identifier, check if it's a generic type
+        // parameter
+        if (paramType == TokenType::T_IDENTIFIER && !typeMapping.empty()) {
+          auto it = typeMapping.find(paramTypeName);
+          if (it != typeMapping.end()) {
+            // Generic type parameter - accept any class instance for now
+            // Future: could check if arg matches the mapped type
+            std::cout << "[DEBUG] FindMethod() - param " << params[i].name
+                      << " is generic type " << paramTypeName << " -> "
+                      << it->second << std::endl;
+            // For generic types, accept class instances
+            if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(
+                    argValue)) {
+              typesMatch = false;
+              break;
+            }
+            continue;
+          }
+        }
+
+        // Non-generic type check
         if (!CheckTypeMatch(argValue, paramType)) {
           typesMatch = false;
           break;
@@ -207,10 +345,6 @@ private:
       }
 
       if (typesMatch) {
-        // Found a match!
-        // In a more complex language, we would score matches to find the *best*
-        // overload. Here, we take the first exact match we find effectively.
-        // Since we check all params, this is safe enough for now.
         return method;
       }
     }
@@ -261,11 +395,29 @@ private:
 
     std::shared_ptr<QClass> classDef = classIt->second;
 
+    // Create type mapping for generics
+    std::unordered_map<std::string, std::string> typeMapping;
+    if (classDef->IsGeneric() && instanceDecl->HasTypeArguments()) {
+      const auto &typeParams = classDef->GetTypeParameters();
+      const auto &typeArgs = instanceDecl->GetTypeArguments();
+
+      for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); i++) {
+        typeMapping[typeParams[i]] = typeArgs[i];
+        std::cout << "[DEBUG] ExecuteInstanceDecl() - type mapping: "
+                  << typeParams[i] << " -> " << typeArgs[i] << std::endl;
+      }
+    }
+
     // Create a new instance of the class
     auto instance = std::make_shared<QClassInstance>(classDef);
 
+    // Store type mapping on instance for future use
+    if (!typeMapping.empty()) {
+      instance->SetTypeMapping(typeMapping);
+    }
+
     // Initialize member variables with their default expressions
-    InitializeInstanceMembers(instance, classDef);
+    InitializeInstanceMembers(instance, classDef, typeMapping);
 
     // Evaluate constructor arguments
     std::vector<QValue> constructorArgs;
@@ -279,7 +431,8 @@ private:
 
     // Find and execute constructor if exists
     // Constructor is a method with the same name as the class
-    auto constructor = FindMethod(classDef, className, constructorArgs);
+    auto constructor =
+        FindMethod(classDef, className, constructorArgs, typeMapping);
     if (constructor) {
       std::cout << "[DEBUG] QRunner::ExecuteInstanceDecl() - executing "
                    "constructor for: "
@@ -633,6 +786,9 @@ private:
     std::cout << "[DEBUG] QRunner::ExecuteMethod() - set 'this' reference"
               << std::endl;
 
+    // Push to call stack
+    m_CallStack.Push(method->GetName(), instance->GetClassName());
+
     // Bind arguments to parameters
     const auto &params = method->GetParameters();
     for (size_t i = 0; i < params.size() && i < args.size(); i++) {
@@ -663,6 +819,9 @@ private:
     // Restore original context
     m_Context = savedContext;
 
+    // Pop from call stack
+    m_CallStack.Pop();
+
     std::cout << "[DEBUG] QRunner::ExecuteMethod() - method complete: "
               << method->GetName() << std::endl;
   }
@@ -683,6 +842,8 @@ private:
       return std::get<double>(instVal);
     if (std::holds_alternative<std::string>(instVal))
       return std::get<std::string>(instVal);
+    if (std::holds_alternative<void *>(instVal))
+      return std::get<void *>(instVal);
     return std::monostate{};
   }
 
@@ -702,13 +863,17 @@ private:
       return std::get<double>(qval);
     if (std::holds_alternative<std::string>(qval))
       return std::get<std::string>(qval);
+    if (std::holds_alternative<void *>(qval))
+      return std::get<void *>(qval);
     // Class instances stay as they are in the parent scope
     return std::monostate{};
   }
 
   // Initialize instance members with their default expressions from the class
-  void InitializeInstanceMembers(std::shared_ptr<QClassInstance> instance,
-                                 std::shared_ptr<QClass> classDef) {
+  void InitializeInstanceMembers(
+      std::shared_ptr<QClassInstance> instance,
+      std::shared_ptr<QClass> classDef,
+      const std::unordered_map<std::string, std::string> &typeMapping = {}) {
     std::cout << "[DEBUG] QRunner::InitializeInstanceMembers() - initializing "
                  "members for: "
               << classDef->GetName() << std::endl;
@@ -716,11 +881,27 @@ private:
     for (const auto &member : classDef->GetMembers()) {
       std::string memberName = member->GetName();
       TokenType memberType = member->GetVarType();
+      std::string typeName = member->GetTypeName();
+
+      // Check if this is a generic type parameter that needs resolution
+      if (memberType == TokenType::T_IDENTIFIER && !typeMapping.empty()) {
+        auto it = typeMapping.find(typeName);
+        if (it != typeMapping.end()) {
+          // Resolve the generic type to concrete type
+          std::string concreteType = it->second;
+          TokenType resolvedType = TypeNameToTokenType(concreteType);
+          std::cout
+              << "[DEBUG] InitializeInstanceMembers() - resolved generic type "
+              << typeName << " -> " << concreteType << std::endl;
+          memberType = resolvedType;
+        }
+      }
 
       QValue value;
 
       // Check if this is a class instance member (non-primitive type)
-      // T_IDENTIFIER means it's a class type
+      // T_IDENTIFIER means it's a class type (after resolution, if still
+      // identifier)
       if (memberType == TokenType::T_IDENTIFIER && member->HasInitializer()) {
         const auto &initExpr = member->GetInitializer();
         const auto &elements = initExpr->GetElements();
@@ -833,9 +1014,32 @@ private:
       return std::string("");
     case TokenType::T_BOOL:
       return false;
+    case TokenType::T_CPTR:
+      return static_cast<void *>(nullptr);
     default:
       return std::monostate{};
     }
+  }
+
+  // Convert type name string to TokenType (for generic type resolution)
+  TokenType TypeNameToTokenType(const std::string &typeName) {
+    if (typeName == "int32")
+      return TokenType::T_INT32;
+    if (typeName == "int64")
+      return TokenType::T_INT64;
+    if (typeName == "float32")
+      return TokenType::T_FLOAT32;
+    if (typeName == "float64")
+      return TokenType::T_FLOAT64;
+    if (typeName == "short")
+      return TokenType::T_SHORT;
+    if (typeName == "string")
+      return TokenType::T_STRING_TYPE;
+    if (typeName == "bool")
+      return TokenType::T_BOOL;
+    if (typeName == "cptr")
+      return TokenType::T_CPTR;
+    return TokenType::T_IDENTIFIER; // Unknown type, treat as class
   }
 
   // Coerce a value to a specific type
@@ -866,33 +1070,6 @@ private:
       return false;
     default:
       return value;
-    }
-  }
-
-  // Execute a statement
-  void ExecuteStatement(std::shared_ptr<QStatement> statement) {
-    std::string funcName = statement->GetName();
-    std::cout << "[DEBUG] QRunner::ExecuteStatement() - executing: " << funcName
-              << std::endl;
-
-    // Build arguments from parameters
-    std::vector<QValue> args;
-    auto params = statement->GetParameters();
-    if (params) {
-      for (const auto &expr : params->GetParameters()) {
-        QValue value = EvaluateExpression(expr);
-        args.push_back(value);
-      }
-    }
-
-    // Check if this is a registered function
-    if (m_Context->HasFunc(funcName)) {
-      QValue result = m_Context->CallFunc(funcName, args);
-      std::cout << "[DEBUG] QRunner::ExecuteStatement() - function returned: "
-                << ValueToString(result) << std::endl;
-    } else {
-      std::cerr << "[ERROR] QRunner::ExecuteStatement() - unknown function: "
-                << funcName << std::endl;
     }
   }
 
@@ -1196,6 +1373,23 @@ private:
     // Comparison operators (return bool)
     if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" ||
         op == ">=") {
+      // Null comparison - check if either side is null (monostate)
+      bool leftIsNull = std::holds_alternative<std::monostate>(left);
+      bool rightIsNull = std::holds_alternative<std::monostate>(right);
+
+      if (leftIsNull || rightIsNull) {
+        // null == null is true, null != null is false
+        // value == null is true only if value is also null
+        if (op == "==") {
+          return leftIsNull && rightIsNull;
+        }
+        if (op == "!=") {
+          return leftIsNull != rightIsNull; // true if only one is null
+        }
+        // Other comparisons with null are always false
+        return false;
+      }
+
       // String comparison
       if (std::holds_alternative<std::string>(left) &&
           std::holds_alternative<std::string>(right)) {
@@ -1310,19 +1504,8 @@ private:
   }
 
   // Helper to check if a value is true
-  bool IsTrue(const QValue &val) {
-    if (std::holds_alternative<bool>(val))
-      return std::get<bool>(val);
-    if (std::holds_alternative<int32_t>(val))
-      return std::get<int32_t>(val) != 0;
-    if (std::holds_alternative<int64_t>(val))
-      return std::get<int64_t>(val) != 0;
-    if (std::holds_alternative<float>(val))
-      return std::get<float>(val) != 0.0f;
-    if (std::holds_alternative<double>(val))
-      return std::get<double>(val) != 0.0;
-    return false;
-  }
+  // Check if a value is truthy (delegates to ToBool for consistent truthiness)
+  bool IsTrue(const QValue &val) { return ToBool(val); }
 
   // Convert any numeric QValue to int64
   int64_t ToInt64(const QValue &val) {
@@ -1337,8 +1520,11 @@ private:
     return 0;
   }
 
-  // Convert any QValue to bool (for logical operators)
+  // Convert any QValue to bool (for truthiness and logical operators)
   bool ToBool(const QValue &val) {
+    // null is falsy
+    if (std::holds_alternative<std::monostate>(val))
+      return false;
     if (std::holds_alternative<bool>(val))
       return std::get<bool>(val);
     if (std::holds_alternative<int32_t>(val))
@@ -1351,6 +1537,12 @@ private:
       return std::get<double>(val) != 0.0;
     if (std::holds_alternative<std::string>(val))
       return !std::get<std::string>(val).empty();
+    // Class instances are truthy
+    if (std::holds_alternative<std::shared_ptr<QClassInstance>>(val))
+      return true;
+    // void* pointers are truthy if non-null
+    if (std::holds_alternative<void *>(val))
+      return std::get<void *>(val) != nullptr;
     return false;
   }
 
@@ -1367,6 +1559,8 @@ private:
       return true;
     case TokenType::T_FALSE:
       return false;
+    case TokenType::T_NULL:
+      return std::monostate{}; // null value
     case TokenType::T_THIS: {
       // 'this' refers to the current instance - look it up in context
       // The current instance should be stored with a special name
@@ -1470,11 +1664,18 @@ private:
 
           // Look up first instance
           std::string firstName = pathParts[0];
+
+          if (!m_Context->HasVariable(firstName)) {
+            // Note: We don't have token for firstName here easily unless we
+            // track it
+            ReportRuntimeError("unknown variable '" + firstName + "'");
+            return std::monostate{};
+          }
+
           QValue instanceVal = m_Context->GetVariable(firstName);
           if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(
                   instanceVal)) {
-            std::cerr << "[ERROR] TokenToValue() - '" << firstName
-                      << "' is not a class instance" << std::endl;
+            ReportRuntimeError("'" + firstName + "' is not a class instance");
             return std::monostate{};
           }
 
@@ -1551,11 +1752,20 @@ private:
                   << instanceName << std::endl;
 
         // Look up initial instance
+        // Look up initial instance
+        if (!m_Context->HasVariable(instanceName)) {
+          ReportRuntimeError("unknown variable '" + instanceName + "'",
+                             token.line, token.column,
+                             static_cast<int>(token.value.length()));
+          return std::monostate{};
+        }
+
         QValue instanceVal = m_Context->GetVariable(instanceName);
         if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(
                 instanceVal)) {
-          std::cerr << "[ERROR] TokenToValue() - '" << instanceName
-                    << "' is not a class instance" << std::endl;
+          ReportRuntimeError("'" + instanceName + "' is not a class instance",
+                             token.line, token.column,
+                             static_cast<int>(token.value.length()));
           return std::monostate{};
         }
 
@@ -1591,8 +1801,16 @@ private:
       }
 
       // Regular variable lookup
-      return m_Context->GetVariable(token.value);
+      if (m_Context->HasVariable(token.value)) {
+        return m_Context->GetVariable(token.value);
+      } else {
+        ReportRuntimeError("unknown variable '" + token.value + "'", token.line,
+                           token.column,
+                           static_cast<int>(token.value.length()));
+        return std::monostate{};
+      }
     }
+
     default:
       return token.value; // Return as string
     }

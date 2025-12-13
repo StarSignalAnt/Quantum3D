@@ -15,6 +15,7 @@ class QExpression;
 struct QMethodParam {
   TokenType type;
   std::string name;
+  std::string typeName; // Original type name (for generics like T, K, V)
 };
 
 // QMethod - represents a class method definition
@@ -30,10 +31,11 @@ public:
   void SetReturnType(TokenType type) { m_ReturnType = type; }
   TokenType GetReturnType() const { return m_ReturnType; }
 
-  void AddParameter(TokenType type, const std::string &name) {
-    m_Parameters.push_back({type, name});
+  void AddParameter(TokenType type, const std::string &name,
+                    const std::string &typeName = "") {
+    m_Parameters.push_back({type, name, typeName});
     std::cout << "[DEBUG] QMethod(" << m_Name << ") - added param: " << name
-              << std::endl;
+              << " (type: " << typeName << ")" << std::endl;
   }
 
   const std::vector<QMethodParam> &GetParameters() const {
@@ -41,6 +43,11 @@ public:
   }
 
   std::shared_ptr<QCode> GetBody() { return m_Body; }
+
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    if (m_Body)
+      m_Body->CheckForErrors(collector);
+  }
 
   void Print(int indent = 0) const override {
     PrintIndent(indent);

@@ -32,10 +32,48 @@ public:
     return m_ConstructorArgs;
   }
 
+  // Generic type arguments (e.g., List<int32> -> ["int32"])
+  void SetTypeArguments(const std::vector<std::string> &args) {
+    m_TypeArguments = args;
+    std::cout << "[DEBUG] QInstanceDecl(" << m_InstanceName
+              << ") - type args: ";
+    for (size_t i = 0; i < args.size(); i++) {
+      std::cout << args[i];
+      if (i < args.size() - 1)
+        std::cout << ", ";
+    }
+    std::cout << std::endl;
+  }
+
+  const std::vector<std::string> &GetTypeArguments() const {
+    return m_TypeArguments;
+  }
+
+  bool HasTypeArguments() const { return !m_TypeArguments.empty(); }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
-    std::cout << "InstanceDecl: " << m_ClassName << " " << m_InstanceName
-              << " = new " << m_ClassName << "(";
+    std::cout << "InstanceDecl: " << m_ClassName;
+    if (HasTypeArguments()) {
+      std::cout << "<";
+      for (size_t i = 0; i < m_TypeArguments.size(); i++) {
+        std::cout << m_TypeArguments[i];
+        if (i < m_TypeArguments.size() - 1)
+          std::cout << ", ";
+      }
+      std::cout << ">";
+    }
+    std::cout << " " << m_InstanceName << " = new " << m_ClassName;
+    if (HasTypeArguments()) {
+      std::cout << "<";
+      for (size_t i = 0; i < m_TypeArguments.size(); i++) {
+        std::cout << m_TypeArguments[i];
+        if (i < m_TypeArguments.size() - 1)
+          std::cout << ", ";
+      }
+      std::cout << ">";
+    }
+    std::cout << "(";
     if (m_ConstructorArgs) {
       const auto &params = m_ConstructorArgs->GetParameters();
       for (size_t i = 0; i < params.size(); i++) {
@@ -54,4 +92,5 @@ private:
   std::string m_ClassName;
   std::string m_InstanceName;
   std::shared_ptr<QParameters> m_ConstructorArgs;
+  std::vector<std::string> m_TypeArguments; // Concrete types for generics
 };

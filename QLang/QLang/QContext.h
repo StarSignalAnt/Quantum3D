@@ -3,10 +3,12 @@
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
 
 // Forward declarations
 class QContext;
@@ -20,6 +22,7 @@ using QValue = std::variant<std::monostate,                 // null/undefined
                             float,                          // float32
                             double,                         // float64
                             std::string,                    // string
+                            void *,                         // cptr (C pointer)
                             std::shared_ptr<QClassInstance> // class instance
                             >;
 
@@ -44,6 +47,8 @@ inline std::string GetValueTypeName(const QValue &value) {
     return "float64";
   if (std::holds_alternative<std::string>(value))
     return "string";
+  if (std::holds_alternative<void *>(value))
+    return "cptr";
   if (std::holds_alternative<std::shared_ptr<QClassInstance>>(value))
     return "instance";
   return "unknown";
@@ -65,6 +70,11 @@ inline std::string ValueToString(const QValue &value) {
     return std::to_string(std::get<double>(value));
   if (std::holds_alternative<std::string>(value))
     return "\"" + std::get<std::string>(value) + "\"";
+  if (std::holds_alternative<void *>(value)) {
+    std::ostringstream oss;
+    oss << "<cptr:" << std::get<void *>(value) << ">";
+    return oss.str();
+  }
   if (std::holds_alternative<std::shared_ptr<QClassInstance>>(value)) {
     return "<instance>";
   }

@@ -24,6 +24,11 @@ public:
     return m_ValueExpression;
   }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    if (m_ValueExpression)
+      m_ValueExpression->CheckForErrors(collector);
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "Assign: " << m_VariableName << " = ";

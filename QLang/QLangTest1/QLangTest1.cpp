@@ -1,12 +1,13 @@
-// QLangTest1.cpp : This file contains the 'main' function. Program execution
-// begins and ends there.
-//
+#include <iostream>
+#include <memory>
+#include <variant>
+#include <vector>
 
 #include "Parser.h"
 #include "QContext.h"
+#include "QError.h"
 #include "QRunner.h"
 #include "Tokenizer.h"
-#include <iostream>
 
 // Native printf function for QLang
 QValue func_printf(QContext *ctx, const std::vector<QValue> &args) {
@@ -43,22 +44,42 @@ QValue func_print(QContext *ctx, const std::vector<QValue> &args) {
   return std::monostate{};
 }
 
+class Test {
+public:
+  int x = 250;
+};
+
 int main() {
   std::cout << "=== QLang Test ===" << std::endl;
   std::cout << std::endl;
 
+  // Create shared error collector
+  auto errorCollector = std::make_shared<QErrorCollector>();
+
   // Tokenization
   std::cout << "--- Tokenization ---" << std::endl;
-  Tokenizer tokenizer("test/test.q");
+  Tokenizer tokenizer("test/test.q", errorCollector);
   tokenizer.Tokenize();
-  tokenizer.PrintTokens();
 
+  if (errorCollector->HasErrors()) {
+    std::cout << "Tokenization failed with errors:" << std::endl;
+    errorCollector->ListErrors();
+    return 1;
+  }
+
+  tokenizer.PrintTokens();
   std::cout << std::endl;
 
   // Parsing
   std::cout << "--- Parsing ---" << std::endl;
-  Parser parser(tokenizer.GetTokens());
+  Parser parser(tokenizer.GetTokens(), errorCollector);
   auto program = parser.Parse();
+
+  if (errorCollector->HasErrors()) {
+    std::cout << "Parsing failed with errors:" << std::endl;
+    errorCollector->ListErrors(true); // Enable full function context
+    return 1;
+  }
 
   std::cout << std::endl;
 
@@ -80,8 +101,42 @@ int main() {
 
   // Run the program
   std::cout << "--- Running Program ---" << std::endl;
-  QRunner runner(context);
+  QRunner runner(context, errorCollector);
   runner.Run(program);
+
+  if (errorCollector->GetErrorCount() > 0) {
+    std::cout << "Execution finished with errors:" << std::endl;
+    errorCollector->ListErrors(true);
+  } else if (errorCollector->GetWarningCount() > 0) {
+    std::cout << "Execution finished with warnings:" << std::endl;
+    errorCollector->ListErrors(true);
+  }
+
+  return 0;
+
+  auto cls = runner.FindClassInstance("t1");
+
+  Test *test = new Test;
+
+  cls->SetMember("cls2", static_cast<void *>(test));
+
+  if (cls) {
+    auto member = cls->GetMember("cls2");
+
+    // ALWAYS check before using std::get!
+    if (std::holds_alternative<void *>(member)) {
+      void *ptr = std::get<void *>(member);
+      std::cout << "Got cptr: " << ptr << std::endl;
+      Test *t = (Test *)ptr;
+      std::cout << "TX:" << t->x << std::endl;
+    } else if (std::holds_alternative<std::monostate>(member)) {
+      std::cout << "Member is null/undefined" << std::endl;
+    } else {
+      std::cout << "Member is a different type" << std::endl;
+    }
+  } else {
+    std::cout << "NO CLS" << std::endl;
+  }
 
   std::cout << std::endl;
 

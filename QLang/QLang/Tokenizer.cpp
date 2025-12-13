@@ -1,4 +1,5 @@
 #include "Tokenizer.h"
+#include "QError.h"
 #include <cctype>
 #include <sstream>
 
@@ -6,13 +7,36 @@ Tokenizer::Tokenizer(const std::string &filename) : m_Filename(filename) {
   ReadFile();
 }
 
-// Constructor for direct source code
 Tokenizer::Tokenizer(const std::string &source, bool isSource)
-    : m_Filename("Memory"), m_Source(source) {
-  (void)isSource; // Unused, just for signature differentiation
+    : m_Source(source), m_Filename("<source>") {}
+
+Tokenizer::Tokenizer(const std::string &filename,
+                     std::shared_ptr<QErrorCollector> errorCollector)
+    : m_Filename(filename), m_ErrorCollector(errorCollector) {
+  ReadFile();
+}
+
+// String source constructor
+Tokenizer::Tokenizer(const std::string &source, bool isSource,
+                     std::shared_ptr<QErrorCollector> errorCollector)
+    : m_Source(source), m_Filename("<source>"),
+      m_ErrorCollector(errorCollector) {
+  if (m_ErrorCollector) {
+    m_ErrorCollector->SetSource(m_Source);
+  }
 }
 
 Tokenizer::~Tokenizer() {}
+
+void Tokenizer::ReportError(const std::string &message) {
+  if (m_ErrorCollector) {
+    m_ErrorCollector->ReportError(QErrorSeverity::Error, message, m_Line,
+                                  m_Column, 0, "tokenizer");
+  } else {
+    std::cerr << "[TOKENIZER ERROR] " << message << " at " << m_Line << ":"
+              << m_Column << std::endl;
+  }
+}
 
 void Tokenizer::Tokenize() {
   while (!IsAtEnd()) {
@@ -163,6 +187,10 @@ void Tokenizer::ReadFile() {
   m_Cursor = 0;
   m_Line = 1;
   m_Column = 1;
+
+  if (m_ErrorCollector) {
+    m_ErrorCollector->SetSource(m_Source);
+  }
 }
 
 char Tokenizer::Peek(int offset) const {
@@ -294,6 +322,10 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_WHILE;
   } else if (value == "wend") {
     type = TokenType::T_WEND;
+  } else if (value == "cptr") {
+    type = TokenType::T_CPTR;
+  } else if (value == "null") {
+    type = TokenType::T_NULL;
   }
 
   // Construct manually to keep start column
@@ -379,13 +411,29 @@ void Tokenizer::ScanOperatorOrPunctuation() {
   case '*':
   case '/':
   case '=':
-  case '<':
-  case '>':
   case '!':
     type = TokenType::T_OPERATOR;
-    // Check for 2-char operators like ==, !=, <=, >=
+    // Check for 2-char operators like ==, !=
     if (Peek() == '=') {
       value += Advance();
+    }
+    break;
+  case '<':
+    // Check for <= (comparison operator)
+    if (Peek() == '=') {
+      value += Advance();
+      type = TokenType::T_OPERATOR;
+    } else {
+      type = TokenType::T_LESS; // For generics
+    }
+    break;
+  case '>':
+    // Check for >= (comparison operator)
+    if (Peek() == '=') {
+      value += Advance();
+      type = TokenType::T_OPERATOR;
+    } else {
+      type = TokenType::T_GREATER; // For generics
     }
     break;
   case '&':

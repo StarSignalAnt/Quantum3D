@@ -1,10 +1,54 @@
 #include "Parser.h"
 #include "QAssign.h"
+#include <algorithm>
 #include <iostream>
 
 Parser::Parser(const std::vector<Token> &tokens) : m_Tokens(tokens) {
   std::cout << "[DEBUG] Parser created with " << tokens.size() << " tokens"
             << std::endl;
+}
+
+Parser::Parser(const std::vector<Token> &tokens,
+               std::shared_ptr<QErrorCollector> errorCollector)
+    : m_Tokens(tokens), m_ErrorCollector(errorCollector) {
+  std::cout << "[DEBUG] Parser created with " << tokens.size()
+            << " tokens and error collector" << std::endl;
+}
+
+void Parser::ReportError(const std::string &message, QErrorSeverity severity) {
+  if (m_ErrorCollector) {
+    Token current = Peek();
+    m_ErrorCollector->ReportError(severity, message, current.line,
+                                  current.column, 0, "parser",
+                                  m_CurrentContext);
+  } else {
+    // Fallback if no collector provided (legacy behavior)
+    std::cerr << "[ERROR] " << message << std::endl;
+  }
+}
+
+void Parser::RecoverToNextStatement() {
+  Advance(); // consume the problematic token
+
+  while (!IsAtEnd()) {
+    if (Previous().type == TokenType::T_END_OF_LINE) {
+      return;
+    }
+
+    switch (Peek().type) {
+    case TokenType::T_CLASS:
+    case TokenType::T_METHOD:
+    case TokenType::T_IF:
+    case TokenType::T_WHILE:
+    case TokenType::T_FOR:
+    case TokenType::T_RETURN:
+    case TokenType::T_END:
+      return;
+    default:
+      // Keep skipping
+      Advance();
+    }
+  }
 }
 
 Parser::~Parser() { std::cout << "[DEBUG] Parser destroyed" << std::endl; }
@@ -44,7 +88,12 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
   // Parse program code block
   ParseCode(program->GetCode());
 
-  std::cout << "[DEBUG] ParseProgram() - finished parsing" << std::endl;
+  // Post-Parsing Validation
+  if (m_ErrorCollector) {
+    program->CheckForErrors(m_ErrorCollector);
+  }
+
+  std::cout << "[DEBUG] ParseProgram() - parsed successfully" << std::endl;
   return program;
 }
 
@@ -167,10 +216,41 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
         if (increment) {
           code->AddNode(increment);
         }
-      } else {
-        auto statement = ParseStatement();
-        if (statement) {
-          code->AddNode(statement);
+      } else if (Check(TokenType::T_IDENTIFIER)) {
+        // Variable Declaration Check: Type Name
+        // We detect this by checking if the NEXT token is an identifier or '<'
+        Token next = PeekNext();
+        if (next.type == TokenType::T_IDENTIFIER ||
+            next.type == TokenType::T_LESS) {
+
+          // Verify if it is a KNOWN type before committing to
+          // ParseVariableDecl. If 'i2f' is not a type, we don't want to report
+          // "Unknown Type 'i2f'". We want to report "Unexpected token 'i2f'"
+          // (Syntax Error).
+          bool isKnownType =
+              IsTypeToken(current.type) || IsClassName(current.value) ||
+              std::find(m_CurrentTypeParams.begin(), m_CurrentTypeParams.end(),
+                        current.value) != m_CurrentTypeParams.end();
+
+          if (isKnownType) {
+            auto varDecl = ParseVariableDecl();
+            if (varDecl) {
+              code->AddNode(varDecl);
+            }
+          } else {
+            // It looks like "Id Id" but first Id is NOT a known type.
+            // It's likely a typo (e.g. "i2f Val").
+            // Report Unexpected Token error and recover.
+            ReportError("Unexpected token '" + current.value + "'");
+            RecoverToNextStatement();
+          }
+
+        } else {
+          // Function call or other statement
+          auto statement = ParseStatement();
+          if (statement) {
+            code->AddNode(statement);
+          }
         }
       }
     }
@@ -178,9 +258,8 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
     else if (current.type == TokenType::T_END_OF_LINE) {
       Advance(); // Skip newlines
     } else {
-      // Skip tokens we don't handle yet
-      std::cout << "[DEBUG] ParseCode() - skipping token: " << current.value
-                << std::endl;
+      // Report error for unexpected tokens
+      ReportError("Unexpected token '" + current.value + "'");
       Advance();
     }
   } // End while
@@ -204,8 +283,11 @@ std::shared_ptr<QStatement> Parser::ParseStatement() {
     auto params = ParseParameters();
     statement->SetParameters(params);
   } else {
-    std::cout << "[DEBUG] ParseStatement() - no parameters (no '(' found)"
-              << std::endl;
+    // ENFORCE STRICT SYNTAX: Function calls MUST have parentheses.
+    // If we parsed an identifier as a statement (and it wasn't a variable
+    // decl), it must be a function call.
+    ReportError("Expected '(' after function or method name '" +
+                identifier.value + "'");
   }
 
   // Consume end of line if present
@@ -312,9 +394,7 @@ Token Parser::Consume(TokenType type, const std::string &message) {
     return Advance();
   }
 
-  std::cerr << "[ERROR] " << message << std::endl;
-  // Use a sensible default token for error cases to allow parsing to continue
-  // minimally or just return current to avoid crash
+  ReportError(message);
   return Peek();
 }
 
@@ -374,7 +454,7 @@ bool Parser::IsTypeToken(TokenType type) const {
   return type == TokenType::T_INT32 || type == TokenType::T_INT64 ||
          type == TokenType::T_FLOAT32 || type == TokenType::T_FLOAT64 ||
          type == TokenType::T_SHORT || type == TokenType::T_STRING_TYPE ||
-         type == TokenType::T_BOOL;
+         type == TokenType::T_BOOL || type == TokenType::T_CPTR;
 }
 
 std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
@@ -386,10 +466,46 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
   std::cout << "[DEBUG] ParseVariableDecl() - type: " << typeToken.value
             << std::endl;
 
+  // STRICT TYPE CHECKING
+  // Ensure the type is valid: Primitive, Registered Class, or Generic Param
+  bool isValidType =
+      IsTypeToken(typeToken.type) || IsClassName(typeToken.value) ||
+      std::find(m_CurrentTypeParams.begin(), m_CurrentTypeParams.end(),
+                typeToken.value) != m_CurrentTypeParams.end();
+
+  if (!isValidType) {
+    ReportError("Unknown type '" + typeToken.value + "'");
+    // We return nullptr to stop parsing this statement, but we consume the
+    // token. ParseCode needs to handle this gracefully (it continues loop).
+    return nullptr;
+  }
+
+  // Parse generic type parameters if present: Type<T, U> Name
+  std::vector<std::string> typeParams;
+  if (Check(TokenType::T_LESS)) { // '<'
+    Advance();                    // consume '<'
+    while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
+      if (Check(TokenType::T_IDENTIFIER) || IsTypeToken(Peek().type)) {
+        typeParams.push_back(Peek().value);
+        Advance();
+      } else {
+        ReportError("Expected type parameter");
+      }
+      if (Check(TokenType::T_COMMA))
+        Advance();
+    }
+    if (Check(TokenType::T_GREATER))
+      Advance();
+    else
+      ReportError("Expected '>' to close type parameters");
+  }
+
   // Expect identifier (variable name)
   if (!Check(TokenType::T_IDENTIFIER)) {
-    std::cerr << "[ERROR] ParseVariableDecl() - expected identifier after type"
-              << std::endl;
+    // This catches "i2f Val" where "i2f" is type, "Val" is name.
+    // But if we have "i2f" alone, Peek() might be EOL or EOF.
+    ReportError("Expected variable name (identifier) after type '" +
+                typeToken.value + "'");
     return nullptr;
   }
 
@@ -397,8 +513,9 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
   std::cout << "[DEBUG] ParseVariableDecl() - name: " << nameToken.value
             << std::endl;
 
-  auto varDecl =
-      std::make_shared<QVariableDecl>(typeToken.type, nameToken.value);
+  auto varDecl = std::make_shared<QVariableDecl>(
+      typeToken.type, nameToken.value, typeToken.value);
+  varDecl->SetTypeParameters(typeParams);
 
   // Check for initializer (= expression)
   if (Check(TokenType::T_OPERATOR) && Peek().value == "=") {
@@ -410,11 +527,16 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
     varDecl->SetInitializer(initializer);
   }
 
-  // Consume end of line
+  // Consume end of line (Mandatory for declarations)
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
     std::cout << "[DEBUG] ParseVariableDecl() - consumed semicolon"
               << std::endl;
+  } else if (!Check(TokenType::T_EOF)) {
+    // If NOT at EOF, report error (missing semicolon)
+    // This will catch "i2f Val == null" cases where '==' is found instead of
+    // EOL
+    ReportError("Expected end of line (or ';') after variable declaration");
   }
 
   return varDecl;
@@ -437,9 +559,59 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   std::cout << "[DEBUG] ParseClass() - class name: " << nameToken.value
             << std::endl;
 
+  // Register class name immediately so self-referential members (e.g. Node
+  // next) works
+  m_ClassNames.insert(nameToken.value);
+
+  // Set current context header (Class Name)
+  std::string previousContext = m_CurrentContext;
+  m_CurrentContext = nameToken.value;
+
   auto cls = std::make_shared<QClass>(nameToken.value);
 
+  // Check for generic type parameters <T, U, V, ...>
+  if (Check(TokenType::T_LESS)) {
+    Advance(); // consume '<'
+    std::cout << "[DEBUG] ParseClass() - parsing generic type parameters"
+              << std::endl;
+
+    std::vector<std::string> typeParams;
+    while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
+      // Expect identifier for type parameter
+      if (!Check(TokenType::T_IDENTIFIER)) {
+        std::cerr << "[ERROR] ParseClass() - expected type parameter name"
+                  << std::endl;
+        break;
+      }
+      Token typeParam = Advance();
+      typeParams.push_back(typeParam.value);
+      std::cout << "[DEBUG] ParseClass() - type parameter: " << typeParam.value
+                << std::endl;
+
+      // Check for comma (more parameters) or end
+      if (Check(TokenType::T_COMMA)) {
+        Advance(); // consume ','
+      }
+    }
+
+    // Consume '>'
+    if (Check(TokenType::T_GREATER)) {
+      Advance();
+    } else {
+      ReportError("ParseClass() - expected '>' to close type parameters");
+    }
+
+    cls->SetTypeParameters(typeParams);
+  }
+
   // Parse class body until END token
+  // Get type parameters for checking generic types
+  const auto &typeParams = cls->GetTypeParameters();
+
+  // Set current scope type parameters for member/method parsing
+  std::vector<std::string> previousTypeParams = m_CurrentTypeParams;
+  m_CurrentTypeParams = typeParams;
+
   while (!IsAtEnd() && !Check(TokenType::T_END)) {
     Token current = Peek();
 
@@ -451,6 +623,17 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       }
       // Parse member variables (primitive type declarations)
     } else if (IsTypeToken(current.type)) {
+      auto member = ParseVariableDecl();
+      if (member) {
+        cls->AddMember(member);
+      }
+      // Parse generic type parameter members (T, K, V, etc.)
+    } else if (current.type == TokenType::T_IDENTIFIER &&
+               std::find(m_CurrentTypeParams.begin(), m_CurrentTypeParams.end(),
+                         current.value) != m_CurrentTypeParams.end()) {
+      // This is a generic type parameter used as a member type
+      std::cout << "[DEBUG] ParseClass() - parsing generic type member: "
+                << current.value << std::endl;
       auto member = ParseVariableDecl();
       if (member) {
         cls->AddMember(member);
@@ -480,9 +663,13 @@ std::shared_ptr<QClass> Parser::ParseClass() {
     Advance();
     std::cout << "[DEBUG] ParseClass() - consumed 'end'" << std::endl;
   } else {
-    std::cerr << "[ERROR] ParseClass() - expected 'end' to close class"
-              << std::endl;
+    ReportError("expected 'end' to close class");
+    RecoverToNextStatement();
   }
+
+  // Restore previous type params and context
+  m_CurrentTypeParams = previousTypeParams;
+  m_CurrentContext = previousContext;
 
   return cls;
 }
@@ -517,32 +704,42 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
   auto method = std::make_shared<QMethod>(nameToken.value);
   method->SetReturnType(returnType);
 
+  // Context Management
+  std::string methodName = nameToken.value;
+  std::string fullContext = m_CurrentContext.empty()
+                                ? methodName
+                                : m_CurrentContext + "." + methodName;
+  int startLine = nameToken.line;
+
+  std::string previousContext = m_CurrentContext;
+  m_CurrentContext = fullContext;
+
   // Expect '(' for parameters
   if (Check(TokenType::T_LPAREN)) {
     Advance(); // consume '('
 
     // Parse parameter list: type name, type name, ...
     while (!IsAtEnd() && !Check(TokenType::T_RPAREN)) {
-      // Expect type token
-      if (IsTypeToken(Peek().type)) {
-        TokenType paramType = Peek().type;
-        Advance(); // consume type
+      // Expect type token (primitive type OR identifier for generics/class
+      // types)
+      if (IsTypeToken(Peek().type) || Peek().type == TokenType::T_IDENTIFIER) {
+        Token typeToken = Advance(); // consume type
+        TokenType paramType = typeToken.type;
+        std::string paramTypeName = typeToken.value;
 
         // Expect parameter name
         if (Check(TokenType::T_IDENTIFIER)) {
           std::string paramName = Peek().value;
           Advance(); // consume name
 
-          method->AddParameter(paramType, paramName);
+          method->AddParameter(paramType, paramName, paramTypeName);
           std::cout << "[DEBUG] ParseMethod() - parsed param: " << paramName
-                    << std::endl;
+                    << " (type: " << paramTypeName << ")" << std::endl;
         } else {
-          std::cerr << "[ERROR] ParseMethod() - expected parameter name"
-                    << std::endl;
+          ReportError("expected parameter name");
         }
       } else {
-        std::cerr << "[ERROR] ParseMethod() - expected parameter type"
-                  << std::endl;
+        ReportError("expected parameter type");
         Advance(); // skip unknown token
       }
 
@@ -567,9 +764,17 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
     Advance();
     std::cout << "[DEBUG] ParseMethod() - consumed 'end'" << std::endl;
   } else {
-    std::cerr << "[ERROR] ParseMethod() - expected 'end' to close method"
-              << std::endl;
+    ReportError("expected 'end' to close method");
   }
+
+  if (m_ErrorCollector) {
+    // Register the full range of the method
+    // Use current line (or previous token line) as end
+    int endLine = Previous().line;
+    m_ErrorCollector->RegisterContext(fullContext, startLine, endLine);
+  }
+
+  m_CurrentContext = previousContext;
 
   return method;
 }
@@ -587,10 +792,35 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
   std::cout << "[DEBUG] ParseInstanceDecl() - class: " << classNameToken.value
             << std::endl;
 
+  // Check for generic type arguments <type1, type2, ...>
+  std::vector<std::string> typeArgs;
+  if (Check(TokenType::T_LESS)) {
+    Advance(); // consume '<'
+    std::cout << "[DEBUG] ParseInstanceDecl() - parsing type arguments"
+              << std::endl;
+
+    while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
+      // Get the type name (could be identifier or type keyword)
+      Token typeArg = Advance();
+      typeArgs.push_back(typeArg.value);
+      std::cout << "[DEBUG] ParseInstanceDecl() - type arg: " << typeArg.value
+                << std::endl;
+
+      // Check for comma or end
+      if (Check(TokenType::T_COMMA)) {
+        Advance();
+      }
+    }
+
+    // Consume '>'
+    if (Check(TokenType::T_GREATER)) {
+      Advance();
+    }
+  }
+
   // Expect instance name (identifier)
   if (!Check(TokenType::T_IDENTIFIER)) {
-    std::cerr << "[ERROR] ParseInstanceDecl() - expected instance name"
-              << std::endl;
+    ReportError("expected instance name");
     return nullptr;
   }
 
@@ -601,29 +831,47 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
   auto instanceDecl = std::make_shared<QInstanceDecl>(classNameToken.value,
                                                       instanceNameToken.value);
 
+  // Set type arguments if any
+  if (!typeArgs.empty()) {
+    instanceDecl->SetTypeArguments(typeArgs);
+  }
+
   // Expect '='
   if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
-    std::cerr << "[ERROR] ParseInstanceDecl() - expected '='" << std::endl;
+    ReportError("expected '='");
     return nullptr;
   }
   Advance(); // consume '='
 
   // Expect 'new'
   if (!Check(TokenType::T_NEW)) {
-    std::cerr << "[ERROR] ParseInstanceDecl() - expected 'new'" << std::endl;
+    ReportError("expected 'new'");
     return nullptr;
   }
   Advance(); // consume 'new'
 
   // Expect constructor class name (should match)
   if (!Check(TokenType::T_IDENTIFIER) || Peek().value != classNameToken.value) {
-    std::cerr
-        << "[ERROR] ParseInstanceDecl() - constructor class name doesn't match"
-        << std::endl;
+    ReportError("constructor class name doesn't match");
     // Still continue for flexibility
   }
   if (Check(TokenType::T_IDENTIFIER)) {
     Advance(); // consume constructor class name
+  }
+
+  // Skip type arguments on constructor side (List<int32> myList = new
+  // List<int32>())
+  if (Check(TokenType::T_LESS)) {
+    Advance(); // consume '<'
+    while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
+      Advance(); // skip type args
+      if (Check(TokenType::T_COMMA)) {
+        Advance();
+      }
+    }
+    if (Check(TokenType::T_GREATER)) {
+      Advance(); // consume '>'
+    }
   }
 
   // Expect '(' for constructor args
@@ -659,8 +907,7 @@ std::shared_ptr<QMethodCall> Parser::ParseMethodCall() {
     Advance(); // consume '.'
 
     if (!Check(TokenType::T_IDENTIFIER)) {
-      std::cerr << "[ERROR] ParseMethodCall() - expected identifier after '.'"
-                << std::endl;
+      ReportError("expected identifier after '.'");
       return nullptr;
     }
 
@@ -672,8 +919,7 @@ std::shared_ptr<QMethodCall> Parser::ParseMethodCall() {
 
   // Must have at least 2 parts: instance and method
   if (pathParts.size() < 2) {
-    std::cerr << "[ERROR] ParseMethodCall() - incomplete method call"
-              << std::endl;
+    ReportError("incomplete method call");
     return nullptr;
   }
 
@@ -720,15 +966,14 @@ std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
 
   // Expect '.'
   if (!Check(TokenType::T_DOT)) {
-    std::cerr << "[ERROR] ParseMemberAssign() - expected '.'" << std::endl;
+    ReportError("expected '.'");
     return nullptr;
   }
   Advance(); // consume '.'
 
   // Expect member name (identifier)
   if (!Check(TokenType::T_IDENTIFIER)) {
-    std::cerr << "[ERROR] ParseMemberAssign() - expected member name"
-              << std::endl;
+    ReportError("expected member name");
     return nullptr;
   }
 
@@ -743,9 +988,7 @@ std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
   while (Check(TokenType::T_DOT)) {
     Advance(); // consume '.'
     if (!Check(TokenType::T_IDENTIFIER)) {
-      std::cerr
-          << "[ERROR] ParseMemberAssign() - expected member name after '.'"
-          << std::endl;
+      ReportError("expected member name after '.'");
       return nullptr;
     }
     Token nextMember = Advance();
@@ -762,7 +1005,7 @@ std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
 
   // Expect '='
   if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
-    std::cerr << "[ERROR] ParseMemberAssign() - expected '='" << std::endl;
+    ReportError("expected '='");
     return nullptr;
   }
   Advance(); // consume '='
@@ -794,10 +1037,29 @@ std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
   std::cout << "[DEBUG] ParseClassTypeMember() - class type: " << classTypeName
             << std::endl;
 
+  // Parse generic type parameters if present: ClassName<T, U> Name
+  std::vector<std::string> typeParams;
+  if (Check(TokenType::T_LESS)) { // '<'
+    Advance();                    // consume '<'
+    while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
+      if (Check(TokenType::T_IDENTIFIER) || IsTypeToken(Peek().type)) {
+        typeParams.push_back(Peek().value);
+        Advance();
+      } else {
+        ReportError("Expected type parameter");
+      }
+      if (Check(TokenType::T_COMMA))
+        Advance();
+    }
+    if (Check(TokenType::T_GREATER))
+      Advance();
+    else
+      ReportError("Expected '>' to close type parameters");
+  }
+
   // Expect member name (identifier)
   if (!Check(TokenType::T_IDENTIFIER)) {
-    std::cerr << "[ERROR] ParseClassTypeMember() - expected member name"
-              << std::endl;
+    ReportError("expected member name");
     return nullptr;
   }
 
@@ -806,12 +1068,11 @@ std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
   std::cout << "[DEBUG] ParseClassTypeMember() - member name: " << memberName
             << std::endl;
 
-  // Create variable declaration with T_IDENTIFIER type to indicate class type
-  auto member =
-      std::make_shared<QVariableDecl>(TokenType::T_IDENTIFIER, memberName);
-
-  // Store the class type name for later reference
-  // We'll use the initializer expression to carry the class type info
+  // Create variable declaration with T_IDENTIFIER type, but include the
+  // classTypeName
+  auto member = std::make_shared<QVariableDecl>(TokenType::T_IDENTIFIER,
+                                                memberName, classTypeName);
+  member->SetTypeParameters(typeParams);
 
   // Expect '=' for initialization
   if (Check(TokenType::T_OPERATOR) && Peek().value == "=") {
@@ -825,11 +1086,13 @@ std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
               << std::endl;
   }
 
-  // Consume semicolon
+  // Consume semicolon (Mandatory)
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
     std::cout << "[DEBUG] ParseClassTypeMember() - consumed semicolon"
               << std::endl;
+  } else if (!Check(TokenType::T_EOF)) {
+    ReportError("Expected end of line (or ';') after member declaration");
   }
 
   return member;
@@ -871,7 +1134,7 @@ std::shared_ptr<QAssign> Parser::ParseAssign() {
 
   // Expect '='
   if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
-    std::cerr << "[ERROR] ParseAssign() - expected '='" << std::endl;
+    ReportError("expected '='");
     return nullptr;
   }
   Advance(); // consume '='
@@ -1027,7 +1290,8 @@ std::shared_ptr<QWhile> Parser::ParseWhile() {
   // Parse condition
   auto condition = ParseExpression();
   if (!condition) {
-    std::cerr << "[ERROR] ParseWhile() - expected condition" << std::endl;
+    // If we get here, we expected an expression but didn't find one
+    ReportError("expected expression");
     return nullptr;
   }
 

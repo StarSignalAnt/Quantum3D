@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,8 @@ enum class TokenType {
   T_RBRACE,      // }
   T_LBRACKET,    // [
   T_RBRACKET,    // ]
+  T_LESS,        // < (for generics)
+  T_GREATER,     // > (for generics)
 
   // Keywords
   T_MODULE,
@@ -44,6 +47,7 @@ enum class TokenType {
   T_NEXT,
   T_WHILE,
   T_WEND,
+  T_NULL, // null keyword
 
   // Types
   T_INT32,
@@ -53,8 +57,11 @@ enum class TokenType {
   T_SHORT,
   T_STRING_TYPE,
   T_BOOL,
-  T_VOID
+  T_VOID,
+  T_CPTR // C pointer (void*) for C++/script interop
 };
+
+class QErrorCollector;
 
 struct Token {
   TokenType type;
@@ -67,19 +74,32 @@ class Tokenizer {
 public:
   Tokenizer(const std::string &filename);
   Tokenizer(const std::string &source, bool isSource);
+  // Constructor with error collector
+  Tokenizer(const std::string &filename,
+            std::shared_ptr<QErrorCollector> errorCollector);
+  Tokenizer(const std::string &source, bool isSource,
+            std::shared_ptr<QErrorCollector> errorCollector);
   ~Tokenizer();
 
   void Tokenize();
   const std::vector<Token> &GetTokens() const;
   void PrintTokens() const;
 
+  // Error access
+  std::shared_ptr<QErrorCollector> GetErrorCollector() const {
+    return m_ErrorCollector;
+  }
+
 private:
   std::string m_Filename;
   std::string m_Source;
   std::vector<Token> m_Tokens;
+  std::shared_ptr<QErrorCollector> m_ErrorCollector;
   int m_Cursor = 0;
   int m_Line = 1;
   int m_Column = 1;
+
+  void ReportError(const std::string &message);
 
   void ReadFile();
   char Peek(int offset = 0) const;

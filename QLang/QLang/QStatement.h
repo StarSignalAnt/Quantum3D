@@ -21,6 +21,11 @@ public:
 
   std::shared_ptr<QParameters> GetParameters() const { return m_Parameters; }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    if (m_Parameters)
+      m_Parameters->CheckForErrors(collector);
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "Statement: " << m_Name << std::endl;

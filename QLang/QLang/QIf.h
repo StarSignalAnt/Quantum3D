@@ -43,6 +43,23 @@ public:
   std::shared_ptr<QCode> GetElseBlock() const { return m_ElseBlock; }
   bool HasElse() const { return m_ElseBlock != nullptr; }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    if (m_Condition)
+      m_Condition->CheckForErrors(collector);
+    if (m_ThenBlock)
+      m_ThenBlock->CheckForErrors(collector);
+
+    for (const auto &pair : m_ElseIfBlocks) {
+      if (pair.first)
+        pair.first->CheckForErrors(collector);
+      if (pair.second)
+        pair.second->CheckForErrors(collector);
+    }
+
+    if (m_ElseBlock)
+      m_ElseBlock->CheckForErrors(collector);
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "If condition:" << std::endl;

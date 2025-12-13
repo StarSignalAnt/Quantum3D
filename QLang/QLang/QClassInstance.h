@@ -10,7 +10,7 @@
 
 // QValue type for instance member storage (separate from QValue in QContext)
 using QInstanceValue = std::variant<std::monostate, bool, int32_t, int64_t,
-                                    float, double, std::string>;
+                                    float, double, std::string, void *>;
 
 // QClassInstance - represents a runtime instance of a QClass
 class QClassInstance {
@@ -103,6 +103,8 @@ public:
               std::cout << (arg ? "true" : "false");
             } else if constexpr (std::is_same_v<T, std::string>) {
               std::cout << "\"" << arg << "\"";
+            } else if constexpr (std::is_same_v<T, void *>) {
+              std::cout << "<cptr:" << arg << ">";
             } else {
               std::cout << arg;
             }
@@ -113,12 +115,28 @@ public:
     std::cout << "}" << std::endl;
   }
 
+  // Generic type mapping (T -> int32, K -> string, etc.)
+  void
+  SetTypeMapping(const std::unordered_map<std::string, std::string> &mapping) {
+    m_TypeMapping = mapping;
+    std::cout << "[DEBUG] QClassInstance(" << m_ClassName
+              << ") - set type mapping" << std::endl;
+  }
+
+  const std::unordered_map<std::string, std::string> &GetTypeMapping() const {
+    return m_TypeMapping;
+  }
+
+  bool HasTypeMapping() const { return !m_TypeMapping.empty(); }
+
 private:
   std::shared_ptr<QClass> m_ClassDef;
   std::string m_ClassName;
   std::unordered_map<std::string, QInstanceValue> m_Members;
   std::unordered_map<std::string, std::shared_ptr<QClassInstance>>
       m_NestedInstances;
+  std::unordered_map<std::string, std::string>
+      m_TypeMapping; // Generic type mapping
 
   // Initialize member variables with default values from class definition
   void InitializeMembers() {
@@ -149,6 +167,9 @@ private:
         break;
       case TokenType::T_BOOL:
         defaultVal = false;
+        break;
+      case TokenType::T_CPTR:
+        defaultVal = static_cast<void *>(nullptr);
         break;
       default:
         defaultVal = std::monostate{};

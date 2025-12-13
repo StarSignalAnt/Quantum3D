@@ -19,6 +19,13 @@ public:
     return m_Nodes;
   }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    for (const auto &node : m_Nodes) {
+      if (node)
+        node->CheckForErrors(collector);
+    }
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "QCode {" << std::endl;

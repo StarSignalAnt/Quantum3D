@@ -21,6 +21,13 @@ public:
   std::shared_ptr<QExpression> GetCondition() const { return m_Condition; }
   std::shared_ptr<QCode> GetBody() const { return m_Body; }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    if (m_Condition)
+      m_Condition->CheckForErrors(collector);
+    if (m_Body)
+      m_Body->CheckForErrors(collector);
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "While loop" << std::endl;

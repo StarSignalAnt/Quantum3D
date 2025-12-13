@@ -23,6 +23,13 @@ public:
     return m_Parameters;
   }
 
+  void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
+    for (const auto &expr : m_Parameters) {
+      if (expr)
+        expr->CheckForErrors(collector);
+    }
+  }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "Parameters (" << m_Parameters.size() << "):" << std::endl;

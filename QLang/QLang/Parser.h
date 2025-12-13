@@ -2,6 +2,7 @@
 
 #include "QAssign.h"
 #include "QClass.h"
+#include "QError.h"
 #include "QExpression.h"
 #include "QFor.h"
 #include "QIf.h"
@@ -26,14 +27,36 @@
 class Parser {
 public:
   Parser(const std::vector<Token> &tokens);
+  Parser(const std::vector<Token> &tokens,
+         std::shared_ptr<QErrorCollector> errorCollector);
   ~Parser();
 
   std::shared_ptr<QProgram> Parse();
+
+  // Error access
+  std::shared_ptr<QErrorCollector> GetErrorCollector() const {
+    return m_ErrorCollector;
+  }
+  bool HasErrors() const {
+    return m_ErrorCollector && m_ErrorCollector->HasErrors();
+  }
 
 private:
   std::vector<Token> m_Tokens;
   int m_Current = 0;
   std::set<std::string> m_ClassNames; // Track known class names
+  std::vector<std::string>
+      m_CurrentTypeParams; // Track current generic parameters (T, K, V)
+  std::shared_ptr<QErrorCollector> m_ErrorCollector;
+
+  // Context tracking for error reporting
+  std::string m_CurrentContext;
+  int m_CurrentContextStartLine = 0;
+
+  // Error reporting helper
+  void ReportError(const std::string &message,
+                   QErrorSeverity severity = QErrorSeverity::Error);
+  void RecoverToNextStatement(); // Skip to next statement for recovery
 
   // Parsing methods
   std::shared_ptr<QProgram> ParseProgram();
