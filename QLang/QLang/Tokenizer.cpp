@@ -2,12 +2,19 @@
 #include <cctype>
 #include <sstream>
 
-Tokenizer::Tokenizer(const std::string &filename) : m_Filename(filename) {}
+Tokenizer::Tokenizer(const std::string &filename) : m_Filename(filename) {
+  ReadFile();
+}
+
+// Constructor for direct source code
+Tokenizer::Tokenizer(const std::string &source, bool isSource)
+    : m_Filename("Memory"), m_Source(source) {
+  (void)isSource; // Unused, just for signature differentiation
+}
 
 Tokenizer::~Tokenizer() {}
 
 void Tokenizer::Tokenize() {
-  ReadFile();
   while (!IsAtEnd()) {
     ScanToken();
   }
@@ -89,6 +96,18 @@ void Tokenizer::PrintTokens() const {
     case TokenType::T_FOR:
       typeStr = "T_FOR";
       break;
+    case TokenType::T_TO:
+      typeStr = "T_TO";
+      break;
+    case TokenType::T_NEXT:
+      typeStr = "T_NEXT";
+      break;
+    case TokenType::T_WHILE:
+      typeStr = "T_WHILE";
+      break;
+    case TokenType::T_WEND:
+      typeStr = "T_WEND";
+      break;
     case TokenType::T_CLASS:
       typeStr = "T_CLASS";
       break;
@@ -168,9 +187,41 @@ bool Tokenizer::IsAtEnd() const { return m_Cursor >= m_Source.length(); }
 void Tokenizer::ScanToken() {
   char c = Peek();
 
+  // Handle newline explicitly to generate token
+  if (c == '\n') {
+    Advance();
+    AddToken(TokenType::T_END_OF_LINE, "\n");
+    return;
+  }
+
   if (isspace(c)) {
     Advance();
     return;
+  }
+
+  // Check for comments
+  if (c == '/') {
+    char next = Peek(1);
+    if (next == '/') {
+      // Single-line comment - skip until end of line
+      while (!IsAtEnd() && Peek() != '\n') {
+        Advance();
+      }
+      return;
+    } else if (next == '*') {
+      // Multi-line comment - skip until */
+      Advance(); // consume /
+      Advance(); // consume *
+      while (!IsAtEnd()) {
+        if (Peek() == '*' && Peek(1) == '/') {
+          Advance(); // consume *
+          Advance(); // consume /
+          break;
+        }
+        Advance();
+      }
+      return;
+    }
   }
 
   if (isalpha(c) || c == '_') {
@@ -229,6 +280,20 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_BOOL;
   } else if (value == "void") {
     type = TokenType::T_VOID;
+  } else if (value == "true") {
+    type = TokenType::T_TRUE;
+  } else if (value == "false") {
+    type = TokenType::T_FALSE;
+  } else if (value == "this") {
+    type = TokenType::T_THIS;
+  } else if (value == "to") {
+    type = TokenType::T_TO;
+  } else if (value == "next") {
+    type = TokenType::T_NEXT;
+  } else if (value == "while") {
+    type = TokenType::T_WHILE;
+  } else if (value == "wend") {
+    type = TokenType::T_WEND;
   }
 
   // Construct manually to keep start column
@@ -298,7 +363,19 @@ void Tokenizer::ScanOperatorOrPunctuation() {
 
   switch (c) {
   case '+':
+    type = TokenType::T_OPERATOR;
+    // Check for ++ or +=
+    if (Peek() == '+' || Peek() == '=') {
+      value += Advance();
+    }
+    break;
   case '-':
+    type = TokenType::T_OPERATOR;
+    // Check for -- or -=
+    if (Peek() == '-' || Peek() == '=') {
+      value += Advance();
+    }
+    break;
   case '*':
   case '/':
   case '=':
@@ -306,8 +383,22 @@ void Tokenizer::ScanOperatorOrPunctuation() {
   case '>':
   case '!':
     type = TokenType::T_OPERATOR;
-    // Check for 2-char operators like ==, !=, <=, >= later if needed
+    // Check for 2-char operators like ==, !=, <=, >=
     if (Peek() == '=') {
+      value += Advance();
+    }
+    break;
+  case '&':
+    type = TokenType::T_OPERATOR;
+    // Check for &&
+    if (Peek() == '&') {
+      value += Advance();
+    }
+    break;
+  case '|':
+    type = TokenType::T_OPERATOR;
+    // Check for ||
+    if (Peek() == '|') {
       value += Advance();
     }
     break;

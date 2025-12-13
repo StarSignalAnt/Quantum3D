@@ -1,4 +1,6 @@
 #include "Parser.h"
+#include "QAssign.h"
+#include <iostream>
 
 Parser::Parser(const std::vector<Token> &tokens) : m_Tokens(tokens) {
   std::cout << "[DEBUG] Parser created with " << tokens.size() << " tokens"
@@ -30,6 +32,9 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
       }
     } else if (current.type == TokenType::T_EOF) {
       break;
+    } else if (current.type == TokenType::T_END_OF_LINE) {
+      Advance(); // Skip newlines at program level
+      continue;
     } else {
       // Parse code block for program-level statements
       break;
@@ -52,13 +57,38 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
               << " at line " << current.line << std::endl;
 
     // Check for block end markers
-    if (current.type == TokenType::T_END || current.type == TokenType::T_EOF) {
+    if (current.type == TokenType::T_END || current.type == TokenType::T_EOF ||
+        current.type == TokenType::T_ELSEIF ||
+        current.type == TokenType::T_ELSE ||
+        current.type == TokenType::T_NEXT ||
+        current.type == TokenType::T_WEND) {
       std::cout << "[DEBUG] ParseCode() - reached end of block" << std::endl;
       break;
     }
 
+    // Check for if statement
+    if (current.type == TokenType::T_IF) {
+      auto ifStmt = ParseIf();
+      if (ifStmt) {
+        code->AddNode(ifStmt);
+      }
+    }
+    // Check for for loop
+    else if (current.type == TokenType::T_FOR) {
+      auto forStmt = ParseFor();
+      if (forStmt) {
+        code->AddNode(forStmt);
+      }
+    }
+    // Check for while loop
+    else if (current.type == TokenType::T_WHILE) {
+      auto whileStmt = ParseWhile();
+      if (whileStmt) {
+        code->AddNode(whileStmt);
+      }
+    }
     // Check for return statement
-    if (current.type == TokenType::T_RETURN) {
+    else if (current.type == TokenType::T_RETURN) {
       auto returnStmt = ParseReturn();
       if (returnStmt) {
         code->AddNode(returnStmt);
@@ -76,7 +106,8 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
       if (instanceDecl) {
         code->AddNode(instanceDecl);
       }
-    } else if (current.type == TokenType::T_IDENTIFIER) {
+    } else if (current.type == TokenType::T_IDENTIFIER ||
+               current.type == TokenType::T_THIS) {
       // Check if this is a dot notation (method call or member assign)
       Token next = PeekNext();
       if (next.type == TokenType::T_DOT) {
@@ -123,19 +154,36 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
                     << std::endl;
           Advance();
         }
+      } else if (next.type == TokenType::T_OPERATOR && next.value == "=") {
+        // Simple variable assignment: var = value;
+        auto assign = ParseAssign();
+        if (assign) {
+          code->AddNode(assign);
+        }
+      } else if (next.type == TokenType::T_OPERATOR &&
+                 (next.value == "++" || next.value == "--")) {
+        // Increment or decrement: var++ or var--
+        auto increment = ParseIncrement();
+        if (increment) {
+          code->AddNode(increment);
+        }
       } else {
         auto statement = ParseStatement();
         if (statement) {
           code->AddNode(statement);
         }
       }
+    }
+
+    else if (current.type == TokenType::T_END_OF_LINE) {
+      Advance(); // Skip newlines
     } else {
       // Skip tokens we don't handle yet
       std::cout << "[DEBUG] ParseCode() - skipping token: " << current.value
                 << std::endl;
       Advance();
     }
-  }
+  } // End while
 
   std::cout << "[DEBUG] ParseCode() - finished parsing block" << std::endl;
 }
@@ -223,8 +271,10 @@ std::shared_ptr<QExpression> Parser::ParseExpression() {
   int parenDepth = 0;
 
   // Collect tokens until we hit ',' or ')' (at depth 0) or ';' or EOF
+  // Also stop at 'to' and ':' for for-loop range parsing (for x = 0 to 10 : 1)
   while (!IsAtEnd() && !Check(TokenType::T_END_OF_LINE) &&
-         !Check(TokenType::T_EOF)) {
+         !Check(TokenType::T_EOF) && !Check(TokenType::T_TO) &&
+         !Check(TokenType::T_COLON)) {
     Token current = Peek();
 
     // Track parenthesis depth
@@ -257,6 +307,18 @@ std::shared_ptr<QExpression> Parser::ParseExpression() {
   return expr;
 }
 
+Token Parser::Consume(TokenType type, const std::string &message) {
+  if (Check(type)) {
+    return Advance();
+  }
+
+  std::cerr << "[ERROR] " << message << std::endl;
+  // Use a sensible default token for error cases to allow parsing to continue
+  // minimally or just return current to avoid crash
+  return Peek();
+}
+
+// Helper methods
 Token Parser::Peek() const {
   if (m_Current >= m_Tokens.size()) {
     Token eof;
@@ -403,6 +465,8 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       if (member) {
         cls->AddMember(member);
       }
+    } else if (current.type == TokenType::T_END_OF_LINE) {
+      Advance(); // Skip newlines in class body
     } else {
       // Skip unknown tokens inside class
       std::cout << "[DEBUG] ParseClass() - skipping token: " << current.value
@@ -564,17 +628,9 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
 
   // Expect '(' for constructor args
   if (Check(TokenType::T_LPAREN)) {
-    Advance(); // consume '('
-
-    // Parse constructor arguments (as expression for now)
-    if (!Check(TokenType::T_RPAREN)) {
-      auto args = ParseExpression();
-      instanceDecl->SetConstructorArgs(args);
-    }
-
-    if (Check(TokenType::T_RPAREN)) {
-      Advance(); // consume ')'
-    }
+    // ParseParameters handles the opening and closing parens: ( arg1, arg2 )
+    auto args = ParseParameters();
+    instanceDecl->SetConstructorArgs(args);
   }
 
   // Consume semicolon
@@ -803,4 +859,227 @@ std::shared_ptr<QReturn> Parser::ParseReturn() {
   }
 
   return returnStmt;
+}
+
+std::shared_ptr<QAssign> Parser::ParseAssign() {
+  std::cout << "[DEBUG] ParseAssign() - parsing assignment" << std::endl;
+
+  // Get variable name
+  Token nameToken = Advance();
+  std::cout << "[DEBUG] ParseAssign() - variable: " << nameToken.value
+            << std::endl;
+
+  // Expect '='
+  if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
+    std::cerr << "[ERROR] ParseAssign() - expected '='" << std::endl;
+    return nullptr;
+  }
+  Advance(); // consume '='
+
+  auto assign = std::make_shared<QAssign>(nameToken.value);
+
+  // Parse expression
+  auto expr = ParseExpression();
+  assign->SetValueExpression(expr);
+
+  // Consume semicolon
+  if (Check(TokenType::T_END_OF_LINE)) {
+    Advance();
+    std::cout << "[DEBUG] ParseAssign() - consumed semicolon" << std::endl;
+  }
+
+  return assign;
+}
+
+std::shared_ptr<QIf> Parser::ParseIf() {
+  std::cout << "[DEBUG] ParseIf() - parsing if statement" << std::endl;
+  Advance(); // consume 'if'
+
+  auto ifNode = std::make_shared<QIf>();
+
+  // Parse condition
+  auto condition = ParseExpression();
+  if (!condition) {
+    std::cerr << "[ERROR] ParseIf() - expected condition" << std::endl;
+    return nullptr;
+  }
+
+  // Parse 'then' block
+  auto thenBlock = std::make_shared<QCode>();
+  ParseCode(thenBlock);
+  ifNode->SetIf(condition, thenBlock);
+
+  // Check for elseif or else
+  while (Check(TokenType::T_ELSEIF)) {
+    std::cout << "[DEBUG] ParseIf() - parsing elseif" << std::endl;
+    Advance(); // consume 'elseif'
+
+    auto elseIfCond = ParseExpression();
+    auto elseIfBlock = std::make_shared<QCode>();
+    ParseCode(elseIfBlock);
+
+    ifNode->AddElseIf(elseIfCond, elseIfBlock);
+  }
+
+  if (Check(TokenType::T_ELSE)) {
+    std::cout << "[DEBUG] ParseIf() - parsing else" << std::endl;
+    Advance(); // consume 'else'
+
+    auto elseBlock = std::make_shared<QCode>();
+    ParseCode(elseBlock);
+    ifNode->SetElse(elseBlock);
+  }
+
+  Consume(TokenType::T_END, "Expected 'end' after if statement");
+  return ifNode;
+}
+
+std::shared_ptr<QFor> Parser::ParseFor() {
+  std::cout << "[DEBUG] ParseFor() - parsing for loop" << std::endl;
+
+  Advance(); // Consume 'for'
+
+  // Check for optional type before variable name
+  TokenType varType = TokenType::T_UNKNOWN;
+  bool hasType = false;
+
+  Token current = Peek();
+  if (IsTypeToken(current.type)) {
+    // Check if this is a valid for loop type (only numeric types allowed)
+    if (current.type == TokenType::T_BOOL ||
+        current.type == TokenType::T_STRING_TYPE) {
+      std::cerr << "[ERROR] ParseFor() - Illegal for type: " << current.value
+                << std::endl;
+      return nullptr;
+    }
+    varType = current.type;
+    hasType = true;
+    Advance(); // Consume type
+    std::cout << "[DEBUG] ParseFor() - type declared: " << current.value
+              << std::endl;
+  }
+
+  // Expect variable name
+  if (!Check(TokenType::T_IDENTIFIER)) {
+    std::cerr << "[ERROR] ParseFor() - expected variable name" << std::endl;
+    return nullptr;
+  }
+
+  Token varToken = Advance();
+  auto forNode = std::make_shared<QFor>(varToken.value);
+
+  // Set the type if one was declared
+  if (hasType) {
+    forNode->SetVarType(varType);
+  }
+
+  // Expect '='
+  if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
+    std::cerr << "[ERROR] ParseFor() - expected '='" << std::endl;
+    return nullptr;
+  }
+  Advance(); // Consume '='
+
+  // Parse start expression
+  auto startExpr = ParseExpression();
+
+  // Expect 'to'
+  if (!Check(TokenType::T_TO)) {
+    std::cerr << "[ERROR] ParseFor() - expected 'to'" << std::endl;
+    return nullptr;
+  }
+  Advance(); // Consume 'to'
+
+  // Parse end expression
+  auto endExpr = ParseExpression();
+
+  // Check for optional step ': step'
+  std::shared_ptr<QExpression> stepExpr = nullptr;
+  if (Check(TokenType::T_COLON)) {
+    Advance(); // Consume ':'
+    stepExpr = ParseExpression();
+  }
+
+  forNode->SetRange(startExpr, endExpr, stepExpr);
+
+  // Parse body
+  std::cout << "[DEBUG] ParseFor() - parsing body" << std::endl;
+  auto body = std::make_shared<QCode>();
+  ParseCode(body);
+  forNode->SetBody(body);
+
+  // Expect 'next'
+  if (Check(TokenType::T_NEXT)) {
+    Advance();
+    std::cout << "[DEBUG] ParseFor() - consumed 'next'" << std::endl;
+  } else {
+    std::cerr << "[ERROR] ParseFor() - expected 'next'" << std::endl;
+  }
+
+  return forNode;
+}
+
+std::shared_ptr<QWhile> Parser::ParseWhile() {
+  std::cout << "[DEBUG] ParseWhile() - parsing while loop" << std::endl;
+
+  Advance(); // Consume 'while'
+
+  // Parse condition
+  auto condition = ParseExpression();
+  if (!condition) {
+    std::cerr << "[ERROR] ParseWhile() - expected condition" << std::endl;
+    return nullptr;
+  }
+
+  auto whileNode = std::make_shared<QWhile>();
+  whileNode->SetCondition(condition);
+
+  // Parse body
+  std::cout << "[DEBUG] ParseWhile() - parsing body" << std::endl;
+  auto body = std::make_shared<QCode>();
+  ParseCode(body);
+  whileNode->SetBody(body);
+
+  // Expect 'wend'
+  if (Check(TokenType::T_WEND)) {
+    Advance();
+    std::cout << "[DEBUG] ParseWhile() - consumed 'wend'" << std::endl;
+  } else {
+    std::cerr << "[ERROR] ParseWhile() - expected 'wend'" << std::endl;
+  }
+
+  return whileNode;
+}
+
+std::shared_ptr<QIncrement> Parser::ParseIncrement() {
+  std::cout << "[DEBUG] ParseIncrement() - parsing increment/decrement"
+            << std::endl;
+
+  // Get variable name
+  Token varToken = Advance();
+  std::string varName = varToken.value;
+
+  std::cout << "[DEBUG] ParseIncrement() - variable: " << varName << std::endl;
+
+  // Get operator (++ or --)
+  if (!Check(TokenType::T_OPERATOR)) {
+    std::cerr << "[ERROR] ParseIncrement() - expected ++ or --" << std::endl;
+    return nullptr;
+  }
+
+  Token opToken = Advance();
+  bool isIncrement = (opToken.value == "++");
+
+  std::cout << "[DEBUG] ParseIncrement() - operator: " << opToken.value
+            << std::endl;
+
+  auto incrementNode = std::make_shared<QIncrement>(varName, isIncrement);
+
+  // Consume optional semicolon
+  if (Check(TokenType::T_END_OF_LINE)) {
+    Advance();
+    std::cout << "[DEBUG] ParseIncrement() - consumed semicolon" << std::endl;
+  }
+
+  return incrementNode;
 }

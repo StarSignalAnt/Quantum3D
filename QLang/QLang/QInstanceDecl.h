@@ -2,6 +2,7 @@
 
 #include "QExpression.h"
 #include "QNode.h"
+#include "QParameters.h"
 #include <iostream>
 #include <memory>
 #include <string>
@@ -23,11 +24,11 @@ public:
   std::string GetClassName() const { return m_ClassName; }
   std::string GetInstanceName() const { return m_InstanceName; }
 
-  void SetConstructorArgs(std::shared_ptr<QExpression> args) {
+  void SetConstructorArgs(std::shared_ptr<QParameters> args) {
     m_ConstructorArgs = args;
   }
 
-  std::shared_ptr<QExpression> GetConstructorArgs() const {
+  std::shared_ptr<QParameters> GetConstructorArgs() const {
     return m_ConstructorArgs;
   }
 
@@ -36,11 +37,14 @@ public:
     std::cout << "InstanceDecl: " << m_ClassName << " " << m_InstanceName
               << " = new " << m_ClassName << "(";
     if (m_ConstructorArgs) {
-      const auto &elems = m_ConstructorArgs->GetElements();
-      for (size_t i = 0; i < elems.size(); i++) {
-        std::cout << elems[i].value;
-        if (i < elems.size() - 1)
-          std::cout << " ";
+      const auto &params = m_ConstructorArgs->GetParameters();
+      for (size_t i = 0; i < params.size(); i++) {
+        const auto &elems = params[i]->GetElements();
+        for (const auto &e : elems) {
+          std::cout << e.value << " ";
+        }
+        if (i < params.size() - 1)
+          std::cout << ", ";
       }
     }
     std::cout << ")" << std::endl;
@@ -49,5 +53,5 @@ public:
 private:
   std::string m_ClassName;
   std::string m_InstanceName;
-  std::shared_ptr<QExpression> m_ConstructorArgs;
+  std::shared_ptr<QParameters> m_ConstructorArgs;
 };

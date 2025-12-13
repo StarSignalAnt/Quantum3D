@@ -37,6 +37,13 @@ enum class TokenType {
   T_ELSE,
   T_ELSEIF,
   T_FOR,
+  T_TRUE,
+  T_FALSE,
+  T_THIS,
+  T_TO,
+  T_NEXT,
+  T_WHILE,
+  T_WEND,
 
   // Types
   T_INT32,
@@ -59,6 +66,7 @@ struct Token {
 class Tokenizer {
 public:
   Tokenizer(const std::string &filename);
+  Tokenizer(const std::string &source, bool isSource);
   ~Tokenizer();
 
   void Tokenize();

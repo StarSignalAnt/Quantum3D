@@ -1,7 +1,11 @@
 #pragma once
 
+#include "QAssign.h"
 #include "QClass.h"
 #include "QExpression.h"
+#include "QFor.h"
+#include "QIf.h"
+#include "QIncrement.h"
 #include "QInstanceDecl.h"
 #include "QMemberAssign.h"
 #include "QMethod.h"
@@ -11,6 +15,7 @@
 #include "QReturn.h"
 #include "QStatement.h"
 #include "QVariableDecl.h"
+#include "QWhile.h"
 #include "Tokenizer.h"
 #include <memory>
 #include <set>
@@ -40,8 +45,13 @@ private:
   std::shared_ptr<QInstanceDecl> ParseInstanceDecl();
   std::shared_ptr<QMethodCall> ParseMethodCall();
   std::shared_ptr<QMemberAssign> ParseMemberAssign();
+  std::shared_ptr<QAssign> ParseAssign();
   std::shared_ptr<QVariableDecl> ParseClassTypeMember();
   std::shared_ptr<QReturn> ParseReturn();
+  std::shared_ptr<QIf> ParseIf();
+  std::shared_ptr<QFor> ParseFor();
+  std::shared_ptr<QWhile> ParseWhile();
+  std::shared_ptr<QIncrement> ParseIncrement();
   std::shared_ptr<QParameters> ParseParameters();
   std::shared_ptr<QExpression> ParseExpression();
 
@@ -52,6 +62,7 @@ private:
   Token Advance();
   bool IsAtEnd() const;
   bool Check(TokenType type) const;
+  Token Consume(TokenType type, const std::string &message);
   bool Match(TokenType type);
   bool IsTypeToken(TokenType type) const;
   bool IsClassName(const std::string &name) const;
