@@ -1,0 +1,8 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="QLang/QLang.vcxproj" Id="3213f08b-4f24-4a67-8e4d-bf8506cf115a" />
+  <Project Path="QLangTest1/QLangTest1.vcxproj" Id="4a76d7ce-5cc8-4f3a-9c4a-80ce26af07bb" />
+</Solution>
