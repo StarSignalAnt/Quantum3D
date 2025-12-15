@@ -125,6 +125,7 @@
     <ClCompile Include="QuantumMenu.cpp" />
     <ClCompile Include="QuantumToolBar.cpp" />
     <ClCompile Include="EditorCamera.cpp" />
+    <ClCompile Include="EngineGlobals.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -134,6 +135,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="EngineGlobals.h" />
     <ClInclude Include="EditorCamera.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

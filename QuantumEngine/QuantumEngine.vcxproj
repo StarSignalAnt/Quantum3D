@@ -112,7 +112,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;GLM_ENABLE_EXPERIMENTAL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -151,13 +151,26 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AppUI.h" />
+    <ClInclude Include="DockLayout.h" />
+    <ClInclude Include="DockNode.h" />
+    <ClInclude Include="DockTypes.h" />
     <ClInclude Include="Font.h" />
     <ClInclude Include="GraphNode.h" />
     <ClInclude Include="framework.h" />
+    <ClInclude Include="IButton.h" />
+    <ClInclude Include="IDock.h" />
+    <ClInclude Include="IHorizontalScroller.h" />
+    <ClInclude Include="ISplitter.h" />
+    <ClInclude Include="IVerticalScroller.h" />
+    <ClInclude Include="IWindow.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="stb_truetype.h" />
     <ClInclude Include="Texture2D.h" />
+    <ClInclude Include="ThemeDarkUI.h" />
+    <ClInclude Include="UIControl.h" />
+    <ClInclude Include="UITheme.h" />
     <ClInclude Include="VividPipeline.h" />
     <ClInclude Include="Draw2D.h" />
     <ClInclude Include="VividApplication.h" />
@@ -168,19 +181,6 @@
     <ClInclude Include="VividRenderPass.h" />
     <ClInclude Include="VividRenderer.h" />
     <ClInclude Include="AppInput.h" />
-    <ClInclude Include="AppUI.h" />
-    <ClInclude Include="UIControl.h" />
-    <ClInclude Include="IButton.h" />
-    <ClInclude Include="IWindow.h" />
-    <ClInclude Include="IVerticalScroller.h" />
-    <ClInclude Include="IHorizontalScroller.h" />
-    <ClInclude Include="DockTypes.h" />
-    <ClInclude Include="DockNode.h" />
-    <ClInclude Include="DockLayout.h" />
-    <ClInclude Include="IDock.h" />
-    <ClInclude Include="ISplitter.h" />
-    <ClInclude Include="UITheme.h" />
-    <ClInclude Include="ThemeDarkUI.h" />
     <ClInclude Include="SceneGraph.h" />
     <ClInclude Include="RenderingPipelines.h" />
     <ClInclude Include="Material.h" />
@@ -189,11 +189,22 @@
     <ClInclude Include="SceneRenderer.h" />
     <ClInclude Include="CameraNode.h" />
     <ClInclude Include="LightNode.h" />
+    <ClInclude Include="PointShadowMap.h" />
+    <ClInclude Include="ShadowPipeline.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AppUI.cpp" />
+    <ClCompile Include="DockLayout.cpp" />
+    <ClCompile Include="DockNode.cpp" />
     <ClCompile Include="Font.cpp" />
     <ClCompile Include="GraphNode.cpp" />
     <ClCompile Include="CameraNode.cpp" />
+    <ClCompile Include="IButton.cpp" />
+    <ClCompile Include="IDock.cpp" />
+    <ClCompile Include="IHorizontalScroller.cpp" />
+    <ClCompile Include="ISplitter.cpp" />
+    <ClCompile Include="IVerticalScroller.cpp" />
+    <ClCompile Include="IWindow.cpp" />
     <ClCompile Include="LightNode.cpp" />
     <ClCompile Include="SceneGraph.cpp" />
     <ClCompile Include="RenderingPipelines.cpp" />
@@ -209,7 +220,11 @@
     <ClCompile Include="stb_image_impl.cpp" />
     <ClCompile Include="stb_truetype_impl.cpp" />
     <ClCompile Include="Texture2D.cpp" />
+    <ClCompile Include="ThemeDarkUI.cpp" />
+    <ClCompile Include="UIControl.cpp" />
+    <ClCompile Include="UITheme.cpp" />
     <ClCompile Include="VividPipeline.cpp" />
+    <ClCompile Include="ShadowPipeline.cpp" />
     <ClCompile Include="Draw2D.cpp" />
     <ClCompile Include="VividBuffer.cpp" />
     <ClCompile Include="VividEngine.cpp" />
@@ -220,19 +235,8 @@
     <ClCompile Include="VividRenderPass.cpp" />
     <ClCompile Include="VividRenderer.cpp" />
     <ClCompile Include="AppInput.cpp" />
-    <ClCompile Include="AppUI.cpp" />
-    <ClCompile Include="UIControl.cpp" />
-    <ClCompile Include="IButton.cpp" />
-    <ClCompile Include="IWindow.cpp" />
-    <ClCompile Include="IVerticalScroller.cpp" />
-    <ClCompile Include="IHorizontalScroller.cpp" />
-    <ClCompile Include="DockNode.cpp" />
-    <ClCompile Include="DockLayout.cpp" />
-    <ClCompile Include="IDock.cpp" />
-    <ClCompile Include="ISplitter.cpp" />
-    <ClCompile Include="UITheme.cpp" />
-    <ClCompile Include="ThemeDarkUI.cpp" />
     <ClCompile Include="SceneRenderer.cpp" />
+    <ClCompile Include="PointShadowMap.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="glfw" Version="3.4.0" />

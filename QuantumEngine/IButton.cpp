@@ -102,8 +102,8 @@ void IButton::OnDraw(Draw2D *draw2D) {
     // Draw text in white (or use theme foreground color)
     glm::vec4 textColor = m_Theme ? m_Theme->GetForegroundColor()
                                   : glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    draw2D->DrawText(glm::vec2(textX, textY), text, font, textColor,
-                     BlendMode::Alpha);
+    draw2D->RenderText(glm::vec2(textX, textY), text, font, textColor,
+                       BlendMode::Alpha);
   }
 }
 

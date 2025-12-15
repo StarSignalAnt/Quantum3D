@@ -23,9 +23,15 @@ Texture2D::Texture2D(VividDevice *device, const unsigned char *pixels,
   CreateTextureSampler();
 }
 
+Texture2D::Texture2D(VividDevice *device, VkImageView view, VkSampler sampler,
+                     int width, int height)
+    : m_DevicePtr(device), m_TextureImageView(view), m_TextureSampler(sampler),
+      m_Width(width), m_Height(height), m_OwnsResources(false) {}
+
 Texture2D::~Texture2D() {
   // Check if device pointer is still valid before cleanup
-  if (m_DevicePtr && m_DevicePtr->GetDevice() != VK_NULL_HANDLE) {
+  if (m_DevicePtr && m_DevicePtr->GetDevice() != VK_NULL_HANDLE &&
+      m_OwnsResources) {
     if (m_TextureSampler != VK_NULL_HANDLE) {
       vkDestroySampler(m_DevicePtr->GetDevice(), m_TextureSampler, nullptr);
     }

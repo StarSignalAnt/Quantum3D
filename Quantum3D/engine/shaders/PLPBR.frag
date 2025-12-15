@@ -7,7 +7,7 @@ layout(location = 2) in vec2 fragUV;
 layout(location = 3) in vec3 fragTangent;
 layout(location = 4) in vec3 fragBitangent;
 
-// Uniforms (Must match Vertex Shader UBO layout)
+// Uniforms - MUST match vertex shader UBO layout and C++ struct
 layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
@@ -17,31 +17,54 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 lightPos;
     float padding2;
     vec3 lightColor;
-    float lightRange; // 0 = infinite range, otherwise max light distance
+    float lightRange; 
 } ubo;
 
-// Textures
-// Binding 1: Albedo
-// Binding 2: Normal
-// Binding 3: Metallic
-// Binding 4: Roughness
+// Textures (all in set 0)
 layout(set = 0, binding = 1) uniform sampler2D albedoMap;
 layout(set = 0, binding = 2) uniform sampler2D normalMap;
 layout(set = 0, binding = 3) uniform sampler2D metallicMap;
 layout(set = 0, binding = 4) uniform sampler2D roughnessMap;
+
+// Shadow cube map
+layout(set = 0, binding = 5) uniform samplerCube shadowMap;
 
 // Output
 layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
+// Calculate shadow factor (0 = fully shadowed, 1 = fully lit)
+float calculateShadow(vec3 fragToLight, float currentDepth) {
+    // Sample the cube map using the direction from light to fragment
+    float closestDepth = texture(shadowMap, fragToLight).r;
+    
+    // Get the far plane used for shadow rendering
+    float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
+    
+    // Normalize current depth to match shadow map range (0-1)
+    float normalizedCurrent = currentDepth / shadowFarPlane;
+    
+    // Simple fixed bias
+    float bias = 0.01;
+    
+    // If we're past the far plane, no shadow
+    if (normalizedCurrent > 1.0) {
+        return 1.0;
+    }
+    
+    // Shadow: if current fragment is further than stored closest, we're in shadow
+    // closestDepth stores the distance to the nearest occluder
+    // If normalizedCurrent > closestDepth, something is between us and the light
+    float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
+    
+    return shadow;
+}
+
 // Calculate Normal from Normal Map using TBN matrix
 vec3 getNormalFromMap() {
     // Sample normal map and convert from [0,1] to [-1,1]
     vec3 tangentNormal = texture(normalMap, fragUV).xyz * 2.0 - 1.0;
-    
-    // TEMPORARY FIX: Green flip removed (didn't fix)
-    // tangentNormal.y = -tangentNormal.y;
 
     // Use interpolated TBN vectors directly (already in world space from vertex shader)
     vec3 N = normalize(fragNormal);
@@ -54,8 +77,6 @@ vec3 getNormalFromMap() {
     // Transform tangent-space normal to world space
     return normalize(TBN * tangentNormal);
 }
-
-
 
 // Fresnel Schlick
 vec3 fresnelSchlick(float cosTheta, vec3 F0) {
@@ -101,45 +122,20 @@ void main() {
     vec3 albedo     = pow(texture(albedoMap, fragUV).rgb, vec3(2.2)); // Linearize
     float metallic  = texture(metallicMap, fragUV).r;
     float roughness = texture(roughnessMap, fragUV).r;
-    float ao = 1.0; // AO Map Removed
-    vec3 emissive = vec3(0.0); // Emissive Map Removed
 
-    // Use normal map for per-pixel lighting (TBN-based normal mapping)
-    // Gram-Schmidt process to re-orthogonalize TBN
-    vec3 N_geom = normalize(fragNormal);
-    vec3 T_geom = normalize(fragTangent);
-    // Re-orthogonalize T with respect to N
-    T_geom = normalize(T_geom - dot(T_geom, N_geom) * N_geom);
-    // Retrieve B (we can use the one passed from vertex shader, but let's recompute to be safe/orthogonal)
-    // Actually, let's use the bitangent passed in but orthogonalize it too, or just cross product?
-    // Using cross product assumes a specific handedness. The vertex shader passes bitangent.
-    // Let's use the passed bitangent but orthogonalize it against N and T.
-    vec3 B_geom = normalize(fragBitangent);
-    // Strict Gram-Schmidt on B might be overkill if we just want a valid frame, 
-    // but ensures orthogonality.
-    // Simpler efficient way: B = cross(N, T) * sign. But we don't have sign easily.
-    // Let's just trust T and N are good now, and re-orthogonalize B against them?
-    // Or just use the original function with the improved vectors?
-    
-    // Let's stick to the simplest improvement:
+    // Use normal map for per-pixel lighting
     vec3 N = normalize(fragNormal);
     vec3 T = normalize(fragTangent);
     vec3 B = normalize(fragBitangent);
     
     // Gram-Schmidt re-orthogonalization
     T = normalize(T - dot(T, N) * N);
-    // Re-compute B to ensure it's perpendicular to both N and T
-    // Note: This assumes specific winding order. If normal map looks flipped, check this.
-    // For now, let's just use the passed bitangent, but orthogonalized.
-    // B = normalize(B - dot(B, N) * N - dot(B, T) * T); // Full re-orthogonalization
     
-    // Mat3 for TBN
     mat3 TBN = mat3(T, B, N);
-
-    // Sample normal map
     vec3 tangentNormal = texture(normalMap, fragUV).xyz * 2.0 - 1.0;
     vec3 N_pixel = normalize(TBN * tangentNormal);
-    N = N_pixel; // Use the pixel normal for lighting
+    N = N_pixel;
+    
     vec3 V = normalize(ubo.viewPos - fragWorldPos);
 
     // F0 for dielectrics is 0.04, for metals it matches albedo
@@ -152,32 +148,29 @@ void main() {
     // Single point light
     vec3 L = normalize(ubo.lightPos - fragWorldPos);
     
-    // Safe half-vector calculation - avoid NaN when V and L are opposite
+    // Safe half-vector calculation
     vec3 H_raw = V + L;
     float H_len = length(H_raw);
-    vec3 H = H_len > 0.0001 ? H_raw / H_len : N;  // Fallback to N if V and L are opposite
+    vec3 H = H_len > 0.0001 ? H_raw / H_len : N;
     
     // Calculate distance from pixel to light
-    float xd = ubo.lightPos.x - fragWorldPos.x;
-    float yd = ubo.lightPos.y - fragWorldPos.y;
-    float zd = ubo.lightPos.z - fragWorldPos.z;
-    float distance = sqrt(xd*xd + yd*yd + zd*zd);
+    float distance = length(ubo.lightPos - fragWorldPos);
     
-    // Range-based linear falloff:
-    // - At light position (distance=0): rangeFactor = 1.0 (full intensity)
-    // - At halfway (distance=range/2): rangeFactor = 0.5 (half intensity)
-    // - At range or beyond: rangeFactor = 0.0 (no light)
-    // When lightRange is 0, it means infinite range (no falloff)
+    // Range-based linear falloff
     float rangeFactor = 1.0;
     if (ubo.lightRange > 0.0) {
         rangeFactor = max(0.0, 1.0 - distance / ubo.lightRange);
     }
-    float lc = rangeFactor;
     
-    float attenuation = 1.0 / (distance * distance + 0.001);  // Avoid div by zero
-    vec3 radiance     = ubo.lightColor * attenuation * rangeFactor;  // Apply range falloff
+    float attenuation = 1.0 / (distance * distance + 0.001);
+    vec3 radiance = ubo.lightColor * attenuation * rangeFactor;
 
-    // Cook-Torrance BRDF for specular only
+    // Calculate shadow
+    vec3 fragToLight = fragWorldPos - ubo.lightPos;
+    fragToLight.x = - fragToLight.x;
+    float shadow = calculateShadow(fragToLight, distance);
+
+    // Cook-Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);   
     float G   = GeometrySmith(N, V, L, roughness);      
     vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
@@ -186,29 +179,22 @@ void main() {
     vec3 numerator    = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular     = numerator / denominator;
-    specular = clamp(specular, vec3(0.0), vec3(10.0));  // Clamp to prevent crazy values
+    specular = clamp(specular, vec3(0.0), vec3(10.0));
         
-    // Simplified: Direct diffuse without Fresnel energy conservation
-    // This avoids the dark spot issue while still looking good
+    // Diffuse
     float NdotL = max(dot(N, L), 0.0);        
     vec3 diffuse = albedo / PI;
-    
-    // Blend based on metallic - metals have no diffuse
     diffuse *= (1.0 - metallic);
     
-    // Combine diffuse and specular
-    Lo += (diffuse + specular) * radiance * NdotL; 
-
-    // No ambient lighting - will be added later as GI
-    vec3 ambient = vec3(0.0);
+    // Combine with shadow
+    Lo += (diffuse + specular) * radiance * NdotL * shadow; 
     
-    vec3 color = Lo + ambient + emissive; // Add emissive term
+    // Ambient (small amount so fully shadowed areas aren't completely black)
+    vec3 ambient = vec3(0.03) * albedo;
+    
+    vec3 color = Lo + ambient;
 
-    // HDR tonemapping
-   // color = color / (color + vec3(1.0));
-    // Gamma correction
-   // color = pow(color, vec3(1.0/2.2)); 
+    
 
-
-    outColor = vec4(color*lc, 1.0);
+    outColor = vec4(color, 1.0);
 }

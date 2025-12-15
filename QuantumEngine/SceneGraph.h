@@ -1,5 +1,6 @@
 #pragma once
 #include "GraphNode.h"
+#include "glm/glm.hpp"
 
 namespace Quantum {
 
@@ -42,6 +43,8 @@ public:
   const std::vector<std::shared_ptr<LightNode>> &GetLights() const {
     return m_Lights;
   }
+  // Get first light position (or default if no lights)
+  glm::vec3 GetLightPosition() const;
 
 private:
   std::shared_ptr<GraphNode> m_Root;

@@ -12,8 +12,18 @@ public:
   VividRenderer(VividDevice *device, int width, int height);
   ~VividRenderer();
 
+  // Standard rendering - begins command buffer AND render pass
   bool BeginFrame();
   void EndFrame();
+
+  // Split-phase rendering for shadow pass injection:
+  // 1. BeginFrameCommandBuffer() - starts command buffer, acquires image
+  // 2. (Caller does shadow render passes here)
+  // 3. BeginMainRenderPass() - starts the main render pass
+  // 4. (Caller does main rendering)
+  // 5. EndFrame() - ends render pass and submits
+  bool BeginFrameCommandBuffer();
+  void BeginMainRenderPass();
 
   VkCommandBuffer GetCommandBuffer() const {
     return m_CommandBufferPtr->GetCommandBuffer();

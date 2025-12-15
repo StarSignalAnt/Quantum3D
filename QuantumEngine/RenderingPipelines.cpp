@@ -1,4 +1,5 @@
 #include "RenderingPipelines.h"
+#include "VividPipeline.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -17,6 +18,16 @@ void RenderingPipelines::Initialize(Vivid::VividDevice *device,
   std::cout << "[RenderingPipelines] Initialize() called" << std::endl;
 
   if (m_Initialized) {
+    // If already initialized, check if we need to update the render pass
+    // (happens after swapchain recreation where InvalidatePipelines was called)
+    if (m_RenderPass == VK_NULL_HANDLE && renderPass != VK_NULL_HANDLE) {
+      std::cout << "[RenderingPipelines] Re-initializing with new render pass"
+                << std::endl;
+      m_Device = device;
+      m_RenderPass = renderPass;
+      m_DescriptorSetLayout = descriptorSetLayout;
+      return;
+    }
     std::cout << "[RenderingPipelines] Already initialized, skipping"
               << std::endl;
     return;
@@ -41,6 +52,21 @@ void RenderingPipelines::Shutdown() {
   m_Initialized = false;
 
   std::cout << "[RenderingPipelines] Shutdown complete" << std::endl;
+}
+
+void RenderingPipelines::InvalidatePipelines() {
+  std::cout << "[RenderingPipelines] InvalidatePipelines() called" << std::endl;
+
+  // Only destroy created pipeline objects, keep registrations intact
+  for (auto &pair : m_Pipelines) {
+    pair.second.pipeline.reset();
+  }
+
+  // Clear the render pass since it's now invalid
+  m_RenderPass = VK_NULL_HANDLE;
+
+  std::cout << "[RenderingPipelines] Pipelines invalidated (registrations kept)"
+            << std::endl;
 }
 
 void RenderingPipelines::RegisterPipeline(const std::string &name,

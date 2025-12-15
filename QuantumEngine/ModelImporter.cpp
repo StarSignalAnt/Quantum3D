@@ -1,6 +1,9 @@
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "ModelImporter.h"
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtc/quaternion.hpp"
+#include "glm/gtx/matrix_decompose.hpp"
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
@@ -18,6 +21,9 @@ ModelImporter::ImportEntity(const std::string &filePath,
   Assimp::Importer importer;
 
   // Import flags for optimal mesh processing
+  std::cout << "[ModelImporter] ImportEntity called for " << filePath
+            << " with Device: " << (void *)device << std::endl;
+
   unsigned int flags =
       aiProcess_Triangulate |           // Ensure triangles only
       aiProcess_GenNormals |            // Generate normals if missing
@@ -81,17 +87,25 @@ std::shared_ptr<GraphNode> ModelImporter::ProcessNode(
 
   glm::mat4 newTransform = correction * transform * invCorrection;
 
-  // Decompose transform
-  graphNode->SetLocalPosition(glm::vec3(newTransform[3]));
+  // Decompose transform using GLM to properly handle scaling
+  glm::vec3 scale;
+  glm::quat rotation;
+  glm::vec3 translation;
+  glm::vec3 skew;
+  glm::vec4 perspective;
+  glm::decompose(newTransform, scale, rotation, translation, skew, perspective);
 
-  // Extract rotation (upper 3x3)
-  glm::mat4 rotation(1.0f);
-  for (int i = 0; i < 3; i++) {
-    for (int j = 0; j < 3; j++) {
-      rotation[i][j] = newTransform[i][j];
-    }
+  graphNode->SetLocalPosition(translation);
+  //graphNode->SetLocalRotation(glm::mat4_cast(rotation));
+  graphNode->SetLocalScale(glm::vec3(1, 1, 1));
+
+
+  // Debug print to confirm scale
+  if (scale.x != 1.0f || scale.y != 1.0f || scale.z != 1.0f) {
+    std::cout << "[ModelImporter] Node '" << node->mName.C_Str()
+              << "' has scale: " << scale.x << ", " << scale.y << ", "
+              << scale.z << std::endl;
   }
-  graphNode->SetLocalRotation(rotation);
 
   // Process all meshes in this node
   for (unsigned int i = 0; i < node->mNumMeshes; i++) {

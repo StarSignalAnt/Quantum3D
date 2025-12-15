@@ -15,6 +15,7 @@
 namespace Vivid {
 class VividDevice;
 class VividRenderer;
+class Draw2D;
 } // namespace Vivid
 
 namespace Quantum {
@@ -48,6 +49,9 @@ protected:
 private slots:
   void renderFrame();
 
+public slots:
+  void OnModelImported(); // Called when BrowserWidget imports a model
+
 private:
   void initVulkan();
   void cleanupVulkan();
@@ -57,6 +61,7 @@ private:
 
   Vivid::VividDevice *m_Device = nullptr;
   Vivid::VividRenderer *m_Renderer = nullptr;
+  std::unique_ptr<Vivid::Draw2D> m_Draw2D;
   QTimer *m_RenderTimer = nullptr;
 
   // Scene Renderer

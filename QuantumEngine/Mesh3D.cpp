@@ -1,6 +1,8 @@
 #include "Mesh3D.h"
 #include <cstring>
+#include <iostream>
 #include <stdexcept>
+#include <vulkan/vulkan.h>
 
 namespace Quantum {
 
@@ -116,6 +118,9 @@ void Mesh3D::Finalize(Vivid::VividDevice *device) {
 
   // Create vertex buffer
   VkDeviceSize vertexBufferSize = sizeof(Vertex3D) * m_Vertices.size();
+  std::cout << "[Mesh3D] Finalizing '" << m_Name << "': " << m_Vertices.size()
+            << " vertices (" << vertexBufferSize << " bytes)" << std::endl;
+
   m_VertexBuffer = std::make_unique<Vivid::VividBuffer>(
       device, vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -124,9 +129,15 @@ void Mesh3D::Finalize(Vivid::VividDevice *device) {
   m_VertexBuffer->WriteToBuffer((void *)m_Vertices.data(), vertexBufferSize);
   m_VertexBuffer->Unmap();
 
+  std::cout << "[Mesh3D] Vertex Buffer Created: "
+            << (void *)m_VertexBuffer->GetBuffer() << std::endl;
+
   // Create index buffer
   std::vector<uint32_t> indices = GetIndexData();
   VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
+  std::cout << "[Mesh3D] Finalizing '" << m_Name << "': " << indices.size()
+            << " indices (" << indexBufferSize << " bytes)" << std::endl;
+
   m_IndexBuffer = std::make_unique<Vivid::VividBuffer>(
       device, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -135,24 +146,23 @@ void Mesh3D::Finalize(Vivid::VividDevice *device) {
   m_IndexBuffer->WriteToBuffer((void *)indices.data(), indexBufferSize);
   m_IndexBuffer->Unmap();
 
+  std::cout << "[Mesh3D] Index Buffer Created: "
+            << (void *)m_IndexBuffer->GetBuffer() << std::endl;
+
   m_Finalized = true;
-}
-
-VkBuffer Mesh3D::GetVertexBuffer() const {
-  if (!m_VertexBuffer)
-    return VK_NULL_HANDLE;
-  return m_VertexBuffer->GetBuffer();
-}
-
-VkBuffer Mesh3D::GetIndexBuffer() const {
-  if (!m_IndexBuffer)
-    return VK_NULL_HANDLE;
-  return m_IndexBuffer->GetBuffer();
 }
 
 void Mesh3D::Bind(VkCommandBuffer commandBuffer) const {
   if (!m_Finalized) {
-    throw std::runtime_error("Mesh must be finalized before binding");
+    std::cerr << "[Mesh3D] ERROR: Attempted to bind unfinalized mesh"
+              << std::endl;
+    return;
+  }
+
+  if (!m_VertexBuffer || !m_IndexBuffer) {
+    std::cerr << "[Mesh3D] ERROR: Attempted to bind mesh with null buffers"
+              << std::endl;
+    return;
   }
 
   VkBuffer vertexBuffers[] = {m_VertexBuffer->GetBuffer()};

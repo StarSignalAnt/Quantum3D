@@ -565,9 +565,9 @@ void IWindow::OnDraw(Draw2D *draw2D) {
       glm::vec2 ts = font->MeasureText(GetText()) * scale;
       float xOffset = (myWidth - ts.x) * 0.5f;
       float yOffset = (headerH - ts.y) * 0.5f;
-      draw2D->DrawText(glm::vec2(ghostPos.x + xOffset,
-                                 ghostPos.y + yOffset - (1.0f * scale)),
-                       GetText(), font, glm::vec4(1.0f, 1.0f, 1.0f, 0.9f));
+      draw2D->RenderText(glm::vec2(ghostPos.x + xOffset,
+                                   ghostPos.y + yOffset - (1.0f * scale)),
+                         GetText(), font, glm::vec4(1.0f, 1.0f, 1.0f, 0.9f));
     }
   }
 
@@ -606,8 +606,8 @@ void IWindow::OnDraw(Draw2D *draw2D) {
         glm::vec2 textSize = font->MeasureText(title) * scaleVal;
         float yCenter =
             titleRect.y + (titleRect.w - textSize.y) * 0.5f - (3.0f * scaleVal);
-        draw2D->DrawText(glm::vec2(titleRect.x + 10.0f, yCenter), title, font,
-                         theme->GetTitleTextColor());
+        draw2D->RenderText(glm::vec2(titleRect.x + 10.0f, yCenter), title, font,
+                           theme->GetTitleTextColor());
       }
     } else {
       // Has tabs: draw tab bar
@@ -666,7 +666,7 @@ void IWindow::DrawTabs(Draw2D *draw2D) {
       float xOffset = (tabWidth - ts.x) * 0.5f;
       float yOffset = (headerH - ts.y) * 0.5f;
 
-      draw2D->DrawText(
+      draw2D->RenderText(
           glm::vec2(startX + xOffset, tabY + yOffset - (1.0f * scale)), t, font,
           theme->GetTitleTextColor());
     }

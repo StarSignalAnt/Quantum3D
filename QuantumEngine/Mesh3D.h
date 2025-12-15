@@ -86,9 +86,18 @@ public:
   void Finalize(Vivid::VividDevice *device);
   bool IsFinalized() const { return m_Finalized; }
 
+  // Robust check for valid buffers
+  bool IsValid() const {
+    return m_Finalized && m_VertexBuffer && m_IndexBuffer;
+  }
+
   // Vulkan buffer access (after Finalize)
-  VkBuffer GetVertexBuffer() const;
-  VkBuffer GetIndexBuffer() const;
+  VkBuffer GetVertexBuffer() const {
+    return m_VertexBuffer ? m_VertexBuffer->GetBuffer() : VK_NULL_HANDLE;
+  }
+  VkBuffer GetIndexBuffer() const {
+    return m_IndexBuffer ? m_IndexBuffer->GetBuffer() : VK_NULL_HANDLE;
+  }
 
   // Bind buffers to command buffer for rendering
   void Bind(VkCommandBuffer commandBuffer) const;

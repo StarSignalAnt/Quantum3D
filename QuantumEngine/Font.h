@@ -1,13 +1,13 @@
 #pragma once
 
-#include "Texture2D.h"
-#include "VividDevice.h"
 #include "glm/glm.hpp"
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace Vivid {
+class Texture2D;
+class VividDevice;
 
 // Character glyph info
 struct GlyphInfo {

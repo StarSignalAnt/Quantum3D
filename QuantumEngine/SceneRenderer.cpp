@@ -1,10 +1,12 @@
 #include "SceneRenderer.h"
 #include "CameraNode.h"
+#include "Draw2D.h"
 #include "GraphNode.h"
 #include "LightNode.h"
 #include "Material.h"
 #include "Mesh3D.h"
 #include "RenderingPipelines.h"
+#include "Texture2D.h"
 #include "VividApplication.h"
 #include "VividPipeline.h"
 #include "glm/glm.hpp"
@@ -138,6 +140,9 @@ void SceneRenderer::Initialize() {
               << std::endl;
   }
 
+  // Initialize shadow mapping resources
+  InitializeShadowResources();
+
   m_Initialized = true;
   std::cout << "[SceneRenderer] Initialization complete" << std::endl;
 }
@@ -158,6 +163,14 @@ void SceneRenderer::Shutdown() {
 
   std::cout << "[SceneRenderer] Resetting scene graph..." << std::endl;
   m_SceneGraph.reset();
+
+  // Cleanup shadow resources
+  std::cout << "[SceneRenderer] Cleaning up shadow resources..." << std::endl;
+  m_ShadowPipeline.reset();
+  if (m_ShadowMap) {
+    m_ShadowMap->Shutdown();
+    m_ShadowMap.reset();
+  }
 
   std::cout << "[SceneRenderer] Resetting uniform buffer..." << std::endl;
   m_UniformBuffer.reset();
@@ -266,9 +279,17 @@ void SceneRenderer::CreateDescriptorSetLayout() {
   roughnessBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   roughnessBinding.pImmutableSamplers = nullptr;
 
-  std::array<VkDescriptorSetLayoutBinding, 5> bindings = {
-      uboLayoutBinding, albedoBinding, normalBinding, metallicBinding,
-      roughnessBinding};
+  // Binding 5: Shadow cube map
+  VkDescriptorSetLayoutBinding shadowBinding{};
+  shadowBinding.binding = 5;
+  shadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  shadowBinding.descriptorCount = 1;
+  shadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  shadowBinding.pImmutableSamplers = nullptr;
+
+  std::array<VkDescriptorSetLayoutBinding, 6> bindings = {
+      uboLayoutBinding, albedoBinding,    normalBinding,
+      metallicBinding,  roughnessBinding, shadowBinding};
 
   VkDescriptorSetLayoutCreateInfo layoutInfo{};
   layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -292,17 +313,19 @@ void SceneRenderer::CreateDescriptorSetLayout() {
 void SceneRenderer::CreateDescriptorPool() {
   std::cout << "[SceneRenderer] CreateDescriptorPool() started" << std::endl;
 
+  // Increased to support per-material descriptor sets + shadow map
   std::array<VkDescriptorPoolSize, 2> poolSizes{};
   poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-  poolSizes[0].descriptorCount = 1;
+  poolSizes[0].descriptorCount = 10; // Global UBO + spare
   poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  poolSizes[1].descriptorCount = 4; // 4 PBR textures (Albedo, Norm, Met, Rough)
+  poolSizes[1].descriptorCount =
+      500; // 5 textures (4 PBR + 1 shadow) * 100 materials
 
   VkDescriptorPoolCreateInfo poolInfo{};
   poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
   poolInfo.pPoolSizes = poolSizes.data();
-  poolInfo.maxSets = 1;
+  poolInfo.maxSets = 100; // Support up to 100 materials
 
   VkResult result = vkCreateDescriptorPool(m_Device->GetDevice(), &poolInfo,
                                            nullptr, &m_DescriptorPool);
@@ -514,7 +537,7 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
 
     // Just use identity model (ignore node transform for now)
     // Place model 5 units in front of camera
-    ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+    ubo.model = node->GetWorldMatrix();// glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
 
     // Use active camera if available, otherwise fallback to default
     auto camera = m_SceneGraph->GetCurrentCamera();
@@ -541,19 +564,31 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     }
     ubo.padding = 0.0f;
 
-    // Use first light from scene graph if available
-    if (m_SceneGraph && !m_SceneGraph->GetLights().empty()) {
-      auto light = m_SceneGraph->GetLights()[0];
-      ubo.lightPos = light->GetWorldPosition();
-      ubo.lightColor = light->GetColor();
-      ubo.lightRange = light->GetRange();
+    // Use centralized light retrieval from SceneGraph
+    if (m_SceneGraph) {
+      ubo.lightPos = m_SceneGraph->GetLightPosition();
+
+      // Get color and range if a light exists, otherwise use defaults matching
+      // GetLightPosition's implicit behavior
+      if (!m_SceneGraph->GetLights().empty()) {
+        auto light = m_SceneGraph->GetLights()[0];
+        ubo.lightColor = light->GetColor();
+        ubo.lightRange = light->GetRange();
+      } else {
+        // Default fallbacks matching GetLightPosition default of (5,5,5)
+        ubo.lightColor = glm::vec3(150.0f, 150.0f, 150.0f);
+        ubo.lightRange = 0.0f; // Infinite
+      }
     } else {
-      // Fallback: Light above and to the side
-      ubo.lightPos = glm::vec3(3.0f, 8.0f, -2.0f);
-      // White light - good intensity for PBR
+      ubo.lightPos = glm::vec3(5.0f, 5.0f, 5.0f);
       ubo.lightColor = glm::vec3(150.0f, 150.0f, 150.0f);
-      ubo.lightRange = 0.0f; // Infinite range
+      ubo.lightRange = 0.0f;
     }
+
+    // Debug output to verify light position sync
+    // std::cout << "Light Pos: " << ubo.lightPos.x << "," << ubo.lightPos.y <<
+    // "," << ubo.lightPos.z << std::endl;
+
     ubo.padding2 = 0.0f;
 
     m_UniformBuffer->WriteToBuffer(&ubo, sizeof(ubo));
@@ -600,21 +635,38 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
             m_CurrentPipeline = meshPipeline;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               meshPipeline->GetPipeline());
-
-            // Bind descriptor set with the new pipeline's layout
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    meshPipeline->GetPipelineLayout(), 0, 1,
-                                    &m_DescriptorSet, 0, nullptr);
           }
 
-          // PBR textures are updated in SetSceneGraph, not during rendering
-          // (Vulkan does not allow descriptor updates during command buffer
-          // recording)
+          // Safety check: ensure we have a bound pipeline
+          if (!m_CurrentPipeline) {
+            std::cerr << "[SceneRenderer] ERROR: No pipeline bound!"
+                      << std::endl;
+            continue;
+          }
+
+          // Bind the material's descriptor set (per-material textures)
+          VkDescriptorSet descriptorSetToBind =
+              m_DescriptorSet; // Default fallback
+          if (material && material->HasDescriptorSet()) {
+            descriptorSetToBind = material->GetDescriptorSet();
+          }
+
+          if (descriptorSetToBind != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    meshPipeline->GetPipelineLayout(), 0, 1,
+                                    &descriptorSetToBind, 0, nullptr);
+          } else {
+            std::cerr << "[SceneRenderer] ERROR: Descriptor set is null!"
+                      << std::endl;
+            continue;
+          }
 
           mesh->Bind(cmd);
           uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
-          vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
-          m_RenderMeshCount++;
+          if (indexCount > 0) {
+            vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+            m_RenderMeshCount++;
+          }
 
           // Log first mesh details
           static bool loggedFirstMesh = false;
@@ -787,24 +839,291 @@ void SceneRenderer::UpdateFirstMaterialTextures(GraphNode *node) {
   if (!node)
     return;
 
-  // Check if this node has meshes with materials
+  // First pass: Look for a material WITH an albedo texture
   for (const auto &mesh : node->GetMeshes()) {
     if (mesh) {
       auto material = mesh->GetMaterial();
-      if (material) {
-        std::cout << "[SceneRenderer] Found material: " << material->GetName()
-                  << std::endl;
-        std::cout << "[SceneRenderer] Binding textures from first material..."
-                  << std::endl;
+      if (material && material->GetAlbedoTexture()) {
+        std::cout << "[SceneRenderer] Found material with textures: "
+                  << material->GetName() << std::endl;
         UpdatePBRTextures(material.get());
-        return; // Only update with first material found
+        return; // Use this material's textures
       }
     }
   }
 
-  // Recursively check children
+  // Second pass: If no material with textures found at this level, check
+  // children
+  for (const auto &child : node->GetChildren()) {
+    // Check if child has a material with textures before recursing
+    for (const auto &mesh : child->GetMeshes()) {
+      if (mesh) {
+        auto material = mesh->GetMaterial();
+        if (material && material->GetAlbedoTexture()) {
+          std::cout << "[SceneRenderer] Found material with textures in child: "
+                    << material->GetName() << std::endl;
+          UpdatePBRTextures(material.get());
+          return;
+        }
+      }
+    }
+  }
+
+  // Recursively check children if no material with textures found
   for (const auto &child : node->GetChildren()) {
     UpdateFirstMaterialTextures(child.get());
+  }
+}
+
+void SceneRenderer::RefreshMaterialTextures() {
+  std::cout << "[SceneRenderer] RefreshMaterialTextures: Creating per-material "
+               "descriptor sets..."
+            << std::endl;
+
+  if (!m_SceneGraph || !m_SceneGraph->GetRoot()) {
+    std::cout << "[SceneRenderer] RefreshMaterialTextures: No scene graph"
+              << std::endl;
+    return;
+  }
+
+  // Wait for GPU to be idle before updating descriptors
+  vkDeviceWaitIdle(m_Device->GetDevice());
+
+  // Create descriptor sets for all materials in the scene
+  CreateMaterialDescriptorSetsRecursive(m_SceneGraph->GetRoot());
+
+  std::cout << "[SceneRenderer] RefreshMaterialTextures: Complete" << std::endl;
+}
+
+void SceneRenderer::CreateMaterialDescriptorSetsRecursive(GraphNode *node) {
+  if (!node)
+    return;
+
+  for (const auto &mesh : node->GetMeshes()) {
+    if (mesh) {
+      auto material = mesh->GetMaterial();
+      if (material && !material->HasDescriptorSet()) {
+        // Ensure material has default textures for missing slots
+        material->CheckRequiredTextures(m_Device);
+        // Create the per-material descriptor set (with UBO + textures + shadow
+        // map)
+        material->CreateDescriptorSet(
+            m_Device, m_DescriptorPool, m_DescriptorSetLayout, m_DefaultTexture,
+            m_UniformBuffer->GetBuffer(), sizeof(UniformBufferObject),
+            m_ShadowMap ? m_ShadowMap->GetCubeImageView() : VK_NULL_HANDLE,
+            m_ShadowMap ? m_ShadowMap->GetSampler() : VK_NULL_HANDLE);
+      }
+    }
+  }
+
+  for (const auto &child : node->GetChildren()) {
+    CreateMaterialDescriptorSetsRecursive(child.get());
+  }
+}
+
+void SceneRenderer::InitializeShadowResources() {
+  std::cout << "[SceneRenderer] InitializeShadowResources() called"
+            << std::endl;
+
+  // Create shadow map (1024x1024 cube map)
+  m_ShadowMap = std::make_unique<PointShadowMap>();
+
+  // Initialize PointShadowMap
+  m_ShadowMap->Initialize(m_Device);
+
+  // Initialize ShadowPipeline
+  m_ShadowPipeline = std::make_unique<ShadowPipeline>(
+      m_Device, "engine/shaders/ShadowDepth.vert.spv",
+      "engine/shaders/ShadowDepth.frag.spv", m_ShadowMap->GetRenderPass());
+
+  // Create debug Texture2D wrappers for each face
+  m_FaceTextures.clear();
+  for (uint32_t i = 0; i < PointShadowMap::NUM_FACES; i++) {
+    auto faceView = m_ShadowMap->GetFaceImageView(i);
+    // Use the shadow map's sampler (or create a new one if needed, but safe to
+    // reuse)
+    auto sampler = m_ShadowMap->GetSampler();
+    int size = (int)m_ShadowMap->GetResolution();
+
+    auto texture = std::make_unique<Vivid::Texture2D>(m_Device, faceView,
+                                                      sampler, size, size);
+    m_FaceTextures.push_back(std::move(texture));
+  }
+  std::cout << "[SceneRenderer] Shadow pipeline created" << std::endl;
+}
+
+void SceneRenderer::RenderShadowDebug(Vivid::Draw2D *draw2d) {
+  if (!draw2d || m_FaceTextures.empty())
+    return;
+
+  // Draw 6 faces in a row at the top
+  float size = 200.0f;
+  float padding = 10.0f;
+  float startX = 10.0f;
+  float startY = 10.0f;
+
+  for (size_t i = 0; i < m_FaceTextures.size(); i++) {
+    glm::vec2 pos(startX + i * (size + padding), startY);
+    glm::vec2 dim(size, size);
+
+    // Draw colored border to identify faces
+    glm::vec4 borderColor(1, 1, 1, 1);
+    switch (i) {
+    case 0:
+      borderColor = glm::vec4(1, 0, 0, 1);
+      break; // Red (+X)
+    case 1:
+      borderColor = glm::vec4(0, 1, 0, 1);
+      break; // Green (-X)
+    case 2:
+      borderColor = glm::vec4(0, 0, 1, 1);
+      break; // Blue (+Y)
+    case 3:
+      borderColor = glm::vec4(1, 1, 0, 1);
+      break; // Yellow (-Y)
+    case 4:
+      borderColor = glm::vec4(0, 1, 1, 1);
+      break; // Cyan (+Z)
+    case 5:
+      borderColor = glm::vec4(1, 0, 1, 1);
+      break; // Magenta (-Z)
+    }
+
+    // Draw background rect (black) to see if texture is empty/transparent
+    draw2d->DrawRectOutline(pos, dim, m_DefaultTexture.get(), borderColor);
+
+    // Draw texture
+    // Use red color to tint? No, white.
+    // Ensure BlendMode handles single channel?
+    // Usually single channel R is rendered as Red? Or Grayscale?
+    // If Draw2D shader samples just RGB, and texture provides RRR1 or R001.
+    draw2d->DrawTexture(pos, dim, m_FaceTextures[i].get(), glm::vec4(1.0f));
+  }
+}
+void SceneRenderer::RenderShadowPass(VkCommandBuffer cmd) {
+  if (!m_ShadowsEnabled || !m_ShadowMap || !m_ShadowPipeline || !m_SceneGraph) {
+    return;
+  }
+
+  auto root = m_SceneGraph->GetRoot();
+  if (!root) {
+    return;
+  }
+  auto lp = m_SceneGraph->GetLightPosition();
+
+  // m_MainLight->SetLocalPosition(lp);
+
+  // Get light position from first light node or use default
+  glm::vec3 lightPos = m_SceneGraph->GetLightPosition();
+  lightPos = lp;
+
+  // Update shadow map far plane to match light range (if applicable)
+  float lightRange = 0.0f;
+  if (!m_SceneGraph->GetLights().empty()) {
+    lightRange = m_SceneGraph->GetLights()[0]->GetRange();
+  }
+
+  // If range is 0 (infinite), keep default 100.0f, otherwise sync
+  if (lightRange > 0.0f) {
+    m_ShadowMap->SetFarPlane(lightRange);
+  }
+
+  float farPlane = m_ShadowMap->GetFarPlane();
+
+  // Render to each of the 6 cube faces
+  for (uint32_t face = 0; face < 6; ++face) {
+    glm::mat4 lightSpaceMatrix =
+        m_ShadowMap->GetLightSpaceMatrix(lightPos, face);
+
+    // Begin render pass for this face
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = m_ShadowMap->GetRenderPass();
+    renderPassInfo.framebuffer = m_ShadowMap->GetFramebuffer(face);
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent.width = m_ShadowMap->GetResolution();
+    renderPassInfo.renderArea.extent.height = m_ShadowMap->GetResolution();
+
+    VkClearValue clearValue{};
+    clearValue.depthStencil = {1.0f, 0};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearValue;
+
+    vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    // Set viewport and scissor
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(m_ShadowMap->GetResolution());
+    viewport.height = static_cast<float>(m_ShadowMap->GetResolution());
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = renderPassInfo.renderArea.extent;
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    // Bind shadow pipeline
+    m_ShadowPipeline->Bind(cmd);
+
+    // Render scene to shadow map
+    RenderNodeToShadow(cmd, root, lightSpaceMatrix);
+
+    vkCmdEndRenderPass(cmd);
+  }
+}
+
+void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
+                                       const glm::mat4 &lightSpaceMatrix) {
+  if (!node) {
+    return;
+  }
+
+  // Get light position and far plane
+  glm::vec3 lightPos = m_SceneGraph->GetLightPosition();
+  float farPlane = m_ShadowMap->GetFarPlane();
+
+  auto l1 = m_SceneGraph->GetLights()[0];
+
+  farPlane = l1->GetRange();
+
+  node->SetLocalScale(1, 1, 1);
+
+  // Render each mesh
+  for (const auto &mesh : node->GetMeshes()) {
+    if (mesh && mesh->IsFinalized()) {
+      // Calculate model matrix
+      glm::mat4 modelMatrix = node->GetWorldMatrix();
+
+      // Push constants for shadow rendering
+      ShadowPushConstants pc{};
+      pc.lightSpaceMatrix = lightSpaceMatrix;
+      pc.model = modelMatrix;
+      pc.lightPos = glm::vec4(lightPos, farPlane); // Packed into w
+
+      // Log matrices for the first face of the monkey to debug
+      vkCmdPushConstants(cmd, m_ShadowPipeline->GetPipelineLayout(),
+                         VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(ShadowPushConstants), &pc);
+
+      // Bind and draw mesh
+      // std::cout << "Rendering shadow mesh for node: " << node->GetName() << "
+      // vertices: " << mesh->GetVertexCount() << std::endl;
+      mesh->Bind(cmd);
+      uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
+      if (indexCount > 0) {
+        vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
+      }
+    }
+  }
+
+  // Recursively render children
+  for (const auto &child : node->GetChildren()) {
+    RenderNodeToShadow(cmd, child.get(), lightSpaceMatrix);
   }
 }
 

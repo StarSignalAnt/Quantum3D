@@ -384,8 +384,8 @@ void IDock::DrawNodeDebug(Draw2D *draw2D, std::shared_ptr<DockLayoutNode> node,
       // Center text
       // Assuming we don't have GetTextSize, just guess centering or print at
       // top left + offset Draw2D has DrawText
-      draw2D->DrawText(pos + size * 0.5f - glm::vec2(20, 10), text, font,
-                       glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
+      draw2D->RenderText(pos + size * 0.5f - glm::vec2(20, 10), text, font,
+                         glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
     }
 
     counter++;

@@ -1,6 +1,13 @@
 #include "Draw2D.h"
 #include "AppUI.h"
-#include "UITheme.h"
+
+#include "Font.h"
+#include "Texture2D.h"
+
+#include "VividBuffer.h"
+#include "VividDevice.h"
+#include "VividPipeline.h"
+#include "VividRenderer.h"
 #include "pch.h"
 #include <stdexcept>
 
@@ -63,8 +70,8 @@ void Draw2D::CreateDescriptorPool() {
 }
 
 void Draw2D::CreatePipelines(VkRenderPass renderPass) {
-  const std::string vertPath = "engine/shader/Basic2D.vert.spv";
-  const std::string fragPath = "engine/shader/Basic2D.frag.spv";
+  const std::string vertPath = "engine/shaders/Basic2D.vert.spv";
+  const std::string fragPath = "engine/shaders/Basic2D.frag.spv";
 
   // Solid - No blending
   BlendConfig solidConfig;
@@ -170,8 +177,8 @@ void Draw2D::DrawRectOutline(const glm::vec2 &pos, const glm::vec2 &size,
               glm::vec2(thickness, size.y), tex, col);
 }
 
-void Draw2D::DrawText(const glm::vec2 &pos, const std::string &text, Font *font,
-                      const glm::vec4 &col, BlendMode blend) {
+void Draw2D::RenderText(const glm::vec2 &pos, const std::string &text,
+                        Font *font, const glm::vec4 &col, BlendMode blend) {
   if (!font || text.empty())
     return;
 

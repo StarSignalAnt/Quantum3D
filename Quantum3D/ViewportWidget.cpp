@@ -9,15 +9,18 @@
 
 // Include QuantumEngine headers
 #include "../QuantumEngine/CameraNode.h"
+#include "../QuantumEngine/Draw2D.h" // Added for debug overlay
 #include "../QuantumEngine/GraphNode.h"
 #include "../QuantumEngine/LightNode.h"
 #include "../QuantumEngine/ModelImporter.h"
+#include "../QuantumEngine/RenderingPipelines.h"
 #include "../QuantumEngine/SceneGraph.h"
 #include "../QuantumEngine/SceneRenderer.h"
 #include "../QuantumEngine/VividDevice.h"
 #include "../QuantumEngine/VividRenderer.h"
 
 #include "../QuantumEngine/VividApplication.h"
+#include "EngineGlobals.h"
 
 ViewportWidget::ViewportWidget(QWidget *parent) : QWidget(parent) {
   // Set the widget to be a native window so we get a real HWND
@@ -31,8 +34,10 @@ ViewportWidget::ViewportWidget(QWidget *parent) : QWidget(parent) {
   // Set minimum size
   setMinimumSize(100, 100);
 
-  // Defer Vulkan initialization until first paint/resize
-  // This ensures the widget has a valid HWND
+  if (!EngineGlobals::EditorScene) {
+    EngineGlobals::EditorScene = std::make_shared<Quantum::SceneGraph>();
+  }
+  m_SceneGraph = EngineGlobals::EditorScene;
 }
 
 ViewportWidget::~ViewportWidget() { cleanupVulkan(); }
@@ -63,6 +68,7 @@ void ViewportWidget::initVulkan() {
 
     // Create Vulkan device using Win32 surface
     m_Device = new Vivid::VividDevice(hwnd, hinstance, "Quantum3D Viewport");
+    EngineGlobals::VulkanDevice = m_Device; // Expose device globally
 
     // Create renderer
     m_Renderer = new Vivid::VividRenderer(m_Device, m_Width, m_Height);
@@ -71,6 +77,10 @@ void ViewportWidget::initVulkan() {
     m_SceneRenderer =
         std::make_unique<Quantum::SceneRenderer>(m_Device, m_Renderer);
     m_SceneRenderer->Initialize();
+
+    // Create 2D renderer for debug overlay
+    m_Draw2D =
+        std::make_unique<Vivid::Draw2D>(m_Device, m_Renderer->GetRenderPass());
 
     // Setup render timer for continuous rendering (60 FPS target)
     m_RenderTimer = new QTimer(this);
@@ -103,21 +113,15 @@ void ViewportWidget::initScene() {
   qDebug() << "Offset Bitangent:" << offsetof(Quantum::Vertex3D, bitangent);
 
   try {
-    // Create scene graph
-    m_SceneGraph = std::make_shared<Quantum::SceneGraph>();
-
-    // Import test model (path relative to x64/Debug where exe runs)
-    m_TestModel =
-        Quantum::ModelImporter::ImportEntity("test/monkey.fbx", m_Device);
+    // EngineGlobals::EditorScene is already ensured in Constructor/initVulkan
+    // sequence if needed, but good to check.
+    if (!EngineGlobals::EditorScene) {
+      EngineGlobals::EditorScene = std::make_shared<Quantum::SceneGraph>();
+    }
+    m_SceneGraph = EngineGlobals::EditorScene;
 
     if (m_TestModel) {
-      m_SceneGraph->GetRoot()->AddChild(m_TestModel);
-
-      // Position the model
-      m_TestModel->SetLocalPosition(0.0f, 0.0f, -5.0f);
-
-      std::cout << "Test model loaded successfully with "
-                << m_TestModel->GetMeshCount() << " meshes" << std::endl;
+      // m_SceneGraph->GetRoot()->AddChild(m_TestModel);
     } else {
       std::cerr << "Failed to load test model!" << std::endl;
     }
@@ -134,12 +138,22 @@ void ViewportWidget::initScene() {
 
     // Create Test Light
     m_MainLight = std::make_shared<Quantum::LightNode>("MainLight");
-    m_MainLight->SetColor(glm::vec3(150.0f, 150.0f, 150.0f));
-    m_MainLight->SetLocalPosition(2.0f, 4.0f, 2.0f); // Position light
-    m_MainLight->SetRange(60.0f);
+    m_MainLight->SetColor(glm::vec3(250.0f, 250.0f, 250.0f));
+    m_MainLight->SetLocalPosition(0.0f, 2.0f,
+                                  5.0f); // Position light in FRONT ensures
+                                         // intuitive face mapping (Face 5)
+    m_MainLight->SetRange(250.0f);
     m_SceneGraph->AddLight(m_MainLight);
 
-    // Initialize Editor Camera
+    // Scaling the monkey down because import scalefactor is 100
+    // We can do this on the root node or the monkey node if we had a reference
+    // But since we import via file drop or code, let's look for it?
+    // For now, relying on the user to drop it?
+    // Wait, m_TestModel is loaded in initScene.
+    if (m_TestModel) {
+      m_TestModel->SetLocalScale(0.01f);
+      m_SceneGraph->GetRoot()->AddChild(m_TestModel); // Re-enable adding child
+    }
     m_EditorCamera = std::make_unique<EditorCamera>();
     m_EditorCamera->SetCamera(camera);
 
@@ -148,7 +162,6 @@ void ViewportWidget::initScene() {
 
     m_SceneInitialized = true;
     std::cout << "Scene initialized successfully" << std::endl;
-
   } catch (const std::exception &e) {
     std::cerr << "Failed to initialize scene: " << e.what() << std::endl;
   }
@@ -159,6 +172,9 @@ void ViewportWidget::cleanupVulkan() {
     vkDeviceWaitIdle(m_Device->GetDevice());
   }
 
+  // Cleanup Draw2D
+  m_Draw2D.reset();
+
   if (m_RenderTimer) {
     m_RenderTimer->stop();
     delete m_RenderTimer;
@@ -168,6 +184,14 @@ void ViewportWidget::cleanupVulkan() {
   // Clear scene
   m_TestModel.reset();
   m_SceneGraph.reset();
+
+  // CRITICAL: Clear the global scene reference as it holds GPU resources
+  // tied to the device we are about to destroy.
+  EngineGlobals::EditorScene.reset();
+
+  // Shutdown the pipeline singleton BEFORE destroying the renderer
+  // Otherwise it holds stale pointers to the destroyed VividRenderer
+  Quantum::RenderingPipelines::Get().Shutdown();
 
   // Cleanup scene renderer
   m_SceneRenderer.reset();
@@ -229,8 +253,21 @@ void ViewportWidget::recreateSwapChain() {
     Vivid::VividApplication::SetFrameWidth(m_Width);
     Vivid::VividApplication::SetFrameHeight(m_Height);
 
+    // Invalidate pipeline objects BEFORE destroying the old renderer
+    // (pipelines reference the old render pass)
+    // This keeps registrations so pipelines can be recreated lazily
+    Quantum::RenderingPipelines::Get().InvalidatePipelines();
+
     delete m_Renderer;
     m_Renderer = new Vivid::VividRenderer(m_Device, m_Width, m_Height);
+
+    // Update RenderingPipelines with the NEW render pass
+    if (m_SceneRenderer) {
+      Quantum::RenderingPipelines::Get().Initialize(
+          m_Device, m_Renderer->GetRenderPass(),
+          m_SceneRenderer->GetDescriptorSetLayout());
+    }
+
     m_NeedsResize = false;
   } catch (const std::exception &e) {
     std::cerr << "Failed to recreate swap chain: " << e.what() << std::endl;
@@ -263,13 +300,30 @@ void ViewportWidget::renderFrame() {
   // Update camera logic
   updateCamera(0.016f); // Approx 60 FPS
 
-  // Render frame
-  if (m_Renderer && m_Renderer->BeginFrame()) {
-    // Use scene renderer to render the scene
+  // Render frame using split-phase for shadow pass injection
+  if (m_Renderer && m_Renderer->BeginFrameCommandBuffer()) {
+    // Phase 1: Shadow pass (before main render pass)
+    if (m_SceneRenderer) {
+      m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
+    }
+
+    // Phase 2: Begin main render pass
+    m_Renderer->BeginMainRenderPass();
+
+    // Phase 3: Main scene rendering
     if (m_SceneRenderer) {
       m_SceneRenderer->RenderScene(m_Renderer->GetCommandBuffer(), m_Width,
                                    m_Height);
+
+      // Phase 3.5: Debug overlay (Draw2D)
+      if (m_Draw2D) {
+        m_Draw2D->Begin(m_Renderer);
+        m_SceneRenderer->RenderShadowDebug(m_Draw2D.get());
+        m_Draw2D->End();
+      }
     }
+
+    // Phase 4: End frame
     m_Renderer->EndFrame();
   }
 }
@@ -311,6 +365,8 @@ void ViewportWidget::updateCamera(float deltaTime) {
       m_MainLight->SetLocalPosition(
           m_SceneGraph->GetCurrentCamera()->GetLocalPosition());
     }
+ 
+
   }
 }
 
@@ -350,7 +406,8 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent *event) {
 void ViewportWidget::mouseMoveEvent(QMouseEvent *event) {
   if (m_IsLooking) {
     // We are in infinite look mode
-    // Calculate delta from the center of the widget (where we reset the cursor)
+    // Calculate delta from the center of the widget (where we reset the
+    // cursor)
     QPoint centerPos = mapToGlobal(rect().center());
     QPoint currentPos = event->globalPosition().toPoint();
     QPoint delta = currentPos - centerPos;
@@ -370,4 +427,13 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent *event) {
     m_LastMousePos = centerPos;
   }
   QWidget::mouseMoveEvent(event);
+}
+
+void ViewportWidget::OnModelImported() {
+  if (m_SceneRenderer) {
+    std::cout
+        << "[ViewportWidget] OnModelImported: Refreshing material textures..."
+        << std::endl;
+    m_SceneRenderer->RefreshMaterialTextures();
+  }
 }

@@ -69,4 +69,12 @@ size_t SceneGraph::CountNodes(GraphNode *node) const {
   return count;
 }
 
+glm::vec3 SceneGraph::GetLightPosition() const {
+  if (!m_Lights.empty() && m_Lights[0]) {
+    return m_Lights[0]->GetWorldPosition();
+  }
+  // Default light position if no lights in scene
+  return glm::vec3(5.0f, 5.0f, 5.0f);
+}
+
 } // namespace Quantum

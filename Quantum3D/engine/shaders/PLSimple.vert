@@ -12,6 +12,12 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    vec3 viewPos;
+    float padding;
+    vec3 lightPos;
+    float padding2;
+    vec3 lightColor;
+    float lightRange;
 } ubo;
 
 // Outputs to fragment shader
@@ -25,6 +31,6 @@ void main() {
     // Pass UV coordinates to fragment shader
     fragUV = inUV;
     
-    // Transform normal to world space (simplified - ignoring non-uniform scale)
+    // Transform normal to world space
     fragNormal = mat3(ubo.model) * inNormal;
 }

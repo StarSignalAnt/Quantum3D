@@ -1,12 +1,19 @@
 #pragma once
+#include "PointShadowMap.h"
 #include "SceneGraph.h"
+#include "ShadowPipeline.h"
 #include "Texture2D.h"
 #include "VividBuffer.h"
 #include "VividDevice.h"
 #include "VividPipeline.h"
 #include "VividRenderer.h"
 #include <memory>
+#include <vector>
 #include <vulkan/vulkan.h>
+
+namespace Vivid {
+class Draw2D;
+}
 
 namespace Quantum {
 
@@ -34,7 +41,7 @@ public:
   // Get the current scene graph
   std::shared_ptr<SceneGraph> GetSceneGraph() const { return m_SceneGraph; }
 
-  // Render the scene graph
+  // Render the scene graph (includes shadow pass if enabled)
   void RenderScene(VkCommandBuffer cmd, int width, int height);
 
   // Get the descriptor set layout (needed for pipeline creation)
@@ -42,12 +49,31 @@ public:
     return m_DescriptorSetLayout;
   }
 
+  // Refresh material textures (called after model import)
+  void RefreshMaterialTextures();
+
+  // Shadow control
+  bool IsShadowsEnabled() const { return m_ShadowsEnabled; }
+  void SetShadowsEnabled(bool enabled) { m_ShadowsEnabled = enabled; }
+  PointShadowMap *GetShadowMap() const { return m_ShadowMap.get(); }
+
+  // Render shadow depth pass (call BEFORE BeginRenderPass for main scene)
+  void RenderShadowPass(VkCommandBuffer cmd);
+
+  // Debug rendering of shadow map faces
+  void RenderShadowDebug(Vivid::Draw2D *draw2d);
+
 private:
   void CreateDescriptorSetLayout();
   void CreateDescriptorPool();
   void CreateDescriptorSets();
   void CreateUniformBuffer();
   void RenderNode(VkCommandBuffer cmd, GraphNode *node, int width, int height);
+
+  // Shadow rendering
+  void InitializeShadowResources();
+  void RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
+                          const glm::mat4 &lightSpaceMatrix);
 
   Vivid::VividDevice *m_Device = nullptr;
   Vivid::VividRenderer *m_Renderer = nullptr;
@@ -79,8 +105,16 @@ private:
   // Default white texture for meshes without textures
   std::shared_ptr<Vivid::Texture2D> m_DefaultTexture;
 
+  std::unique_ptr<PointShadowMap> m_ShadowMap;
+  std::unique_ptr<ShadowPipeline> m_ShadowPipeline;
+  bool m_ShadowsEnabled = true;
+
+  // Debug textures for shadow faces
+  std::vector<std::unique_ptr<Vivid::Texture2D>> m_FaceTextures;
+
   void UpdateTextureDescriptor(Vivid::Texture2D *texture);
   void UpdatePBRTextures(Material *material);
   void UpdateFirstMaterialTextures(GraphNode *node);
+  void CreateMaterialDescriptorSetsRecursive(GraphNode *node);
 };
 } // namespace Quantum

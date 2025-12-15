@@ -1,16 +1,18 @@
 #pragma once
 
-#include "Font.h"
-#include "Texture2D.h"
-#include "VividBuffer.h"
-#include "VividDevice.h"
-#include "VividPipeline.h"
-#include "VividRenderer.h"
 #include "glm/glm.hpp"
+#include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
 
 namespace Vivid {
+class Font;
+class Texture2D;
+class VividBuffer;
+class VividDevice;
+class VividPipeline;
+class VividRenderer;
+class Draw2D;
 
 enum class BlendMode {
   Solid,   // No blending, fully opaque
@@ -49,9 +51,9 @@ public:
                        Texture2D *tex, const glm::vec4 &col,
                        float thickness = 1.0f);
 
-  void DrawText(const glm::vec2 &pos, const std::string &text, Font *font,
-                const glm::vec4 &col = glm::vec4(1.0f),
-                BlendMode blend = BlendMode::Alpha);
+  void RenderText(const glm::vec2 &pos, const std::string &text, Font *font,
+                  const glm::vec4 &col = glm::vec4(1.0f),
+                  BlendMode blend = BlendMode::Alpha);
 
   void End();
 

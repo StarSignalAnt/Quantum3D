@@ -55,6 +55,15 @@ void VividRenderer::CreateSyncObjects() {
 }
 
 bool VividRenderer::BeginFrame() {
+  // Backward compatible: do both phases
+  if (!BeginFrameCommandBuffer()) {
+    return false;
+  }
+  BeginMainRenderPass();
+  return true;
+}
+
+bool VividRenderer::BeginFrameCommandBuffer() {
   vkWaitForFences(m_DevicePtr->GetDevice(), 1, &m_InFlightFence, VK_TRUE,
                   UINT64_MAX);
 
@@ -72,6 +81,10 @@ bool VividRenderer::BeginFrame() {
 
   m_CommandBufferPtr->Begin();
 
+  return true;
+}
+
+void VividRenderer::BeginMainRenderPass() {
   VkRenderPassBeginInfo renderPassInfo{};
   renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
   renderPassInfo.renderPass = m_RenderPassPtr->GetRenderPass();
@@ -87,8 +100,6 @@ bool VividRenderer::BeginFrame() {
   renderPassInfo.pClearValues = clearValues.data();
 
   m_CommandBufferPtr->BeginRenderPass(renderPassInfo);
-
-  return true;
 }
 
 void VividRenderer::EndFrame() {

@@ -82,46 +82,7 @@
     <ClInclude Include="AppInput.h">
       <Filter>UI</Filter>
     </ClInclude>
-    <ClInclude Include="AppUI.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="UIControl.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="UITheme.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="ThemeDarkUI.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="IButton.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="IWindow.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="IVerticalScroller.h">
-      <Filter>UI</Filter>
-    </ClInclude>
-    <ClInclude Include="IHorizontalScroller.h">
-      <Filter>UI</Filter>
-    </ClInclude>
     <!-- Docking Headers -->
-    <ClInclude Include="DockTypes.h">
-      <Filter>Docking</Filter>
-    </ClInclude>
-    <ClInclude Include="DockNode.h">
-      <Filter>Docking</Filter>
-    </ClInclude>
-    <ClInclude Include="DockLayout.h">
-      <Filter>Docking</Filter>
-    </ClInclude>
-    <ClInclude Include="IDock.h">
-      <Filter>Docking</Filter>
-    </ClInclude>
-    <ClInclude Include="ISplitter.h">
-      <Filter>Docking</Filter>
-    </ClInclude>
     <!-- ThirdParty Headers -->
     <ClInclude Include="stb_image.h">
       <Filter>ThirdParty</Filter>
@@ -135,6 +96,50 @@
     </ClInclude>
     <ClInclude Include="SceneGraph.h">
       <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="SceneRenderer.h" />
+    <ClInclude Include="CameraNode.h" />
+    <ClInclude Include="LightNode.h" />
+    <ClInclude Include="PointShadowMap.h" />
+    <ClInclude Include="ShadowPipeline.h" />
+    <ClInclude Include="AppUI.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="DockLayout.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="DockNode.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="DockTypes.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="ThemeDarkUI.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="UIControl.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="UITheme.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="IButton.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="IDock.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="IHorizontalScroller.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="ISplitter.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="IVerticalScroller.h">
+      <Filter>Rendering</Filter>
+    </ClInclude>
+    <ClInclude Include="IWindow.h">
+      <Filter>Rendering</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -196,43 +201,7 @@
     <ClCompile Include="AppInput.cpp">
       <Filter>UI</Filter>
     </ClCompile>
-    <ClCompile Include="AppUI.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="UIControl.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="UITheme.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="ThemeDarkUI.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="IButton.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="IWindow.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="IVerticalScroller.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
-    <ClCompile Include="IHorizontalScroller.cpp">
-      <Filter>UI</Filter>
-    </ClCompile>
     <!-- Docking Sources -->
-    <ClCompile Include="DockNode.cpp">
-      <Filter>Docking</Filter>
-    </ClCompile>
-    <ClCompile Include="DockLayout.cpp">
-      <Filter>Docking</Filter>
-    </ClCompile>
-    <ClCompile Include="IDock.cpp">
-      <Filter>Docking</Filter>
-    </ClCompile>
-    <ClCompile Include="ISplitter.cpp">
-      <Filter>Docking</Filter>
-    </ClCompile>
     <!-- ThirdParty Sources -->
     <ClCompile Include="stb_image_impl.cpp">
       <Filter>ThirdParty</Filter>
@@ -246,6 +215,47 @@
     </ClCompile>
     <ClCompile Include="SceneGraph.cpp">
       <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="CameraNode.cpp" />
+    <ClCompile Include="LightNode.cpp" />
+    <ClCompile Include="ShadowPipeline.cpp" />
+    <ClCompile Include="SceneRenderer.cpp" />
+    <ClCompile Include="PointShadowMap.cpp" />
+    <ClCompile Include="AppUI.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="DockLayout.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="DockNode.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="ThemeDarkUI.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="UIControl.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="UITheme.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="IButton.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="IDock.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="IHorizontalScroller.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="ISplitter.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="IVerticalScroller.cpp">
+      <Filter>Rendering</Filter>
+    </ClCompile>
+    <ClCompile Include="IWindow.cpp">
+      <Filter>Rendering</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

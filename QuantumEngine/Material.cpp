@@ -1,4 +1,6 @@
 #include "Material.h"
+#include <array>
+#include <iostream>
 
 namespace Quantum {
 
@@ -141,6 +143,115 @@ std::shared_ptr<Vivid::Texture2D> Material::GetAOTexture() const {
 
 std::shared_ptr<Vivid::Texture2D> Material::GetEmissiveTexture() const {
   return GetTexture(SLOT_EMISSIVE);
+}
+
+void Material::CreateDescriptorSet(
+    Vivid::VividDevice *device, VkDescriptorPool pool,
+    VkDescriptorSetLayout layout,
+    std::shared_ptr<Vivid::Texture2D> defaultTexture, VkBuffer uboBuffer,
+    VkDeviceSize uboSize, VkImageView shadowMapView,
+    VkSampler shadowMapSampler) {
+  // Skip if already created
+  if (m_DescriptorSet != VK_NULL_HANDLE) {
+    return;
+  }
+
+  // Allocate descriptor set from pool
+  VkDescriptorSetAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  allocInfo.descriptorPool = pool;
+  allocInfo.descriptorSetCount = 1;
+  allocInfo.pSetLayouts = &layout;
+
+  VkResult result = vkAllocateDescriptorSets(device->GetDevice(), &allocInfo,
+                                             &m_DescriptorSet);
+  if (result != VK_SUCCESS) {
+    std::cerr << "[Material] ERROR: Failed to allocate descriptor set for "
+              << m_Name << "! VkResult: " << result << std::endl;
+    return;
+  }
+
+  // Get textures with fallbacks to default
+  Vivid::Texture2D *albedoTex =
+      GetAlbedoTexture() ? GetAlbedoTexture().get() : defaultTexture.get();
+  Vivid::Texture2D *normalTex =
+      GetNormalTexture() ? GetNormalTexture().get() : defaultTexture.get();
+  Vivid::Texture2D *metallicTex =
+      GetMetallicTexture() ? GetMetallicTexture().get() : defaultTexture.get();
+  Vivid::Texture2D *roughnessTex = GetRoughnessTexture()
+                                       ? GetRoughnessTexture().get()
+                                       : defaultTexture.get();
+
+  // ========== Binding 0: UBO ==========
+  VkDescriptorBufferInfo bufferInfo{};
+  bufferInfo.buffer = uboBuffer;
+  bufferInfo.offset = 0;
+  bufferInfo.range = uboSize;
+
+  // ========== Bindings 1-4: Textures ==========
+  std::array<VkDescriptorImageInfo, 4> imageInfos{};
+  imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfos[0].imageView = albedoTex->GetImageView();
+  imageInfos[0].sampler = albedoTex->GetSampler();
+
+  imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfos[1].imageView = normalTex->GetImageView();
+  imageInfos[1].sampler = normalTex->GetSampler();
+
+  imageInfos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfos[2].imageView = metallicTex->GetImageView();
+  imageInfos[2].sampler = metallicTex->GetSampler();
+
+  imageInfos[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfos[3].imageView = roughnessTex->GetImageView();
+  imageInfos[3].sampler = roughnessTex->GetSampler();
+
+  // ========== Binding 5: Shadow Cube Map ==========
+  VkDescriptorImageInfo shadowImageInfo{};
+  shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  shadowImageInfo.imageView = shadowMapView;
+  shadowImageInfo.sampler = shadowMapSampler;
+
+  // Create writes for all 6 bindings (UBO + 4 textures + shadow map)
+  std::array<VkWriteDescriptorSet, 6> writes{};
+
+  // UBO (binding 0)
+  writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[0].pNext = nullptr;
+  writes[0].dstSet = m_DescriptorSet;
+  writes[0].dstBinding = 0;
+  writes[0].dstArrayElement = 0;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[0].descriptorCount = 1;
+  writes[0].pBufferInfo = &bufferInfo;
+
+  // Textures (bindings 1-4)
+  for (int i = 0; i < 4; ++i) {
+    writes[1 + i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1 + i].pNext = nullptr;
+    writes[1 + i].dstSet = m_DescriptorSet;
+    writes[1 + i].dstBinding = 1 + i; // Bindings 1-4
+    writes[1 + i].dstArrayElement = 0;
+    writes[1 + i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1 + i].descriptorCount = 1;
+    writes[1 + i].pImageInfo = &imageInfos[i];
+  }
+
+  // Shadow map (binding 5)
+  writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  writes[5].pNext = nullptr;
+  writes[5].dstSet = m_DescriptorSet;
+  writes[5].dstBinding = 5;
+  writes[5].dstArrayElement = 0;
+  writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  writes[5].descriptorCount = 1;
+  writes[5].pImageInfo = &shadowImageInfo;
+
+  vkUpdateDescriptorSets(device->GetDevice(),
+                         static_cast<uint32_t>(writes.size()), writes.data(), 0,
+                         nullptr);
+
+  std::cout << "[Material] Created descriptor set for " << m_Name << std::endl;
 }
 
 } // namespace Quantum

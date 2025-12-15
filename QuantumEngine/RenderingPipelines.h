@@ -1,9 +1,16 @@
 #pragma once
+#include "PipelineTypes.h"
 #include "VividDevice.h"
-#include "VividPipeline.h"
 #include <memory>
+
+
+namespace Vivid {
+class VividPipeline;
+}
 #include <string>
 #include <unordered_map>
+#include <vector>
+#include <vulkan/vulkan.h>
 
 namespace Quantum {
 
@@ -34,6 +41,12 @@ public:
   /// Shutdown and cleanup all pipelines.
   /// </summary>
   void Shutdown();
+
+  /// <summary>
+  /// Invalidate all created pipelines (for swapchain recreation).
+  /// Keeps registrations so pipelines can be lazily recreated.
+  /// </summary>
+  void InvalidatePipelines();
 
   /// <summary>
   /// Get or create a pipeline by name.

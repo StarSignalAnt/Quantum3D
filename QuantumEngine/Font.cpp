@@ -1,7 +1,10 @@
 #include "Font.h"
+#include "Texture2D.h"
+#include "VividDevice.h"
 #include "stb_truetype.h"
 #include <fstream>
 #include <stdexcept>
+
 
 namespace Vivid {
 

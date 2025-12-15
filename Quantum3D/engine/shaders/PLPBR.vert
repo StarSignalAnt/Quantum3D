@@ -7,17 +7,17 @@ layout(location = 2) in vec2 inUV;
 layout(location = 3) in vec3 inTangent;
 layout(location = 4) in vec3 inBitangent;
 
-// Uniform buffer
+// Uniform buffer (Global frame data) - MUST match C++ UniformBufferObject
 layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
     vec3 viewPos;
-    float padding; // Alignment
+    float padding;
     vec3 lightPos;
     float padding2;
     vec3 lightColor;
-    float lightRange; // 0 = infinite range, otherwise max light distance
+    float lightRange; 
 } ubo;
 
 // Outputs

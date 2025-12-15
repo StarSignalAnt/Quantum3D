@@ -51,6 +51,10 @@ void Quantum3D::setupDockWidgets() {
   m_browserDock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::BottomDockWidgetArea, m_browserDock);
 
+  // Connect BrowserWidget model import signal to ViewportWidget slot
+  connect(m_browserWidget, &BrowserWidget::ModelImported, m_viewportWidget,
+          &ViewportWidget::OnModelImported);
+
   // Set initial dock sizes (280 pixels) - resizable by user
   resizeDocks({m_sceneGraphDock}, {280}, Qt::Horizontal);
   resizeDocks({m_propertiesDock}, {280}, Qt::Horizontal);

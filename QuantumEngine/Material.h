@@ -1,9 +1,17 @@
 #pragma once
 #include "RenderingPipelines.h"
 #include "Texture2D.h"
+#include "VividDevice.h"
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vulkan/vulkan.h>
+
+namespace Vivid {
+class Texture2D;
+class VividDevice;
+class VividPipeline;
+} // namespace Vivid
 
 namespace Quantum {
 
@@ -59,6 +67,16 @@ public:
     return m_Textures;
   }
 
+  // Descriptor set management for per-material textures
+  void CreateDescriptorSet(Vivid::VividDevice *device, VkDescriptorPool pool,
+                           VkDescriptorSetLayout layout,
+                           std::shared_ptr<Vivid::Texture2D> defaultTexture,
+                           VkBuffer uboBuffer, VkDeviceSize uboSize,
+                           VkImageView shadowMapView,
+                           VkSampler shadowMapSampler);
+  bool HasDescriptorSet() const { return m_DescriptorSet != VK_NULL_HANDLE; }
+  VkDescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
+
   // Standard texture slot names
   static constexpr const char *SLOT_ALBEDO = "albedo";
   static constexpr const char *SLOT_NORMAL = "normal";
@@ -71,6 +89,9 @@ private:
   std::string m_Name;
   std::string m_PipelineName;
   std::unordered_map<std::string, std::shared_ptr<Vivid::Texture2D>> m_Textures;
+
+  // Per-material descriptor set (for texture binding)
+  VkDescriptorSet m_DescriptorSet = VK_NULL_HANDLE;
 };
 
 } // namespace Quantum
