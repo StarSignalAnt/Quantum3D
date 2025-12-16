@@ -66,6 +66,11 @@ void SceneRenderer::Initialize() {
   std::cout << "[SceneRenderer] Descriptor set layout created successfully"
             << std::endl;
 
+  std::cout << "[SceneRenderer] Creating descriptor pool..." << std::endl;
+  CreateDescriptorPool();
+  std::cout << "[SceneRenderer] Descriptor pool created successfully"
+            << std::endl;
+
   std::cout << "[SceneRenderer] Creating uniform buffer..." << std::endl;
   CreateUniformBuffer();
   std::cout << "[SceneRenderer] Uniform buffer created successfully"
@@ -81,8 +86,10 @@ void SceneRenderer::Initialize() {
   // Initialize RenderingPipelines with our descriptor layout
   std::cout << "[SceneRenderer] Initializing RenderingPipelines..."
             << std::endl;
+  std::vector<VkDescriptorSetLayout> layouts = {m_GlobalSetLayout,
+                                                m_MaterialSetLayout};
   RenderingPipelines::Get().Initialize(m_Device, m_Renderer->GetRenderPass(),
-                                       m_DescriptorSetLayout);
+                                       layouts);
   std::cout << "[SceneRenderer] RenderingPipelines initialized" << std::endl;
 
   // Register the default PLSimple pipeline as a 3D mesh pipeline
@@ -177,6 +184,8 @@ void SceneRenderer::Initialize() {
 
   // Initialize shadow mapping resources
   InitializeShadowResources();
+  // Create descriptor sets (Global sets depend on shadow maps and UBOs)
+  CreateDescriptorSets();
 
   m_Initialized = true;
   std::cout << "[SceneRenderer] Initialization complete" << std::endl;
@@ -202,10 +211,12 @@ void SceneRenderer::Shutdown() {
   // Cleanup shadow resources
   std::cout << "[SceneRenderer] Cleaning up shadow resources..." << std::endl;
   m_ShadowPipeline.reset();
-  if (m_ShadowMap) {
-    m_ShadowMap->Shutdown();
-    m_ShadowMap.reset();
+  for (auto &shadowMap : m_ShadowMaps) {
+    if (shadowMap) {
+      shadowMap->Shutdown();
+    }
   }
+  m_ShadowMaps.clear();
 
   std::cout << "[SceneRenderer] Resetting uniform buffers..." << std::endl;
   for (auto &buffer : m_UniformBuffers) {
@@ -218,12 +229,20 @@ void SceneRenderer::Shutdown() {
     m_DescriptorPool = VK_NULL_HANDLE;
   }
 
-  if (m_DescriptorSetLayout != VK_NULL_HANDLE && m_Device) {
-    std::cout << "[SceneRenderer] Destroying descriptor set layout..."
+  if (m_GlobalSetLayout != VK_NULL_HANDLE && m_Device) {
+    std::cout << "[SceneRenderer] Destroying global descriptor set layout..."
               << std::endl;
-    vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_DescriptorSetLayout,
+    vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_GlobalSetLayout,
                                  nullptr);
-    m_DescriptorSetLayout = VK_NULL_HANDLE;
+    m_GlobalSetLayout = VK_NULL_HANDLE;
+  }
+
+  if (m_MaterialSetLayout != VK_NULL_HANDLE && m_Device) {
+    std::cout << "[SceneRenderer] Destroying material descriptor set layout..."
+              << std::endl;
+    vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_MaterialSetLayout,
+                                 nullptr);
+    m_MaterialSetLayout = VK_NULL_HANDLE;
   }
 
   std::cout << "[SceneRenderer] Shutting down RenderingPipelines..."
@@ -248,6 +267,13 @@ void SceneRenderer::SetSceneGraph(std::shared_ptr<SceneGraph> sceneGraph) {
     std::cerr << "[SceneRenderer] WARNING: Scene graph is NULL!" << std::endl;
   }
 
+  // Re-initialize resources that depend on the scene graph
+  if (m_Initialized && m_SceneGraph) {
+    InitializeShadowResources();
+    CreateDescriptorSets();
+    RefreshMaterialTextures();
+  }
+
   // Create descriptor pool and sets when scene is set
   if (m_SceneGraph && m_DescriptorPool == VK_NULL_HANDLE) {
     std::cout << "[SceneRenderer] Creating descriptor pool..." << std::endl;
@@ -270,208 +296,195 @@ void SceneRenderer::SetSceneGraph(std::shared_ptr<SceneGraph> sceneGraph) {
 }
 
 void SceneRenderer::CreateDescriptorSetLayout() {
-  std::cout << "[SceneRenderer] CreateDescriptorSetLayout() started"
+  std::cout << "[SceneRenderer] Creating Split Descriptor Set Layouts..."
             << std::endl;
 
-  // Binding 0: Uniform buffer (vertex shader)
-  VkDescriptorSetLayoutBinding uboLayoutBinding{};
-  uboLayoutBinding.binding = 0;
-  uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-  uboLayoutBinding.descriptorCount = 1;
-  uboLayoutBinding.stageFlags =
-      VK_SHADER_STAGE_VERTEX_BIT |
-      VK_SHADER_STAGE_FRAGMENT_BIT; // Both shaders need UBO
-  uboLayoutBinding.pImmutableSamplers = nullptr;
+  // --- SET 0: GLOBAL (UBO + Shadow Map) ---
+  VkDescriptorSetLayoutBinding uboBinding{};
+  uboBinding.binding = 0;
+  uboBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+  uboBinding.descriptorCount = 1;
+  uboBinding.stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  uboBinding.pImmutableSamplers = nullptr;
 
-  // Binding 1: Albedo texture
-  VkDescriptorSetLayoutBinding albedoBinding{};
-  albedoBinding.binding = 1;
-  albedoBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  albedoBinding.descriptorCount = 1;
-  albedoBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  albedoBinding.pImmutableSamplers = nullptr;
-
-  // Binding 2: Normal texture
-  VkDescriptorSetLayoutBinding normalBinding{};
-  normalBinding.binding = 2;
-  normalBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  normalBinding.descriptorCount = 1;
-  normalBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  normalBinding.pImmutableSamplers = nullptr;
-
-  // Binding 3: Metallic texture
-  VkDescriptorSetLayoutBinding metallicBinding{};
-  metallicBinding.binding = 3;
-  metallicBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  metallicBinding.descriptorCount = 1;
-  metallicBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  metallicBinding.pImmutableSamplers = nullptr;
-
-  // Binding 4: Roughness texture
-  VkDescriptorSetLayoutBinding roughnessBinding{};
-  roughnessBinding.binding = 4;
-  roughnessBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  roughnessBinding.descriptorCount = 1;
-  roughnessBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  roughnessBinding.pImmutableSamplers = nullptr;
-
-  roughnessBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  roughnessBinding.pImmutableSamplers = nullptr;
-
-  // Binding 5: Shadow cube map
   VkDescriptorSetLayoutBinding shadowBinding{};
-  shadowBinding.binding = 5;
+  shadowBinding.binding = 1;
   shadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   shadowBinding.descriptorCount = 1;
   shadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   shadowBinding.pImmutableSamplers = nullptr;
 
-  std::array<VkDescriptorSetLayoutBinding, 6> bindings = {
-      uboLayoutBinding, albedoBinding,    normalBinding,
-      metallicBinding,  roughnessBinding, shadowBinding};
+  std::array<VkDescriptorSetLayoutBinding, 2> globalBindings = {uboBinding,
+                                                                shadowBinding};
 
-  VkDescriptorSetLayoutCreateInfo layoutInfo{};
-  layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-  layoutInfo.pBindings = bindings.data();
+  VkDescriptorSetLayoutCreateInfo globalInfo{};
+  globalInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  globalInfo.bindingCount = static_cast<uint32_t>(globalBindings.size());
+  globalInfo.pBindings = globalBindings.data();
 
-  VkResult result = vkCreateDescriptorSetLayout(
-      m_Device->GetDevice(), &layoutInfo, nullptr, &m_DescriptorSetLayout);
-  if (result != VK_SUCCESS) {
-    std::cerr << "[SceneRenderer] ERROR: Failed to create descriptor set "
-                 "layout! VkResult: "
-              << result << std::endl;
-    throw std::runtime_error("Failed to create descriptor set layout!");
+  if (vkCreateDescriptorSetLayout(m_Device->GetDevice(), &globalInfo, nullptr,
+                                  &m_GlobalSetLayout) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Global Descriptor Set Layout!");
   }
 
-  std::cout
-      << "[SceneRenderer] CreateDescriptorSetLayout() completed successfully"
-      << std::endl;
+  // --- SET 1: MATERIAL (Albedo, Normal, Metallic, Roughness) ---
+  VkDescriptorSetLayoutBinding materialBindings[4];
+  for (int i = 0; i < 4; i++) {
+    materialBindings[i].binding = i; // 0, 1, 2, 3
+    materialBindings[i].descriptorType =
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    materialBindings[i].descriptorCount = 1;
+    materialBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    materialBindings[i].pImmutableSamplers = nullptr;
+  }
+
+  VkDescriptorSetLayoutCreateInfo materialInfo{};
+  materialInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  materialInfo.bindingCount = 4;
+  materialInfo.pBindings = materialBindings;
+
+  if (vkCreateDescriptorSetLayout(m_Device->GetDevice(), &materialInfo, nullptr,
+                                  &m_MaterialSetLayout) != VK_SUCCESS) {
+    throw std::runtime_error(
+        "Failed to create Material Descriptor Set Layout!");
+  }
+
+  std::cout << "[SceneRenderer] Descriptor Layouts Created (Global & Material)"
+            << std::endl;
 }
 
 void SceneRenderer::CreateDescriptorPool() {
   std::cout << "[SceneRenderer] CreateDescriptorPool() started" << std::endl;
 
-  // Increased to support per-material descriptor sets + shadow map
   std::array<VkDescriptorPoolSize, 2> poolSizes{};
   poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-  poolSizes[0].descriptorCount = 10; // Global UBO + spare
+  poolSizes[0].descriptorCount = 200; // Enough for Global sets (Light*Frame)
   poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   poolSizes[1].descriptorCount =
-      500; // 5 textures (4 PBR + 1 shadow) * 100 materials
+      1000; // 400 Material textures + 100 Shadow Maps
 
   VkDescriptorPoolCreateInfo poolInfo{};
   poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
   poolInfo.pPoolSizes = poolSizes.data();
-  poolInfo.maxSets = 100; // Support up to 100 materials
+  poolInfo.maxSets = 1000; // Enough for Materials + Global Sets
 
-  VkResult result = vkCreateDescriptorPool(m_Device->GetDevice(), &poolInfo,
-                                           nullptr, &m_DescriptorPool);
-  if (result != VK_SUCCESS) {
-    std::cerr
-        << "[SceneRenderer] ERROR: Failed to create descriptor pool! VkResult: "
-        << result << std::endl;
+  if (vkCreateDescriptorPool(m_Device->GetDevice(), &poolInfo, nullptr,
+                             &m_DescriptorPool) != VK_SUCCESS) {
     throw std::runtime_error("Failed to create descriptor pool!");
   }
-
-  std::cout << "[SceneRenderer] CreateDescriptorPool() completed successfully"
-            << std::endl;
 }
 
 void SceneRenderer::CreateDescriptorSets() {
-  std::cout << "[SceneRenderer] CreateDescriptorSets() started" << std::endl;
+  // Create Default Material Descriptor Set (for meshes with no material)
+  if (m_DefaultMaterialSet == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo matAllocInfo{};
+    matAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    matAllocInfo.descriptorPool = m_DescriptorPool;
+    matAllocInfo.descriptorSetCount = 1;
+    matAllocInfo.pSetLayouts = &m_MaterialSetLayout;
 
+    if (vkAllocateDescriptorSets(m_Device->GetDevice(), &matAllocInfo,
+                                 &m_DefaultMaterialSet) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to allocate Default Material Set!");
+    }
+
+    std::array<VkDescriptorImageInfo, 4> defaultInfos;
+    for (int i = 0; i < 4; i++) {
+      defaultInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      defaultInfos[i].imageView = m_DefaultTexture->GetImageView();
+      defaultInfos[i].sampler = m_DefaultTexture->GetSampler();
+    }
+
+    std::vector<VkWriteDescriptorSet> matWrites;
+    for (int i = 0; i < 4; i++) {
+      VkWriteDescriptorSet write{};
+      write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      write.dstSet = m_DefaultMaterialSet;
+      write.dstBinding = i; // 0, 1, 2, 3
+      write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      write.descriptorCount = 1;
+      write.pImageInfo = &defaultInfos[i];
+      matWrites.push_back(write);
+    }
+    vkUpdateDescriptorSets(m_Device->GetDevice(),
+                           static_cast<uint32_t>(matWrites.size()),
+                           matWrites.data(), 0, nullptr);
+  }
+
+  size_t numLights = m_ShadowMaps.size();
+  size_t totalGlobalSets = numLights * MAX_FRAMES_IN_FLIGHT;
+
+  if (totalGlobalSets == 0) {
+    std::cout << "[SceneRenderer] No lights/shadows, valid but no global sets "
+                 "created."
+              << std::endl;
+    return;
+  }
+
+  // Clear old sets if any (handled by pool reset usually, but here we just
+  // overwrite vector) Actually we should free them if we are re-creating? Since
+  // we don't reset the pool explicitly here, we rely on the vector being
+  // cleared or resized. But vkAllocateDescriptorSets appends. Ideally we should
+  // free old sets if this checks run multiple times? Current logic assumes
+  // one-time creation or pool reset externally. For now, let's just proceed.
+
+  m_GlobalDescriptorSets.resize(totalGlobalSets);
+
+  std::vector<VkDescriptorSetLayout> layouts(totalGlobalSets,
+                                             m_GlobalSetLayout);
   VkDescriptorSetAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   allocInfo.descriptorPool = m_DescriptorPool;
-  allocInfo.descriptorSetCount = 1;
-  allocInfo.pSetLayouts = &m_DescriptorSetLayout;
+  allocInfo.descriptorSetCount = static_cast<uint32_t>(totalGlobalSets);
+  allocInfo.pSetLayouts = layouts.data();
 
-  VkResult result = vkAllocateDescriptorSets(m_Device->GetDevice(), &allocInfo,
-                                             &m_DescriptorSet);
-  if (result != VK_SUCCESS) {
-    std::cerr << "[SceneRenderer] ERROR: Failed to allocate descriptor set! "
-                 "VkResult: "
-              << result << std::endl;
-    throw std::runtime_error("Failed to allocate descriptor set!");
+  if (vkAllocateDescriptorSets(m_Device->GetDevice(), &allocInfo,
+                               m_GlobalDescriptorSets.data()) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to allocate Global Descriptor Sets!");
   }
 
-  std::cout << "[SceneRenderer] Descriptor set allocated" << std::endl;
+  // Bind resources for each set
+  for (size_t frame = 0; frame < MAX_FRAMES_IN_FLIGHT; frame++) {
+    for (size_t light = 0; light < numLights; light++) {
+      size_t setIndex = frame * numLights + light;
+      VkDescriptorSet set = m_GlobalDescriptorSets[setIndex];
 
-  // Update descriptor set with uniform buffer (binding 0)
-  // Note: We use frame 0's buffer initially; the actual buffer used depends on
-  // dynamic offset at draw time, and we update descriptor per-frame
-  VkDescriptorBufferInfo bufferInfo{};
-  bufferInfo.buffer = m_UniformBuffers[0]->GetBuffer();
-  bufferInfo.offset = 0;
-  bufferInfo.range = sizeof(UniformBufferObject);
+      // Binding 0: UBO (Use buffer for this frame)
+      VkDescriptorBufferInfo bufferInfo{};
+      bufferInfo.buffer = m_UniformBuffers[frame]->GetBuffer();
+      bufferInfo.offset = 0;
+      bufferInfo.range = sizeof(UniformBufferObject);
 
-  VkWriteDescriptorSet uboWrite{};
-  uboWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  uboWrite.dstSet = m_DescriptorSet;
-  uboWrite.dstBinding = 0;
-  uboWrite.dstArrayElement = 0;
-  uboWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-  uboWrite.descriptorCount = 1;
-  uboWrite.pBufferInfo = &bufferInfo;
+      VkWriteDescriptorSet uboWrite{};
+      uboWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      uboWrite.dstSet = set;
+      uboWrite.dstBinding = 0;
+      uboWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+      uboWrite.descriptorCount = 1;
+      uboWrite.pBufferInfo = &bufferInfo;
 
-  // Update descriptor set with default texture (bindings 1-4)
-  // CRITICAL: Each VkWriteDescriptorSet needs its own VkDescriptorImageInfo
-  std::array<VkDescriptorImageInfo, 4> imageInfos;
-  for (int i = 0; i < 4; ++i) {
-    imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfos[i].imageView = m_DefaultTexture->GetImageView();
-    imageInfos[i].sampler = m_DefaultTexture->GetSampler();
+      // Binding 1: Shadow Map
+      VkDescriptorImageInfo shadowInfo{};
+      shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      shadowInfo.imageView = m_ShadowMaps[light]->GetCubeImageView();
+      shadowInfo.sampler = m_ShadowMaps[light]->GetSampler();
+
+      VkWriteDescriptorSet shadowWrite{};
+      shadowWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      shadowWrite.dstSet = set;
+      shadowWrite.dstBinding = 1;
+      shadowWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      shadowWrite.descriptorCount = 1;
+      shadowWrite.pImageInfo = &shadowInfo;
+
+      std::array<VkWriteDescriptorSet, 2> writes = {uboWrite, shadowWrite};
+      vkUpdateDescriptorSets(m_Device->GetDevice(),
+                             static_cast<uint32_t>(writes.size()),
+                             writes.data(), 0, nullptr);
+    }
   }
-
-  // Albedo (binding 1)
-  VkWriteDescriptorSet albedoWrite{};
-  albedoWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  albedoWrite.dstSet = m_DescriptorSet;
-  albedoWrite.dstBinding = 1;
-  albedoWrite.dstArrayElement = 0;
-  albedoWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  albedoWrite.descriptorCount = 1;
-  albedoWrite.pImageInfo = &imageInfos[0];
-
-  // Normal (binding 2)
-  VkWriteDescriptorSet normalWrite{};
-  normalWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  normalWrite.dstSet = m_DescriptorSet;
-  normalWrite.dstBinding = 2;
-  normalWrite.dstArrayElement = 0;
-  normalWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  normalWrite.descriptorCount = 1;
-  normalWrite.pImageInfo = &imageInfos[1];
-
-  // Metallic (binding 3)
-  VkWriteDescriptorSet metallicWrite{};
-  metallicWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  metallicWrite.dstSet = m_DescriptorSet;
-  metallicWrite.dstBinding = 3;
-  metallicWrite.dstArrayElement = 0;
-  metallicWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  metallicWrite.descriptorCount = 1;
-  metallicWrite.pImageInfo = &imageInfos[2];
-
-  // Roughness (binding 4)
-  VkWriteDescriptorSet roughnessWrite{};
-  roughnessWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  roughnessWrite.dstSet = m_DescriptorSet;
-  roughnessWrite.dstBinding = 4;
-  roughnessWrite.dstArrayElement = 0;
-  roughnessWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  roughnessWrite.descriptorCount = 1;
-  roughnessWrite.pImageInfo = &imageInfos[3];
-
-  // AO and Emissive removed
-
-  std::array<VkWriteDescriptorSet, 5> descriptorWrites = {
-      uboWrite, albedoWrite, normalWrite, metallicWrite, roughnessWrite};
-  vkUpdateDescriptorSets(m_Device->GetDevice(),
-                         static_cast<uint32_t>(descriptorWrites.size()),
-                         descriptorWrites.data(), 0, nullptr);
 
   std::cout << "[SceneRenderer] CreateDescriptorSets() completed successfully"
             << std::endl;
@@ -537,23 +550,32 @@ void SceneRenderer::ResizeUniformBuffers(size_t requiredDraws) {
     m_UniformBuffers[i]->Map();
   }
 
-  // Update main descriptor set (binding 0)
-  VkDescriptorBufferInfo bufferInfo{};
-  bufferInfo.buffer = m_UniformBuffers[0]->GetBuffer();
-  bufferInfo.offset = 0;
-  bufferInfo.range = sizeof(UniformBufferObject);
+  // Update all global descriptor sets with new buffer handles
+  if (m_ShadowMaps.size() > 0) {
+    for (size_t i = 0; i < m_GlobalDescriptorSets.size(); ++i) {
+      size_t frameIndex = i / m_ShadowMaps.size();
+      if (frameIndex >= MAX_FRAMES_IN_FLIGHT)
+        continue;
 
-  VkWriteDescriptorSet descriptorWrite{};
-  descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  descriptorWrite.dstSet = m_DescriptorSet;
-  descriptorWrite.dstBinding = 0;
-  descriptorWrite.dstArrayElement = 0;
-  descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-  descriptorWrite.descriptorCount = 1;
-  descriptorWrite.pBufferInfo = &bufferInfo;
+      VkDescriptorBufferInfo bufferInfo{};
+      bufferInfo.buffer = m_UniformBuffers[frameIndex]->GetBuffer();
+      bufferInfo.offset = 0;
+      bufferInfo.range = sizeof(UniformBufferObject);
 
-  vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &descriptorWrite, 0,
-                         nullptr);
+      VkWriteDescriptorSet descriptorWrite{};
+      descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      descriptorWrite.dstSet = m_GlobalDescriptorSets[i];
+      descriptorWrite.dstBinding = 0;
+      descriptorWrite.dstArrayElement = 0;
+      descriptorWrite.descriptorType =
+          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+      descriptorWrite.descriptorCount = 1;
+      descriptorWrite.pBufferInfo = &bufferInfo;
+
+      vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &descriptorWrite, 0,
+                             nullptr);
+    }
+  }
 
   std::cerr
       << "[SceneRenderer] WARNING: UBO Resized. Per-material descriptor sets "
@@ -650,8 +672,9 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
     for (size_t i = 0; i < numLights; ++i) {
 
       m_CurrentLightIndex = i;
-      // Linear accumulation: m_CurrentDrawIndex continues growing across light
-      // passes This packs the UBO tightly: [Light0_Draws] [Light1_Draws] ...
+      // Linear accumulation: m_CurrentDrawIndex continues growing across
+      // light passes This packs the UBO tightly: [Light0_Draws]
+      // [Light1_Draws] ...
 
       // Set dynamic state INSIDE loop to ensure it persists
       vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -713,7 +736,8 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     }
     ubo.padding = 0.0f;
 
-    // Use current light based on m_CurrentLightIndex (set by RenderScene loop)
+    // Use current light based on m_CurrentLightIndex (set by RenderScene
+    // loop)
     if (m_SceneGraph) {
       const auto &lights = m_SceneGraph->GetLights();
       if (m_CurrentLightIndex < lights.size()) {
@@ -734,7 +758,8 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     }
 
     // Debug output to verify light position sync
-    // std::cout << "Light Pos: " << ubo.lightPos.x << "," << ubo.lightPos.y <<
+    // std::cout << "Light Pos: " << ubo.lightPos.x << "," << ubo.lightPos.y
+    // <<
     // "," << ubo.lightPos.z << std::endl;
 
     ubo.padding2 = 0.0f;
@@ -745,8 +770,8 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     // We strictly use linear indexing. Check capacity.
     if (m_CurrentDrawIndex >= m_MaxDraws) {
       // Buffer full, cannot write debug info or draw
-      // (This check should ideally be in the mesh loop for safety, but we do it
-      // here for log consistency)
+      // (This check should ideally be in the mesh loop for safety, but we do
+      // it here for log consistency)
     }
     VkDeviceSize drawOffset = m_CurrentDrawIndex * m_AlignedUBOSize;
 
@@ -838,81 +863,49 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
             continue;
           }
 
-          // Bind the material's descriptor set (per-material textures)
-          VkDescriptorSet descriptorSetToBind =
-              m_DescriptorSet; // Default fallback
-          bool usingMaterialDescriptor = false;
-          // Use per-material descriptor set if available
-          if (material && material->HasDescriptorSet()) {
-            descriptorSetToBind = material->GetDescriptorSet();
-            usingMaterialDescriptor = true;
-          }
-
-          if (descriptorSetToBind != VK_NULL_HANDLE) {
-            // Perform Dynamic Buffer Safety Check
-            if (m_CurrentDrawIndex >= m_MaxDraws) {
-              // Optional: Trigger resize here? Or just skip.
-              // For now, skip to prevent crash.
-              std::cerr << "[SceneRenderer] ERROR: Max draws exceeded ("
-                        << m_MaxDraws << ")! "
-                        << "Increase m_MaxDraws or implement dynamic resize."
-                        << std::endl;
-              continue;
-            }
-
-            // Use direct linear index for dynamic offset
+          // Bind the GLOBAL descriptor set (Set 0)
+          // Includes UBO (dynamic offset) and Shadow Map for this light/frame
+          size_t globalSetIndex =
+              m_CurrentFrameIndex * m_ShadowMaps.size() + m_CurrentLightIndex;
+          if (globalSetIndex < m_GlobalDescriptorSets.size()) {
+            VkDescriptorSet globalSet = m_GlobalDescriptorSets[globalSetIndex];
             uint32_t dynamicOffset =
                 static_cast<uint32_t>(m_CurrentDrawIndex * m_AlignedUBOSize);
 
-            // CRITIAL FIX: Upload the UBO data to the mapped buffer!
-            // Without this, we are drawing with garbage/zeros.
+            // Upload UBO data
             void *mappedData =
                 m_UniformBuffers[m_CurrentFrameIndex]->GetMappedMemory();
             if (mappedData) {
               char *dest = (char *)mappedData + dynamicOffset;
               memcpy(dest, &ubo, sizeof(UniformBufferObject));
-            } else {
-              std::cerr << "ERROR: UBO not mapped!" << std::endl;
             }
-
-            // DEBUG LOGGING - Enhanced to track node/pipeline/blend + LIGHT
-            // COLOR + DESCRIPTOR SET TYPE
 
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     meshPipeline->GetPipelineLayout(), 0, 1,
-                                    &descriptorSetToBind, 1, &dynamicOffset);
+                                    &globalSet, 1, &dynamicOffset);
           } else {
-            std::cerr << "[SceneRenderer] ERROR: Descriptor set is null!"
-                      << std::endl;
-            continue;
+            // Fallback or error?
+            // Should not happen if sets allocated correctly
           }
+
+          // Bind the MATERIAL descriptor set (Set 1)
+          VkDescriptorSet materialSet = m_DefaultMaterialSet;
+          if (material && material->HasDescriptorSet()) {
+            materialSet = material->GetDescriptorSet();
+          }
+          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  meshPipeline->GetPipelineLayout(), 1, 1,
+                                  &materialSet, 0, nullptr);
 
           mesh->Bind(cmd);
           uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
           if (indexCount > 0) {
-            // DEBUG: Log at actual draw time
-            static int drawLogCount = 0;
-            if (drawLogCount < 200) {
-              uint32_t currentOffset =
-                  static_cast<uint32_t>(m_CurrentDrawIndex * m_AlignedUBOSize);
-              std::cout << "[DRAW] Node=" << node->GetName()
-                        << " LightIdx=" << m_CurrentLightIndex
-                        << " DrawIdx=" << m_CurrentDrawIndex
-                        << " DynOffset=" << currentOffset
-                        << " IndexCount=" << indexCount << std::endl;
-              drawLogCount++;
-            }
             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
             m_RenderMeshCount++;
-          } else {
-            int b = 5;
           }
 
-          // Increment draw index for next draw call
-          // We increment per valid draw to ensure unique UBO slots
           m_CurrentDrawIndex++;
         }
-      } else {
       }
     }
   }
@@ -924,173 +917,15 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
 }
 
 void SceneRenderer::UpdateTextureDescriptor(Vivid::Texture2D *texture) {
-  if (!texture || texture == m_CurrentTexture) {
-    return; // No change needed
-  }
-
-  m_CurrentTexture = texture;
-
-  VkDescriptorImageInfo imageInfo{};
-  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfo.imageView = texture->GetImageView();
-  imageInfo.sampler = texture->GetSampler();
-
-  VkWriteDescriptorSet textureWrite{};
-  textureWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  textureWrite.dstSet = m_DescriptorSet;
-  textureWrite.dstBinding = 1;
-  textureWrite.dstArrayElement = 0;
-  textureWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  textureWrite.descriptorCount = 1;
-  textureWrite.pImageInfo = &imageInfo;
-
-  vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &textureWrite, 0, nullptr);
+  // Obsolete - functionality moved to Material/Global sets
 }
 
 void SceneRenderer::UpdatePBRTextures(Material *material) {
-  if (!material) {
-    return;
-  }
-
-  // Get all PBR textures from material (fallback to default)
-  auto albedo = material->GetAlbedoTexture();
-  auto normal = material->GetNormalTexture();
-  auto metallic = material->GetMetallicTexture();
-  auto roughness = material->GetRoughnessTexture();
-  auto ao = material->GetAOTexture();
-  auto emissive = material->GetEmissiveTexture();
-
-  // Use default texture if material texture is missing
-  Vivid::Texture2D *albedoTex = albedo ? albedo.get() : m_DefaultTexture.get();
-  Vivid::Texture2D *normalTex = normal ? normal.get() : m_DefaultTexture.get();
-  Vivid::Texture2D *metallicTex =
-      metallic ? metallic.get() : m_DefaultTexture.get();
-  Vivid::Texture2D *roughnessTex =
-      roughness ? roughness.get() : m_DefaultTexture.get();
-  Vivid::Texture2D *aoTex = ao ? ao.get() : m_DefaultTexture.get();
-  Vivid::Texture2D *emissiveTex =
-      emissive ? emissive.get() : m_DefaultTexture.get();
-
-  // Safety check: ensure default texture exists
-  if (!m_DefaultTexture) {
-    std::cerr << "[SceneRenderer] ERROR: Default texture is null!" << std::endl;
-    return;
-  }
-
-  // Additional safety check: verify all pointers are valid
-  if (!albedoTex || !normalTex || !metallicTex || !roughnessTex || !aoTex ||
-      !emissiveTex) {
-    std::cerr << "[SceneRenderer] ERROR: One or more texture pointers are null!"
-              << std::endl;
-    return;
-  }
-
-  // Prepare image infos for all 4 textures
-  std::array<VkDescriptorImageInfo, 4> imageInfos;
-
-  std::cout << "[SceneRenderer] Getting Albedo ImageView and Sampler..."
-            << std::endl;
-  imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[0].imageView = albedoTex->GetImageView();
-  imageInfos[0].sampler = albedoTex->GetSampler();
-  std::cout << "[SceneRenderer]   ImageView: "
-            << (void *)imageInfos[0].imageView
-            << ", Sampler: " << (void *)imageInfos[0].sampler << std::endl;
-
-  std::cout << "[SceneRenderer] Getting Normal ImageView and Sampler..."
-            << std::endl;
-  imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[1].imageView = normalTex->GetImageView();
-  imageInfos[1].sampler = normalTex->GetSampler();
-  std::cout << "[SceneRenderer]   ImageView: "
-            << (void *)imageInfos[1].imageView
-            << ", Sampler: " << (void *)imageInfos[1].sampler << std::endl;
-
-  std::cout << "[SceneRenderer] Getting Metallic ImageView and Sampler..."
-            << std::endl;
-  imageInfos[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[2].imageView = metallicTex->GetImageView();
-  imageInfos[2].sampler = metallicTex->GetSampler();
-  std::cout << "[SceneRenderer]   ImageView: "
-            << (void *)imageInfos[2].imageView
-            << ", Sampler: " << (void *)imageInfos[2].sampler << std::endl;
-
-  std::cout << "[SceneRenderer] Getting Roughness ImageView and Sampler..."
-            << std::endl;
-  imageInfos[3].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[3].imageView = roughnessTex->GetImageView();
-  imageInfos[3].sampler = roughnessTex->GetSampler();
-  std::cout << "[SceneRenderer]   ImageView: "
-            << (void *)imageInfos[3].imageView
-            << ", Sampler: " << (void *)imageInfos[3].sampler << std::endl;
-
-  // Update all 4 texture bindings
-  std::cout << "[SceneRenderer] Building descriptor writes array..."
-            << std::endl;
-  std::array<VkWriteDescriptorSet, 4> writes{}; // Zero-initialize all fields
-  for (int i = 0; i < 4; ++i) {
-    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[i].pNext = nullptr; // Explicitly set pNext
-    writes[i].dstSet = m_DescriptorSet;
-    writes[i].dstBinding = 1 + i; // Bindings 1-5
-    writes[i].dstArrayElement = 0;
-    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[i].descriptorCount = 1;
-    writes[i].pBufferInfo = nullptr; // Not used for image descriptors
-    writes[i].pImageInfo = &imageInfos[i];
-    writes[i].pTexelBufferView = nullptr; // Not used
-  }
-
-  std::cout << "[SceneRenderer] About to call vkUpdateDescriptorSets, "
-               "DescriptorSet: "
-            << (void *)m_DescriptorSet << std::endl;
-
-  vkUpdateDescriptorSets(m_Device->GetDevice(),
-                         static_cast<uint32_t>(writes.size()), writes.data(), 0,
-                         nullptr);
-
-  std::cout << "[SceneRenderer] vkUpdateDescriptorSets completed successfully!"
-            << std::endl;
+  // Obsolete - functionality moved to Material/Global sets
 }
 
 void SceneRenderer::UpdateFirstMaterialTextures(GraphNode *node) {
-  if (!node)
-    return;
-
-  // First pass: Look for a material WITH an albedo texture
-  for (const auto &mesh : node->GetMeshes()) {
-    if (mesh) {
-      auto material = mesh->GetMaterial();
-      if (material && material->GetAlbedoTexture()) {
-        std::cout << "[SceneRenderer] Found material with textures: "
-                  << material->GetName() << std::endl;
-        UpdatePBRTextures(material.get());
-        return; // Use this material's textures
-      }
-    }
-  }
-
-  // Second pass: If no material with textures found at this level, check
-  // children
-  for (const auto &child : node->GetChildren()) {
-    // Check if child has a material with textures before recursing
-    for (const auto &mesh : child->GetMeshes()) {
-      if (mesh) {
-        auto material = mesh->GetMaterial();
-        if (material && material->GetAlbedoTexture()) {
-          std::cout << "[SceneRenderer] Found material with textures in child: "
-                    << material->GetName() << std::endl;
-          UpdatePBRTextures(material.get());
-          return;
-        }
-      }
-    }
-  }
-
-  // Recursively check children if no material with textures found
-  for (const auto &child : node->GetChildren()) {
-    UpdateFirstMaterialTextures(child.get());
-  }
+  // Obsolete
 }
 
 void SceneRenderer::RefreshMaterialTextures() {
@@ -1123,13 +958,9 @@ void SceneRenderer::CreateMaterialDescriptorSetsRecursive(GraphNode *node) {
       if (material && !material->HasDescriptorSet()) {
         // Ensure material has default textures for missing slots
         material->CheckRequiredTextures(m_Device);
-        // Create the per-material descriptor set (with UBO + textures +
-        // shadow map)
-        material->CreateDescriptorSet(
-            m_Device, m_DescriptorPool, m_DescriptorSetLayout, m_DefaultTexture,
-            m_UniformBuffers[0]->GetBuffer(), sizeof(UniformBufferObject),
-            m_ShadowMap ? m_ShadowMap->GetCubeImageView() : VK_NULL_HANDLE,
-            m_ShadowMap ? m_ShadowMap->GetSampler() : VK_NULL_HANDLE);
+        // Create Material Set (Set 1): Textures only
+        material->CreateDescriptorSet(m_Device, m_DescriptorPool,
+                                      m_MaterialSetLayout, m_DefaultTexture);
       }
     }
   }
@@ -1143,30 +974,46 @@ void SceneRenderer::InitializeShadowResources() {
   std::cout << "[SceneRenderer] InitializeShadowResources() called"
             << std::endl;
 
-  // Create shadow map (1024x1024 cube map)
-  m_ShadowMap = std::make_unique<PointShadowMap>();
+  if (!m_SceneGraph) {
+    std::cout
+        << "[SceneRenderer] No scene graph, skipping shadow initialization"
+        << std::endl;
+    return;
+  }
 
-  // Initialize PointShadowMap
-  m_ShadowMap->Initialize(m_Device);
+  // Clear existing shadow maps
+  m_ShadowMaps.clear();
+  m_FaceTextures.clear(); // We'll disable debug textures for now or just
+                          // show first
 
-  // Initialize ShadowPipeline
+  // Get lights from scene
+  auto lights = m_SceneGraph->GetLights();
+  int pointLightCount = 0;
+  for (const auto &light : lights) {
+    if (light->GetType() == LightNode::LightType::Point) {
+      pointLightCount++;
+      auto shadowMap = std::make_unique<PointShadowMap>();
+      shadowMap->Initialize(m_Device);
+      m_ShadowMaps.push_back(std::move(shadowMap));
+    }
+  }
+
+  std::cout << "[SceneRenderer] Created " << m_ShadowMaps.size()
+            << " shadow maps for " << pointLightCount << " point lights"
+            << std::endl;
+
+  if (m_ShadowMaps.empty()) {
+    std::cout << "[SceneRenderer] No point lights, skipping pipeline creation"
+              << std::endl;
+    return;
+  }
+
+  // Initialize ShadowPipeline (Reuse render pass from first shadow map)
+  // Assuming all shadow maps have compatible render passes (they should)
   m_ShadowPipeline = std::make_unique<ShadowPipeline>(
       m_Device, "engine/shaders/ShadowDepth.vert.spv",
-      "engine/shaders/ShadowDepth.frag.spv", m_ShadowMap->GetRenderPass());
+      "engine/shaders/ShadowDepth.frag.spv", m_ShadowMaps[0]->GetRenderPass());
 
-  // Create debug Texture2D wrappers for each face
-  m_FaceTextures.clear();
-  for (uint32_t i = 0; i < PointShadowMap::NUM_FACES; i++) {
-    auto faceView = m_ShadowMap->GetFaceImageView(i);
-    // Use the shadow map's sampler (or create a new one if needed, but safe
-    // to reuse)
-    auto sampler = m_ShadowMap->GetSampler();
-    int size = (int)m_ShadowMap->GetResolution();
-
-    auto texture = std::make_unique<Vivid::Texture2D>(m_Device, faceView,
-                                                      sampler, size, size);
-    m_FaceTextures.push_back(std::move(texture));
-  }
   std::cout << "[SceneRenderer] Shadow pipeline created" << std::endl;
 }
 
@@ -1219,118 +1066,91 @@ void SceneRenderer::RenderShadowDebug(Vivid::Draw2D *draw2d) {
   }
 }
 void SceneRenderer::RenderShadowPass(VkCommandBuffer cmd) {
-  if (!m_ShadowsEnabled || !m_ShadowMap || !m_ShadowPipeline || !m_SceneGraph) {
+  if (!m_ShadowsEnabled || !m_ShadowPipeline || !m_SceneGraph) {
     return;
   }
 
+  auto lights = m_SceneGraph->GetLights();
+  if (lights.empty())
+    return;
   auto root = m_SceneGraph->GetRoot();
-  if (!root) {
+  if (!root)
     return;
-  }
-  auto lp = m_SceneGraph->GetLightPosition();
 
-  // m_MainLight->SetLocalPosition(lp);
+  // Render to each shadow map
+  for (size_t i = 0; i < m_ShadowMaps.size(); i++) {
+    // Skip if light index is invalid
+    if (i >= lights.size())
+      break;
 
-  // Get light position from first light node or use default
-  glm::vec3 lightPos = m_SceneGraph->GetLightPosition();
-  lightPos = lp;
+    auto light = lights[i];
+    auto shadowMap = m_ShadowMaps[i].get();
+    glm::vec3 lightPos = light->GetWorldPosition();
+    float farPlane = light->GetRange();
+    if (farPlane <= 0.0f)
+      farPlane = 100.0f; // Default
 
-  // Update shadow map far plane to match light range (if applicable)
-  float lightRange = 0.0f;
-  if (!m_SceneGraph->GetLights().empty()) {
-    lightRange = m_SceneGraph->GetLights()[0]->GetRange();
-  }
+    shadowMap->SetFarPlane(farPlane);
 
-  // If range is 0 (infinite), keep default 100.0f, otherwise sync
-  if (lightRange > 0.0f) {
-    m_ShadowMap->SetFarPlane(lightRange);
-  }
+    // Render 6 faces
+    for (uint32_t face = 0; face < 6; ++face) {
+      glm::mat4 lightSpaceMatrix =
+          shadowMap->GetLightSpaceMatrix(lightPos, face);
 
-  float farPlane = m_ShadowMap->GetFarPlane();
+      VkRenderPassBeginInfo renderPassInfo{};
+      renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+      renderPassInfo.renderPass = shadowMap->GetRenderPass();
+      renderPassInfo.framebuffer = shadowMap->GetFramebuffer(face);
+      renderPassInfo.renderArea.offset = {0, 0};
+      renderPassInfo.renderArea.extent.width = shadowMap->GetResolution();
+      renderPassInfo.renderArea.extent.height = shadowMap->GetResolution();
 
-  // Render to each of the 6 cube faces
-  for (uint32_t face = 0; face < 6; ++face) {
-    glm::mat4 lightSpaceMatrix =
-        m_ShadowMap->GetLightSpaceMatrix(lightPos, face);
+      VkClearValue clearValue{};
+      clearValue.depthStencil = {1.0f, 0};
+      renderPassInfo.clearValueCount = 1;
+      renderPassInfo.pClearValues = &clearValue;
 
-    // Begin render pass for this face
-    VkRenderPassBeginInfo renderPassInfo{};
-    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    renderPassInfo.renderPass = m_ShadowMap->GetRenderPass();
-    renderPassInfo.framebuffer = m_ShadowMap->GetFramebuffer(face);
-    renderPassInfo.renderArea.offset = {0, 0};
-    renderPassInfo.renderArea.extent.width = m_ShadowMap->GetResolution();
-    renderPassInfo.renderArea.extent.height = m_ShadowMap->GetResolution();
+      vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    VkClearValue clearValue{};
-    clearValue.depthStencil = {1.0f, 0};
-    renderPassInfo.clearValueCount = 1;
-    renderPassInfo.pClearValues = &clearValue;
+      VkViewport viewport{};
+      viewport.width = static_cast<float>(shadowMap->GetResolution());
+      viewport.height = static_cast<float>(shadowMap->GetResolution());
+      viewport.minDepth = 0.0f;
+      viewport.maxDepth = 1.0f;
+      vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-    vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+      VkRect2D scissor{};
+      scissor.extent = renderPassInfo.renderArea.extent;
+      vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    // Set viewport and scissor
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(m_ShadowMap->GetResolution());
-    viewport.height = static_cast<float>(m_ShadowMap->GetResolution());
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+      m_ShadowPipeline->Bind(cmd);
+      RenderNodeToShadow(cmd, root, lightSpaceMatrix, lightPos, farPlane);
 
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = renderPassInfo.renderArea.extent;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    // Bind shadow pipeline
-    m_ShadowPipeline->Bind(cmd);
-
-    // Render scene to shadow map
-    RenderNodeToShadow(cmd, root, lightSpaceMatrix);
-
-    vkCmdEndRenderPass(cmd);
+      vkCmdEndRenderPass(cmd);
+    }
   }
 }
 
 void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
-                                       const glm::mat4 &lightSpaceMatrix) {
-  if (!node) {
+                                       const glm::mat4 &lightSpaceMatrix,
+                                       const glm::vec3 &lightPos,
+                                       float farPlane) {
+  if (!node)
     return;
-  }
-
-  // Get light position and far plane
-  glm::vec3 lightPos = m_SceneGraph->GetLightPosition();
-  float farPlane = m_ShadowMap->GetFarPlane();
-
-  auto l1 = m_SceneGraph->GetLights()[0];
-
-  farPlane = l1->GetRange();
-
-  node->SetLocalScale(1, 1, 1);
 
   // Render each mesh
   for (const auto &mesh : node->GetMeshes()) {
     if (mesh && mesh->IsFinalized()) {
-      // Calculate model matrix
-      glm::mat4 modelMatrix = node->GetWorldMatrix();
-
-      // Push constants for shadow rendering
       ShadowPushConstants pc{};
       pc.lightSpaceMatrix = lightSpaceMatrix;
-      pc.model = modelMatrix;
-      pc.lightPos = glm::vec4(lightPos, farPlane); // Packed into w
+      pc.model = node->GetWorldMatrix();
+      pc.lightPos = glm::vec4(lightPos, farPlane);
 
-      // Log matrices for the first face of the monkey to debug
       vkCmdPushConstants(cmd, m_ShadowPipeline->GetPipelineLayout(),
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(ShadowPushConstants), &pc);
 
-      // Bind and draw mesh
-      // std::cout << "Rendering shadow mesh for node: " << node->GetName() <<
-      // " vertices: " << mesh->GetVertexCount() << std::endl;
       mesh->Bind(cmd);
       uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
       if (indexCount > 0) {
@@ -1339,9 +1159,8 @@ void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
     }
   }
 
-  // Recursively render children
   for (const auto &child : node->GetChildren()) {
-    RenderNodeToShadow(cmd, child.get(), lightSpaceMatrix);
+    RenderNodeToShadow(cmd, child.get(), lightSpaceMatrix, lightPos, farPlane);
   }
 }
 

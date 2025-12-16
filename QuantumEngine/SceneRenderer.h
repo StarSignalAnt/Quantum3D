@@ -46,9 +46,11 @@ public:
   void RenderScene(VkCommandBuffer cmd, int width, int height);
 
   // Get the descriptor set layout (needed for pipeline creation)
+  // Get the descriptor set layout (returns Material layout for Materials)
   VkDescriptorSetLayout GetDescriptorSetLayout() const {
-    return m_DescriptorSetLayout;
+    return m_MaterialSetLayout;
   }
+  VkDescriptorSetLayout GetGlobalSetLayout() const { return m_GlobalSetLayout; }
 
   // Refresh material textures (called after model import)
   void RefreshMaterialTextures();
@@ -56,7 +58,12 @@ public:
   // Shadow control
   bool IsShadowsEnabled() const { return m_ShadowsEnabled; }
   void SetShadowsEnabled(bool enabled) { m_ShadowsEnabled = enabled; }
-  PointShadowMap *GetShadowMap() const { return m_ShadowMap.get(); }
+  PointShadowMap *GetShadowMap(uint32_t index) const {
+    if (index < m_ShadowMaps.size())
+      return m_ShadowMaps[index].get();
+    return nullptr;
+  }
+  size_t GetShadowMapCount() const { return m_ShadowMaps.size(); }
 
   // Render shadow depth pass (call BEFORE BeginRenderPass for main scene)
   void RenderShadowPass(VkCommandBuffer cmd);
@@ -74,7 +81,8 @@ private:
   // Shadow rendering
   void InitializeShadowResources();
   void RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
-                          const glm::mat4 &lightSpaceMatrix);
+                          const glm::mat4 &lightSpaceMatrix,
+                          const glm::vec3 &lightPos, float farPlane);
 
   Vivid::VividDevice *m_Device = nullptr;
   Vivid::VividRenderer *m_Renderer = nullptr;
@@ -83,9 +91,13 @@ private:
   std::shared_ptr<SceneGraph> m_SceneGraph;
 
   // Vulkan resources
-  VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+  // Vulkan resources
+  VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_MaterialSetLayout = VK_NULL_HANDLE;
   VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
-  VkDescriptorSet m_DescriptorSet = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet>
+      m_GlobalDescriptorSets; // [Frame * Lights + Light]
+  VkDescriptorSet m_DefaultMaterialSet = VK_NULL_HANDLE;
 
   // Per-frame UBO buffers to prevent race conditions
   // CPU writes to frame N's buffer while GPU reads from frame N-1's buffer
@@ -98,10 +110,12 @@ private:
   size_t m_MaxDraws =
       65536; // Initial max draw calls per frame (can grow dynamicall)
   void ResizeUniformBuffers(size_t requiredDraws);
-  uint32_t m_UniformBufferAlignment =
-      256; // Typical minUniformBufferOffsetAlignment
+  uint32_t m_UniformBufferAlignment = 256;
   uint32_t m_AlignedUBOSize = 0;
   mutable size_t m_CurrentDrawIndex = 0;
+
+  // Track UBO capacity
+  size_t m_CurrentUBOCapacity = 0;
 
   bool m_Initialized = false;
 
@@ -121,7 +135,7 @@ private:
   // Default white texture for meshes without textures
   std::shared_ptr<Vivid::Texture2D> m_DefaultTexture;
 
-  std::unique_ptr<PointShadowMap> m_ShadowMap;
+  std::vector<std::unique_ptr<PointShadowMap>> m_ShadowMaps;
   std::unique_ptr<ShadowPipeline> m_ShadowPipeline;
   bool m_ShadowsEnabled = true;
 

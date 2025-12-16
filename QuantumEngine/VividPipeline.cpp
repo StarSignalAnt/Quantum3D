@@ -16,7 +16,7 @@ VividPipeline::VividPipeline(VividDevice *device, const std::string &vertPath,
                              VkRenderPass renderPass,
                              const BlendConfig &blendConfig)
     : m_DevicePtr(device) {
-  CreatePipeline(vertPath, fragPath, descriptorSetLayout, renderPass,
+  CreatePipeline(vertPath, fragPath, {descriptorSetLayout}, renderPass,
                  blendConfig, PipelineType::Sprite2D);
 }
 
@@ -28,16 +28,27 @@ VividPipeline::VividPipeline(VividDevice *device, const std::string &vertPath,
                              const BlendConfig &blendConfig,
                              PipelineType pipelineType)
     : m_DevicePtr(device) {
-  CreatePipeline(vertPath, fragPath, descriptorSetLayout, renderPass,
+  CreatePipeline(vertPath, fragPath, {descriptorSetLayout}, renderPass,
                  blendConfig, pipelineType);
 }
 
-void VividPipeline::CreatePipeline(const std::string &vertPath,
-                                   const std::string &fragPath,
-                                   VkDescriptorSetLayout descriptorSetLayout,
-                                   VkRenderPass renderPass,
-                                   const BlendConfig &blendConfig,
-                                   PipelineType pipelineType) {
+// Constructor with multiple layouts
+VividPipeline::VividPipeline(
+    VividDevice *device, const std::string &vertPath,
+    const std::string &fragPath,
+    const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
+    VkRenderPass renderPass, const BlendConfig &blendConfig,
+    PipelineType pipelineType)
+    : m_DevicePtr(device) {
+  CreatePipeline(vertPath, fragPath, descriptorSetLayouts, renderPass,
+                 blendConfig, pipelineType);
+}
+
+void VividPipeline::CreatePipeline(
+    const std::string &vertPath, const std::string &fragPath,
+    const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
+    VkRenderPass renderPass, const BlendConfig &blendConfig,
+    PipelineType pipelineType) {
   auto vertShaderCode = ReadFile(vertPath);
   auto fragShaderCode = ReadFile(fragPath);
 
@@ -211,8 +222,9 @@ void VividPipeline::CreatePipeline(const std::string &vertPath,
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutInfo.setLayoutCount = 1;
-  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+  pipelineLayoutInfo.setLayoutCount =
+      static_cast<uint32_t>(descriptorSetLayouts.size());
+  pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 

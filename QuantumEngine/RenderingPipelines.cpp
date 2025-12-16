@@ -12,9 +12,9 @@ RenderingPipelines &RenderingPipelines::Get() {
 
 RenderingPipelines::~RenderingPipelines() { Shutdown(); }
 
-void RenderingPipelines::Initialize(Vivid::VividDevice *device,
-                                    VkRenderPass renderPass,
-                                    VkDescriptorSetLayout descriptorSetLayout) {
+void RenderingPipelines::Initialize(
+    Vivid::VividDevice *device, VkRenderPass renderPass,
+    const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts) {
   std::cout << "[RenderingPipelines] Initialize() called" << std::endl;
 
   if (m_Initialized) {
@@ -25,7 +25,7 @@ void RenderingPipelines::Initialize(Vivid::VividDevice *device,
                 << std::endl;
       m_Device = device;
       m_RenderPass = renderPass;
-      m_DescriptorSetLayout = descriptorSetLayout;
+      m_DescriptorSetLayouts = descriptorSetLayouts;
       return;
     }
     std::cout << "[RenderingPipelines] Already initialized, skipping"
@@ -35,7 +35,7 @@ void RenderingPipelines::Initialize(Vivid::VividDevice *device,
 
   m_Device = device;
   m_RenderPass = renderPass;
-  m_DescriptorSetLayout = descriptorSetLayout;
+  m_DescriptorSetLayouts = descriptorSetLayouts;
   m_Initialized = true;
 
   std::cout << "[RenderingPipelines] Initialized successfully" << std::endl;
@@ -48,7 +48,8 @@ void RenderingPipelines::Shutdown() {
   m_Pipelines.clear();
   m_Device = nullptr;
   m_RenderPass = VK_NULL_HANDLE;
-  m_DescriptorSetLayout = VK_NULL_HANDLE;
+  m_RenderPass = VK_NULL_HANDLE;
+  m_DescriptorSetLayouts.clear();
   m_Initialized = false;
 
   std::cout << "[RenderingPipelines] Shutdown complete" << std::endl;
@@ -142,7 +143,7 @@ Vivid::VividPipeline *RenderingPipelines::GetPipeline(const std::string &name) {
     try {
       it->second.pipeline = std::make_unique<Vivid::VividPipeline>(
           m_Device, it->second.vertShaderPath, it->second.fragShaderPath,
-          m_DescriptorSetLayout, m_RenderPass, it->second.blendConfig,
+          m_DescriptorSetLayouts, m_RenderPass, it->second.blendConfig,
           it->second.pipelineType);
       std::cout << "[RenderingPipelines] Pipeline '" << name
                 << "' created successfully" << std::endl;

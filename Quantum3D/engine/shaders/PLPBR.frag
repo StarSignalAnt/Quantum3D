@@ -21,13 +21,14 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
 } ubo;
 
 // Textures (all in set 0)
-layout(set = 0, binding = 1) uniform sampler2D albedoMap;
-layout(set = 0, binding = 2) uniform sampler2D normalMap;
-layout(set = 0, binding = 3) uniform sampler2D metallicMap;
-layout(set = 0, binding = 4) uniform sampler2D roughnessMap;
+// Textures (Set 1 - Material Specific)
+layout(set = 1, binding = 0) uniform sampler2D albedoMap;
+layout(set = 1, binding = 1) uniform sampler2D normalMap;
+layout(set = 1, binding = 2) uniform sampler2D metallicMap;
+layout(set = 1, binding = 3) uniform sampler2D roughnessMap;
 
-// Shadow cube map
-layout(set = 0, binding = 5) uniform samplerCube shadowMap;
+// Shadow cube map (Set 0 - Global Light Data)
+layout(set = 0, binding = 1) uniform samplerCube shadowMap;
 
 // Output
 layout(location = 0) out vec4 outColor;
@@ -166,11 +167,11 @@ void main() {
     float attenuation = 1.0 / (distance * distance + 0.001);
     vec3 radiance = ubo.lightColor * attenuation * rangeFactor;
 
-    // Calculate shadow - DISABLED until multi-light shadows implemented
-    // vec3 fragToLight = fragWorldPos - ubo.lightPos;
-    // fragToLight.x = - fragToLight.x;
-    // float shadow = calculateShadow(fragToLight, distance);
-    float shadow = 1.0; // Fully lit (no shadows)
+    // Calculate shadow
+    vec3 fragToLight = fragWorldPos - ubo.lightPos;
+     fragToLight.x = - fragToLight.x; // Unflip X check if needed
+    float shadow = calculateShadow(fragToLight, distance);
+    // float shadow = 1.0; // Fully lit (no shadows)
 
     // Cook-Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);   
@@ -194,7 +195,7 @@ void main() {
     // Ambient (small amount so fully shadowed areas aren't completely black)
     vec3 ambient = vec3(0.03) * albedo;
     
-    vec3 color = Lo + ambient;
+    vec3 color = Lo;
 
     outColor = vec4(color, 1.0);
 

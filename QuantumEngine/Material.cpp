@@ -148,9 +148,7 @@ std::shared_ptr<Vivid::Texture2D> Material::GetEmissiveTexture() const {
 void Material::CreateDescriptorSet(
     Vivid::VividDevice *device, VkDescriptorPool pool,
     VkDescriptorSetLayout layout,
-    std::shared_ptr<Vivid::Texture2D> defaultTexture, VkBuffer uboBuffer,
-    VkDeviceSize uboSize, VkImageView shadowMapView,
-    VkSampler shadowMapSampler) {
+    std::shared_ptr<Vivid::Texture2D> defaultTexture) {
   // Skip if already created
   if (m_DescriptorSet != VK_NULL_HANDLE) {
     return;
@@ -182,13 +180,8 @@ void Material::CreateDescriptorSet(
                                        ? GetRoughnessTexture().get()
                                        : defaultTexture.get();
 
-  // ========== Binding 0: UBO ==========
-  VkDescriptorBufferInfo bufferInfo{};
-  bufferInfo.buffer = uboBuffer;
-  bufferInfo.offset = 0;
-  bufferInfo.range = uboSize;
-
-  // ========== Bindings 1-4: Textures ==========
+  // ========== Bindings 0-3: Textures (Albedo, Normal, Metallic, Roughness)
+  // ==========
   std::array<VkDescriptorImageInfo, 4> imageInfos{};
   imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfos[0].imageView = albedoTex->GetImageView();
@@ -206,46 +199,19 @@ void Material::CreateDescriptorSet(
   imageInfos[3].imageView = roughnessTex->GetImageView();
   imageInfos[3].sampler = roughnessTex->GetSampler();
 
-  // ========== Binding 5: Shadow Cube Map ==========
-  VkDescriptorImageInfo shadowImageInfo{};
-  shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  shadowImageInfo.imageView = shadowMapView;
-  shadowImageInfo.sampler = shadowMapSampler;
+  // Create writes for 4 texture bindings
+  std::array<VkWriteDescriptorSet, 4> writes{};
 
-  // Create writes for all 6 bindings (UBO + 4 textures + shadow map)
-  std::array<VkWriteDescriptorSet, 6> writes{};
-
-  // UBO (binding 0)
-  writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[0].pNext = nullptr;
-  writes[0].dstSet = m_DescriptorSet;
-  writes[0].dstBinding = 0;
-  writes[0].dstArrayElement = 0;
-  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-  writes[0].descriptorCount = 1;
-  writes[0].pBufferInfo = &bufferInfo;
-
-  // Textures (bindings 1-4)
   for (int i = 0; i < 4; ++i) {
-    writes[1 + i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1 + i].pNext = nullptr;
-    writes[1 + i].dstSet = m_DescriptorSet;
-    writes[1 + i].dstBinding = 1 + i; // Bindings 1-4
-    writes[1 + i].dstArrayElement = 0;
-    writes[1 + i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[1 + i].descriptorCount = 1;
-    writes[1 + i].pImageInfo = &imageInfos[i];
+    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[i].pNext = nullptr;
+    writes[i].dstSet = m_DescriptorSet;
+    writes[i].dstBinding = i; // Bindings 0-3
+    writes[i].dstArrayElement = 0;
+    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[i].descriptorCount = 1;
+    writes[i].pImageInfo = &imageInfos[i];
   }
-
-  // Shadow map (binding 5)
-  writes[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  writes[5].pNext = nullptr;
-  writes[5].dstSet = m_DescriptorSet;
-  writes[5].dstBinding = 5;
-  writes[5].dstArrayElement = 0;
-  writes[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  writes[5].descriptorCount = 1;
-  writes[5].pImageInfo = &shadowImageInfo;
 
   vkUpdateDescriptorSets(device->GetDevice(),
                          static_cast<uint32_t>(writes.size()), writes.data(), 0,

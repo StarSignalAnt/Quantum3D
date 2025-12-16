@@ -70,10 +70,7 @@ public:
   // Descriptor set management for per-material textures
   void CreateDescriptorSet(Vivid::VividDevice *device, VkDescriptorPool pool,
                            VkDescriptorSetLayout layout,
-                           std::shared_ptr<Vivid::Texture2D> defaultTexture,
-                           VkBuffer uboBuffer, VkDeviceSize uboSize,
-                           VkImageView shadowMapView,
-                           VkSampler shadowMapSampler);
+                           std::shared_ptr<Vivid::Texture2D> defaultTexture);
   bool HasDescriptorSet() const { return m_DescriptorSet != VK_NULL_HANDLE; }
   VkDescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
 

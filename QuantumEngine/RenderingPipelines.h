@@ -3,7 +3,6 @@
 #include "VividDevice.h"
 #include <memory>
 
-
 namespace Vivid {
 class VividPipeline;
 }
@@ -34,8 +33,9 @@ public:
   /// Initialize the pipeline manager with the Vulkan device.
   /// Must be called before using any pipelines.
   /// </summary>
-  void Initialize(Vivid::VividDevice *device, VkRenderPass renderPass,
-                  VkDescriptorSetLayout descriptorSetLayout);
+  void
+  Initialize(Vivid::VividDevice *device, VkRenderPass renderPass,
+             const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts);
 
   /// <summary>
   /// Shutdown and cleanup all pipelines.
@@ -89,7 +89,8 @@ private:
 
   Vivid::VividDevice *m_Device = nullptr;
   VkRenderPass m_RenderPass = VK_NULL_HANDLE;
-  VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+
+  std::vector<VkDescriptorSetLayout> m_DescriptorSetLayouts;
   bool m_Initialized = false;
 
   std::unordered_map<std::string, PipelineInfo> m_Pipelines;

@@ -6,7 +6,6 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
-
 namespace Vivid {
 
 class VividPipeline {
@@ -25,6 +24,13 @@ public:
                 VkRenderPass renderPass, const BlendConfig &blendConfig,
                 PipelineType pipelineType);
 
+  // Constructor with multiple descriptor set layouts
+  VividPipeline(VividDevice *device, const std::string &vertPath,
+                const std::string &fragPath,
+                const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
+                VkRenderPass renderPass, const BlendConfig &blendConfig,
+                PipelineType pipelineType);
+
   ~VividPipeline();
 
   VkPipeline GetPipeline() const { return m_Pipeline; }
@@ -32,10 +38,11 @@ public:
   void Bind(VkCommandBuffer commandBuffer);
 
 private:
-  void CreatePipeline(const std::string &vertPath, const std::string &fragPath,
-                      VkDescriptorSetLayout descriptorSetLayout,
-                      VkRenderPass renderPass, const BlendConfig &blendConfig,
-                      PipelineType pipelineType);
+  void
+  CreatePipeline(const std::string &vertPath, const std::string &fragPath,
+                 const std::vector<VkDescriptorSetLayout> &descriptorSetLayouts,
+                 VkRenderPass renderPass, const BlendConfig &blendConfig,
+                 PipelineType pipelineType);
 
   static std::vector<char> ReadFile(const std::string &filename);
   VkShaderModule CreateShaderModule(const std::vector<char> &code);
