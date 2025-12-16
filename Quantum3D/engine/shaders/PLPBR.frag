@@ -125,6 +125,7 @@ void main() {
 
     // Use normal map for per-pixel lighting
     vec3 N = normalize(fragNormal);
+    
     vec3 T = normalize(fragTangent);
     vec3 B = normalize(fragBitangent);
     
@@ -165,10 +166,11 @@ void main() {
     float attenuation = 1.0 / (distance * distance + 0.001);
     vec3 radiance = ubo.lightColor * attenuation * rangeFactor;
 
-    // Calculate shadow
-    vec3 fragToLight = fragWorldPos - ubo.lightPos;
-    fragToLight.x = - fragToLight.x;
-    float shadow = calculateShadow(fragToLight, distance);
+    // Calculate shadow - DISABLED until multi-light shadows implemented
+    // vec3 fragToLight = fragWorldPos - ubo.lightPos;
+    // fragToLight.x = - fragToLight.x;
+    // float shadow = calculateShadow(fragToLight, distance);
+    float shadow = 1.0; // Fully lit (no shadows)
 
     // Cook-Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);   
@@ -194,7 +196,21 @@ void main() {
     
     vec3 color = Lo + ambient;
 
-    
-
     outColor = vec4(color, 1.0);
+
+    // DEBUG: Detect invalid UBO data - show RED if any suspicious values
+    // Check for: zero light color, zero range, NaN, etc.
+    float totalLightColor = ubo.lightColor.r + ubo.lightColor.g + ubo.lightColor.b;
+    if (totalLightColor < 0.001) {
+        // No light color at all - show RED
+        outColor = vec4(1.0, 0.0, 0.0, 1.0);
+    } else if (ubo.lightRange < 0.001) {
+        // Zero range - show GREEN
+        outColor = vec4(0.0, 1.0, 0.0, 1.0);
+    } else if (isnan(ubo.lightPos.x) || isnan(ubo.lightPos.y) || isnan(ubo.lightPos.z)) {
+        // NaN in light position - show BLUE
+        outColor = vec4(0.0, 0.0, 1.0, 1.0);
+    }
+    // Normal lighting proceeds if no errors
+
 }

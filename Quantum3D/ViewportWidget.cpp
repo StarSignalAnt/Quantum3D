@@ -142,8 +142,22 @@ void ViewportWidget::initScene() {
     m_MainLight->SetLocalPosition(0.0f, 2.0f,
                                   5.0f); // Position light in FRONT ensures
                                          // intuitive face mapping (Face 5)
-    m_MainLight->SetRange(250.0f);
+    m_MainLight->SetRange(30.0f);
+
+    auto l2 = std::make_shared<Quantum::LightNode>("MainLight2");
+    l2->SetColor(glm::vec3(0, 250.0f, 250.0f));
+    l2->SetLocalPosition(0.0f, 3.0f,
+        15.0f); // Position light in FRONT ensures
+    // intuitive face mapping (Face 5)
+    l2->SetRange(150.0f);
+    m_SceneGraph->AddLight(l2);
+
     m_SceneGraph->AddLight(m_MainLight);
+
+
+    
+
+
 
     // Scaling the monkey down because import scalefactor is 100
     // We can do this on the root node or the monkey node if we had a reference
@@ -304,11 +318,12 @@ void ViewportWidget::renderFrame() {
   if (m_Renderer && m_Renderer->BeginFrameCommandBuffer()) {
     // Phase 1: Shadow pass (before main render pass)
     if (m_SceneRenderer) {
-      m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
+//      m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
     }
 
     // Phase 2: Begin main render pass
     m_Renderer->BeginMainRenderPass();
+
 
     // Phase 3: Main scene rendering
     if (m_SceneRenderer) {
@@ -317,9 +332,9 @@ void ViewportWidget::renderFrame() {
 
       // Phase 3.5: Debug overlay (Draw2D)
       if (m_Draw2D) {
-        m_Draw2D->Begin(m_Renderer);
-        m_SceneRenderer->RenderShadowDebug(m_Draw2D.get());
-        m_Draw2D->End();
+        //m_Draw2D->Begin(m_Renderer);
+       // m_SceneRenderer->RenderShadowDebug(m_Draw2D.get());
+       // m_Draw2D->End();
       }
     }
 

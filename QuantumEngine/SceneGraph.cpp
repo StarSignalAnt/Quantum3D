@@ -1,5 +1,6 @@
 #include "SceneGraph.h"
 #include "LightNode.h"
+#include <functional>
 
 namespace Quantum {
 
@@ -75,6 +76,22 @@ glm::vec3 SceneGraph::GetLightPosition() const {
   }
   // Default light position if no lights in scene
   return glm::vec3(5.0f, 5.0f, 5.0f);
+}
+
+size_t SceneGraph::GetTotalMeshCount() const {
+  size_t count = 0;
+  // Simple recursive helper (lambda not needed if we iterate directly,
+  // but recursion handles depth)
+  std::function<void(GraphNode *)> traverse = [&](GraphNode *node) {
+    if (!node)
+      return;
+    count += node->GetMeshCount();
+    for (const auto &child : node->GetChildren()) {
+      traverse(child.get());
+    }
+  };
+  traverse(m_Root.get());
+  return count;
 }
 
 } // namespace Quantum

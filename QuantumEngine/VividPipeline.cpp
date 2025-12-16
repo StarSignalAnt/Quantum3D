@@ -3,6 +3,7 @@
 #include "pch.h"
 #include <array>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <vector>
 
@@ -99,8 +100,8 @@ void VividPipeline::CreatePipeline(const std::string &vertPath,
     bindingDescription = Quantum::Vertex3D::GetBindingDescription();
     attributeDescriptions = Quantum::Vertex3D::GetAttributeDescriptions();
 
-    // 3D - enable backface culling
-    cullMode = VK_CULL_MODE_BACK_BIT;
+    // 3D - disable culling for debugging (camera might be inside object)
+    cullMode = VK_CULL_MODE_NONE;
     frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
   }
 
@@ -137,7 +138,10 @@ void VividPipeline::CreatePipeline(const std::string &vertPath,
   rasterizer.lineWidth = 1.0f;
   rasterizer.cullMode = cullMode;
   rasterizer.frontFace = frontFace;
-  rasterizer.depthBiasEnable = VK_FALSE;
+  rasterizer.depthBiasEnable = blendConfig.depthBiasEnable;
+  rasterizer.depthBiasConstantFactor = blendConfig.depthBiasConstantFactor;
+  rasterizer.depthBiasSlopeFactor = blendConfig.depthBiasSlopeFactor;
+  rasterizer.depthBiasClamp = 0.0f;
 
   // Multisampling
   VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -155,9 +159,14 @@ void VividPipeline::CreatePipeline(const std::string &vertPath,
   colorBlendAttachment.srcColorBlendFactor = blendConfig.srcColorBlendFactor;
   colorBlendAttachment.dstColorBlendFactor = blendConfig.dstColorBlendFactor;
   colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-  colorBlendAttachment.srcAlphaBlendFactor = blendConfig.srcAlphaBlendFactor;
-  colorBlendAttachment.dstAlphaBlendFactor = blendConfig.dstAlphaBlendFactor;
+  colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+  // Debug: Log blend configuration
+  std::cout << "[VividPipeline] Blend: enable=" << blendConfig.blendEnable
+            << " src=" << blendConfig.srcColorBlendFactor
+            << " dst=" << blendConfig.dstColorBlendFactor << std::endl;
 
   VkPipelineColorBlendStateCreateInfo colorBlending{};
   colorBlending.sType =
@@ -180,15 +189,17 @@ void VividPipeline::CreatePipeline(const std::string &vertPath,
   dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
   dynamicState.pDynamicStates = dynamicStates.data();
 
-  // Depth Stencil State - enable for 3D pipelines
+  // Depth Stencil State - controlled by BlendConfig for Mesh3D pipelines
   VkPipelineDepthStencilStateCreateInfo depthStencil{};
   depthStencil.sType =
       VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-  depthStencil.depthTestEnable =
-      (pipelineType == PipelineType::Mesh3D) ? VK_TRUE : VK_FALSE;
-  depthStencil.depthWriteEnable =
-      (pipelineType == PipelineType::Mesh3D) ? VK_TRUE : VK_FALSE;
-  depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+  depthStencil.depthTestEnable = (pipelineType == PipelineType::Mesh3D)
+                                     ? blendConfig.depthTestEnable
+                                     : VK_FALSE;
+  depthStencil.depthWriteEnable = (pipelineType == PipelineType::Mesh3D)
+                                      ? blendConfig.depthWriteEnable
+                                      : VK_FALSE;
+  depthStencil.depthCompareOp = blendConfig.depthCompareOp;
   depthStencil.depthBoundsTestEnable = VK_FALSE;
   depthStencil.stencilTestEnable = VK_FALSE;
 

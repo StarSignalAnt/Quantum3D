@@ -56,8 +56,21 @@ VividRenderPass::VividRenderPass(VividDevice *device, VkFormat imageFormat,
   dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                              VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+  VkSubpassDependency selfDependency{};
+  selfDependency.srcSubpass = 0;
+  selfDependency.dstSubpass = 0;
+  selfDependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  selfDependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  selfDependency.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  selfDependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                 VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  selfDependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
   std::array<VkAttachmentDescription, 2> attachments = {colorAttachment,
                                                         depthAttachment};
+
+  std::array<VkSubpassDependency, 2> dependencies = {dependency,
+                                                     selfDependency};
 
   VkRenderPassCreateInfo renderPassInfo{};
   renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
@@ -65,8 +78,8 @@ VividRenderPass::VividRenderPass(VividDevice *device, VkFormat imageFormat,
   renderPassInfo.pAttachments = attachments.data();
   renderPassInfo.subpassCount = 1;
   renderPassInfo.pSubpasses = &subpass;
-  renderPassInfo.dependencyCount = 1;
-  renderPassInfo.pDependencies = &dependency;
+  renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+  renderPassInfo.pDependencies = dependencies.data();
 
   if (vkCreateRenderPass(m_DevicePtr->GetDevice(), &renderPassInfo, nullptr,
                          &m_RenderPass) != VK_SUCCESS) {

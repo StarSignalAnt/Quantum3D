@@ -221,7 +221,7 @@ void Material::CreateDescriptorSet(
   writes[0].dstSet = m_DescriptorSet;
   writes[0].dstBinding = 0;
   writes[0].dstArrayElement = 0;
-  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
   writes[0].descriptorCount = 1;
   writes[0].pBufferInfo = &bufferInfo;
 

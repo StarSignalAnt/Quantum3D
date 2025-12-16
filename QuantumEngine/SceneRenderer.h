@@ -7,6 +7,7 @@
 #include "VividDevice.h"
 #include "VividPipeline.h"
 #include "VividRenderer.h"
+#include <array>
 #include <memory>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -85,7 +86,22 @@ private:
   VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
   VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
   VkDescriptorSet m_DescriptorSet = VK_NULL_HANDLE;
-  std::unique_ptr<Vivid::VividBuffer> m_UniformBuffer;
+
+  // Per-frame UBO buffers to prevent race conditions
+  // CPU writes to frame N's buffer while GPU reads from frame N-1's buffer
+  static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+  std::array<std::unique_ptr<Vivid::VividBuffer>, MAX_FRAMES_IN_FLIGHT>
+      m_UniformBuffers;
+  int m_CurrentFrameIndex = 0; // Track which frame buffer to use
+
+  // Dynamic uniform buffer for multi-light support
+  size_t m_MaxDraws =
+      65536; // Initial max draw calls per frame (can grow dynamicall)
+  void ResizeUniformBuffers(size_t requiredDraws);
+  uint32_t m_UniformBufferAlignment =
+      256; // Typical minUniformBufferOffsetAlignment
+  uint32_t m_AlignedUBOSize = 0;
+  mutable size_t m_CurrentDrawIndex = 0;
 
   bool m_Initialized = false;
 
@@ -108,6 +124,9 @@ private:
   std::unique_ptr<PointShadowMap> m_ShadowMap;
   std::unique_ptr<ShadowPipeline> m_ShadowPipeline;
   bool m_ShadowsEnabled = true;
+
+  // Multi-light rendering state
+  mutable size_t m_CurrentLightIndex = 0;
 
   // Debug textures for shadow faces
   std::vector<std::unique_ptr<Vivid::Texture2D>> m_FaceTextures;

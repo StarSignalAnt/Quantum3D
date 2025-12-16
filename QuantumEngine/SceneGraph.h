@@ -34,6 +34,9 @@ public:
   // Get total node count (including root)
   size_t GetNodeCount() const;
 
+  // Get total mesh count in the scene
+  size_t GetTotalMeshCount() const;
+
   // Active camera
   void SetCurrentCamera(std::shared_ptr<CameraNode> camera);
   std::shared_ptr<CameraNode> GetCurrentCamera() const;

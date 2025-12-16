@@ -128,9 +128,15 @@ void SceneRenderer::Initialize() {
             << std::endl;
   std::cout << "[SceneRenderer]   Type: Mesh3D" << std::endl;
 
+  // Opaque blend config for first light (no blending, just overwrite)
+  Vivid::BlendConfig opaqueConfig;
+  opaqueConfig.blendEnable = VK_FALSE; // Disable blending for opaque pass
+  opaqueConfig.depthCompareOp = VK_COMPARE_OP_LESS;
+  opaqueConfig.depthWriteEnable = VK_TRUE;
+
   RenderingPipelines::Get().RegisterPipeline(
       "PLPBR", "engine/shaders/PLPBR.vert.spv", "engine/shaders/PLPBR.frag.spv",
-      Vivid::BlendConfig{}, Vivid::PipelineType::Mesh3D);
+      opaqueConfig, Vivid::PipelineType::Mesh3D);
 
   if (RenderingPipelines::Get().HasPipeline("PLPBR")) {
     std::cout << "[SceneRenderer] PLPBR pipeline registered successfully"
@@ -139,6 +145,35 @@ void SceneRenderer::Initialize() {
     std::cerr << "[SceneRenderer] ERROR: Failed to register PLPBR pipeline!"
               << std::endl;
   }
+
+  // Register additive pipeline for additional lights
+  Vivid::BlendConfig additiveConfig;
+  additiveConfig.blendEnable = VK_TRUE;
+  additiveConfig.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+  additiveConfig.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+  additiveConfig.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  additiveConfig.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+
+  // Depth testing for additive pass - use LESS_OR_EQUAL for proper occlusion
+  additiveConfig.depthTestEnable = VK_TRUE;
+  // CRITICAL: Use LESS_OR_EQUAL, not EQUAL - EQUAL is too strict for FP
+  // precision
+  additiveConfig.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+  additiveConfig.depthWriteEnable = VK_FALSE;
+
+  // Depth bias to push additive fragments toward camera to pass depth test
+  additiveConfig.depthBiasEnable = VK_TRUE;
+  additiveConfig.depthBiasConstantFactor = -1.0f;
+  additiveConfig.depthBiasSlopeFactor = -1.0f;
+
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLPBR_Additive", "engine/shaders/PLPBR.vert.spv",
+      "engine/shaders/PLPBR.frag.spv", additiveConfig,
+      Vivid::PipelineType::Mesh3D);
+
+  std::cout
+      << "[SceneRenderer] PLPBR_Additive pipeline registered for multi-light"
+      << std::endl;
 
   // Initialize shadow mapping resources
   InitializeShadowResources();
@@ -172,8 +207,10 @@ void SceneRenderer::Shutdown() {
     m_ShadowMap.reset();
   }
 
-  std::cout << "[SceneRenderer] Resetting uniform buffer..." << std::endl;
-  m_UniformBuffer.reset();
+  std::cout << "[SceneRenderer] Resetting uniform buffers..." << std::endl;
+  for (auto &buffer : m_UniformBuffers) {
+    buffer.reset();
+  }
 
   if (m_DescriptorPool != VK_NULL_HANDLE && m_Device) {
     std::cout << "[SceneRenderer] Destroying descriptor pool..." << std::endl;
@@ -226,6 +263,8 @@ void SceneRenderer::SetSceneGraph(std::shared_ptr<SceneGraph> sceneGraph) {
         << std::endl;
     if (m_SceneGraph->GetRoot()) {
       UpdateFirstMaterialTextures(m_SceneGraph->GetRoot());
+      // Create descriptor sets for all materials
+      RefreshMaterialTextures();
     }
   }
 }
@@ -237,7 +276,7 @@ void SceneRenderer::CreateDescriptorSetLayout() {
   // Binding 0: Uniform buffer (vertex shader)
   VkDescriptorSetLayoutBinding uboLayoutBinding{};
   uboLayoutBinding.binding = 0;
-  uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
   uboLayoutBinding.descriptorCount = 1;
   uboLayoutBinding.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT |
@@ -315,7 +354,7 @@ void SceneRenderer::CreateDescriptorPool() {
 
   // Increased to support per-material descriptor sets + shadow map
   std::array<VkDescriptorPoolSize, 2> poolSizes{};
-  poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
   poolSizes[0].descriptorCount = 10; // Global UBO + spare
   poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   poolSizes[1].descriptorCount =
@@ -361,8 +400,10 @@ void SceneRenderer::CreateDescriptorSets() {
   std::cout << "[SceneRenderer] Descriptor set allocated" << std::endl;
 
   // Update descriptor set with uniform buffer (binding 0)
+  // Note: We use frame 0's buffer initially; the actual buffer used depends on
+  // dynamic offset at draw time, and we update descriptor per-frame
   VkDescriptorBufferInfo bufferInfo{};
-  bufferInfo.buffer = m_UniformBuffer->GetBuffer();
+  bufferInfo.buffer = m_UniformBuffers[0]->GetBuffer();
   bufferInfo.offset = 0;
   bufferInfo.range = sizeof(UniformBufferObject);
 
@@ -371,7 +412,7 @@ void SceneRenderer::CreateDescriptorSets() {
   uboWrite.dstSet = m_DescriptorSet;
   uboWrite.dstBinding = 0;
   uboWrite.dstArrayElement = 0;
-  uboWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  uboWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
   uboWrite.descriptorCount = 1;
   uboWrite.pBufferInfo = &bufferInfo;
 
@@ -441,17 +482,92 @@ void SceneRenderer::CreateUniformBuffer() {
   std::cout << "[SceneRenderer] UniformBufferObject size: "
             << sizeof(UniformBufferObject) << " bytes" << std::endl;
 
-  m_UniformBuffer = std::make_unique<Vivid::VividBuffer>(
-      m_Device, sizeof(UniformBufferObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  m_UniformBuffer->Map();
+  // Query minimum uniform buffer offset alignment from device
+  VkPhysicalDeviceProperties deviceProps;
+  vkGetPhysicalDeviceProperties(m_Device->GetPhysicalDevice(), &deviceProps);
+  m_UniformBufferAlignment =
+      static_cast<uint32_t>(deviceProps.limits.minUniformBufferOffsetAlignment);
+
+  // Calculate aligned UBO size (must be multiple of alignment)
+  m_AlignedUBOSize =
+      (sizeof(UniformBufferObject) + m_UniformBufferAlignment - 1) &
+      ~(m_UniformBufferAlignment - 1);
+
+  std::cout << "[SceneRenderer] Device min UBO alignment: "
+            << m_UniformBufferAlignment << " bytes" << std::endl;
+  std::cout << "[SceneRenderer] Aligned UBO size: " << m_AlignedUBOSize
+            << " bytes" << std::endl;
+
+  // Create buffer large enough for m_MaxDraws worth of UBO data
+  VkDeviceSize totalBufferSize = m_AlignedUBOSize * m_MaxDraws;
+  std::cout << "[SceneRenderer] Total uniform buffer size: " << totalBufferSize
+            << " bytes (for " << m_MaxDraws << " draws)" << std::endl;
+
+  // Create per-frame UBO buffers to prevent race conditions
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    m_UniformBuffers[i] = std::make_unique<Vivid::VividBuffer>(
+        m_Device, totalBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    m_UniformBuffers[i]->Map();
+    std::cout << "[SceneRenderer] Created UBO buffer for frame " << i
+              << std::endl;
+  }
 
   std::cout << "[SceneRenderer] CreateUniformBuffer() completed successfully"
             << std::endl;
 }
 
+void SceneRenderer::ResizeUniformBuffers(size_t requiredDraws) {
+  std::cout << "[SceneRenderer] Resizing UBO from " << m_MaxDraws << " to "
+            << requiredDraws << std::endl;
+
+  vkDeviceWaitIdle(m_Device->GetDevice());
+
+  m_MaxDraws = requiredDraws;
+  VkDeviceSize totalBufferSize = m_AlignedUBOSize * m_MaxDraws;
+
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    // Determine if we need to explicitly destroy old unique_ptrs?
+    // Assignment will destroy old object.
+    m_UniformBuffers[i] = std::make_unique<Vivid::VividBuffer>(
+        m_Device, totalBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    m_UniformBuffers[i]->Map();
+  }
+
+  // Update main descriptor set (binding 0)
+  VkDescriptorBufferInfo bufferInfo{};
+  bufferInfo.buffer = m_UniformBuffers[0]->GetBuffer();
+  bufferInfo.offset = 0;
+  bufferInfo.range = sizeof(UniformBufferObject);
+
+  VkWriteDescriptorSet descriptorWrite{};
+  descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  descriptorWrite.dstSet = m_DescriptorSet;
+  descriptorWrite.dstBinding = 0;
+  descriptorWrite.dstArrayElement = 0;
+  descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+  descriptorWrite.descriptorCount = 1;
+  descriptorWrite.pBufferInfo = &bufferInfo;
+
+  vkUpdateDescriptorSets(m_Device->GetDevice(), 1, &descriptorWrite, 0,
+                         nullptr);
+
+  std::cerr
+      << "[SceneRenderer] WARNING: UBO Resized. Per-material descriptor sets "
+         "may be invalid! "
+      << "Re-creating materials or using 65536 initial size is recommended."
+      << std::endl;
+}
+
 void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
+
+  // TODO: Implement per-frame descriptor updates to use multiple UBO buffers
+  // For now, force buffer 0 since descriptors are created with buffer 0
+  m_CurrentFrameIndex = 0;
+
   // Only log once per second to avoid spam
   static int frameCount = 0;
   static bool firstFrame = true;
@@ -511,9 +627,41 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
   // Reset current pipeline state for new frame/command buffer
   m_CurrentPipeline = nullptr;
 
-  // Render the scene
+  // Reset draw index for new frame
+  m_CurrentDrawIndex = 0;
+
+  // Render the scene - loop through lights
   if (m_SceneGraph && m_SceneGraph->GetRoot()) {
-    RenderNode(cmd, m_SceneGraph->GetRoot(), width, height);
+    const auto &lights = m_SceneGraph->GetLights();
+    size_t numLights = lights.empty() ? 1 : lights.size();
+
+    // Check if we need to resize the UBO buffer
+    // Calculate total potential draws needed for this frame
+    size_t totalMeshes = m_SceneGraph->GetTotalMeshCount();
+    size_t neededDraws = totalMeshes * numLights;
+
+    if (neededDraws > m_MaxDraws) {
+      size_t newSize =
+          std::max(neededDraws + 1000, static_cast<size_t>(m_MaxDraws * 1.5));
+      ResizeUniformBuffers(newSize);
+    }
+
+    // Normal order
+    for (size_t i = 0; i < numLights; ++i) {
+
+      m_CurrentLightIndex = i;
+      // Linear accumulation: m_CurrentDrawIndex continues growing across light
+      // passes This packs the UBO tightly: [Light0_Draws] [Light1_Draws] ...
+
+      // Set dynamic state INSIDE loop to ensure it persists
+      vkCmdSetViewport(cmd, 0, 1, &viewport);
+      vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+      // Reset pipeline state for each light pass
+      m_CurrentPipeline = nullptr;
+
+      RenderNode(cmd, m_SceneGraph->GetRoot(), width, height);
+    }
   }
 
   if (firstFrame) {
@@ -537,7 +685,8 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
 
     // Just use identity model (ignore node transform for now)
     // Place model 5 units in front of camera
-    ubo.model = node->GetWorldMatrix();// glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+    ubo.model = node->GetWorldMatrix(); // glm::translate(glm::mat4(1.0f),
+                                        // glm::vec3(0.0f, 0.0f, -5.0f));
 
     // Use active camera if available, otherwise fallback to default
     auto camera = m_SceneGraph->GetCurrentCamera();
@@ -564,25 +713,24 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     }
     ubo.padding = 0.0f;
 
-    // Use centralized light retrieval from SceneGraph
+    // Use current light based on m_CurrentLightIndex (set by RenderScene loop)
     if (m_SceneGraph) {
-      ubo.lightPos = m_SceneGraph->GetLightPosition();
-
-      // Get color and range if a light exists, otherwise use defaults matching
-      // GetLightPosition's implicit behavior
-      if (!m_SceneGraph->GetLights().empty()) {
-        auto light = m_SceneGraph->GetLights()[0];
+      const auto &lights = m_SceneGraph->GetLights();
+      if (m_CurrentLightIndex < lights.size()) {
+        auto light = lights[m_CurrentLightIndex];
+        ubo.lightPos = light->GetWorldPosition();
         ubo.lightColor = light->GetColor();
         ubo.lightRange = light->GetRange();
       } else {
-        // Default fallbacks matching GetLightPosition default of (5,5,5)
+        // Default fallbacks if no lights
+        ubo.lightPos = glm::vec3(5.0f, 5.0f, 5.0f);
         ubo.lightColor = glm::vec3(150.0f, 150.0f, 150.0f);
-        ubo.lightRange = 0.0f; // Infinite
+        ubo.lightRange = 150.0f;
       }
     } else {
       ubo.lightPos = glm::vec3(5.0f, 5.0f, 5.0f);
       ubo.lightColor = glm::vec3(150.0f, 150.0f, 150.0f);
-      ubo.lightRange = 0.0f;
+      ubo.lightRange = 150.0f;
     }
 
     // Debug output to verify light position sync
@@ -591,17 +739,30 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
 
     ubo.padding2 = 0.0f;
 
-    m_UniformBuffer->WriteToBuffer(&ubo, sizeof(ubo));
+    // Debug: Log light data for each pass (temporary)
 
-    // Log first time we find meshes
-    static bool loggedMeshInfo = false;
-    if (!loggedMeshInfo) {
-      std::cout << "[SceneRenderer] Node '" << node->GetName() << "' has "
-                << node->GetMeshCount() << " meshes" << std::endl;
-      glm::vec3 pos = node->GetWorldPosition();
-      std::cout << "[SceneRenderer] Node world position: (" << pos.x << ", "
-                << pos.y << ", " << pos.z << ")" << std::endl;
-      loggedMeshInfo = true;
+    // DYNAMIC BUFFER STRATEGY:
+    // We strictly use linear indexing. Check capacity.
+    if (m_CurrentDrawIndex >= m_MaxDraws) {
+      // Buffer full, cannot write debug info or draw
+      // (This check should ideally be in the mesh loop for safety, but we do it
+      // here for log consistency)
+    }
+    VkDeviceSize drawOffset = m_CurrentDrawIndex * m_AlignedUBOSize;
+
+    // Redundant UBO write removed - we write inside the mesh loop
+    // But we still calculate drawOffset for debug logging
+
+    // DEBUG: Track every node/light/draw combination
+    static int debugCounter = 0;
+    if (debugCounter < 200) {
+      std::cout << "[UBO] Node=" << node->GetName()
+                << " LightIdx=" << m_CurrentLightIndex
+                << " DrawIdx=" << m_CurrentDrawIndex << " Offset=" << drawOffset
+                << " LightColor=(" << ubo.lightColor.x << ","
+                << ubo.lightColor.y << "," << ubo.lightColor.z << ")"
+                << std::endl;
+      debugCounter++;
     }
 
     // Render each mesh
@@ -625,13 +786,46 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
             meshPipeline = RenderingPipelines::Get().GetPipeline("PLSimple");
           }
 
-          // Fall back to default texture if no albedo
-          if (!albedoTexture) {
-            albedoTexture = m_DefaultTexture.get();
+          // DYNAMIC PIPELINE SWITCH FOR MULTI-LIGHT PASS
+          // CRITICAL: This must happen AFTER fallback, so ALL meshes get
+          // additive
+          if (m_CurrentLightIndex > 0 && meshPipeline) {
+            // Switch to additive pipeline for additional lights
+            meshPipeline = Quantum::RenderingPipelines::Get().GetPipeline(
+                "PLPBR_Additive");
+
+            if (!meshPipeline) {
+              std::cerr << "[SceneRenderer] ERROR: Failed to get "
+                           "PLPBR_Additive pipeline! Fallback to Opaque."
+                        << std::endl;
+              if (material) {
+                meshPipeline = material->GetPipeline();
+              } else {
+                meshPipeline =
+                    RenderingPipelines::Get().GetPipeline("PLSimple");
+              }
+            } else {
+              static bool loggedSwitch = false;
+              if (!loggedSwitch && m_CurrentLightIndex == 1) {
+
+                loggedSwitch = true;
+              }
+            }
           }
 
           // Bind pipeline if it changed
           if (meshPipeline && meshPipeline != m_CurrentPipeline) {
+            // DEBUG: Log pipeline switch
+            static int pipelineLogCount = 0;
+            if (pipelineLogCount < 50) {
+              std::cout << "[PIPELINE] Node=" << node->GetName()
+                        << " LightIdx=" << m_CurrentLightIndex
+                        << " SWITCHING pipeline (prev="
+                        << (m_CurrentPipeline ? "set" : "null") << ") to "
+                        << (m_CurrentLightIndex > 0 ? "ADDITIVE" : "OPAQUE")
+                        << std::endl;
+              pipelineLogCount++;
+            }
             m_CurrentPipeline = meshPipeline;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               meshPipeline->GetPipeline());
@@ -647,14 +841,46 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
           // Bind the material's descriptor set (per-material textures)
           VkDescriptorSet descriptorSetToBind =
               m_DescriptorSet; // Default fallback
+          bool usingMaterialDescriptor = false;
+          // Use per-material descriptor set if available
           if (material && material->HasDescriptorSet()) {
             descriptorSetToBind = material->GetDescriptorSet();
+            usingMaterialDescriptor = true;
           }
 
           if (descriptorSetToBind != VK_NULL_HANDLE) {
+            // Perform Dynamic Buffer Safety Check
+            if (m_CurrentDrawIndex >= m_MaxDraws) {
+              // Optional: Trigger resize here? Or just skip.
+              // For now, skip to prevent crash.
+              std::cerr << "[SceneRenderer] ERROR: Max draws exceeded ("
+                        << m_MaxDraws << ")! "
+                        << "Increase m_MaxDraws or implement dynamic resize."
+                        << std::endl;
+              continue;
+            }
+
+            // Use direct linear index for dynamic offset
+            uint32_t dynamicOffset =
+                static_cast<uint32_t>(m_CurrentDrawIndex * m_AlignedUBOSize);
+
+            // CRITIAL FIX: Upload the UBO data to the mapped buffer!
+            // Without this, we are drawing with garbage/zeros.
+            void *mappedData =
+                m_UniformBuffers[m_CurrentFrameIndex]->GetMappedMemory();
+            if (mappedData) {
+              char *dest = (char *)mappedData + dynamicOffset;
+              memcpy(dest, &ubo, sizeof(UniformBufferObject));
+            } else {
+              std::cerr << "ERROR: UBO not mapped!" << std::endl;
+            }
+
+            // DEBUG LOGGING - Enhanced to track node/pipeline/blend + LIGHT
+            // COLOR + DESCRIPTOR SET TYPE
+
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     meshPipeline->GetPipelineLayout(), 0, 1,
-                                    &descriptorSetToBind, 0, nullptr);
+                                    &descriptorSetToBind, 1, &dynamicOffset);
           } else {
             std::cerr << "[SceneRenderer] ERROR: Descriptor set is null!"
                       << std::endl;
@@ -664,37 +890,29 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
           mesh->Bind(cmd);
           uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
           if (indexCount > 0) {
+            // DEBUG: Log at actual draw time
+            static int drawLogCount = 0;
+            if (drawLogCount < 200) {
+              uint32_t currentOffset =
+                  static_cast<uint32_t>(m_CurrentDrawIndex * m_AlignedUBOSize);
+              std::cout << "[DRAW] Node=" << node->GetName()
+                        << " LightIdx=" << m_CurrentLightIndex
+                        << " DrawIdx=" << m_CurrentDrawIndex
+                        << " DynOffset=" << currentOffset
+                        << " IndexCount=" << indexCount << std::endl;
+              drawLogCount++;
+            }
             vkCmdDrawIndexed(cmd, indexCount, 1, 0, 0, 0);
             m_RenderMeshCount++;
+          } else {
+            int b = 5;
           }
 
-          // Log first mesh details
-          static bool loggedFirstMesh = false;
-          if (!loggedFirstMesh) {
-            std::cout << "[SceneRenderer] First mesh: "
-                      << mesh->GetVertexCount() << " vertices, "
-                      << mesh->GetIndexCount() << " indices";
-            if (material) {
-              std::cout << ", pipeline: " << material->GetPipelineName();
-            }
-            std::cout << std::endl;
-            loggedFirstMesh = true;
-          }
-        } else {
-          static bool loggedUnfinalizedMesh = false;
-          if (!loggedUnfinalizedMesh) {
-            std::cerr << "[SceneRenderer] WARNING: Mesh is not finalized!"
-                      << std::endl;
-            loggedUnfinalizedMesh = true;
-          }
+          // Increment draw index for next draw call
+          // We increment per valid draw to ensure unique UBO slots
+          m_CurrentDrawIndex++;
         }
       } else {
-        static bool loggedNullMesh = false;
-        if (!loggedNullMesh) {
-          std::cerr << "[SceneRenderer] WARNING: Null mesh pointer in node!"
-                    << std::endl;
-          loggedNullMesh = true;
-        }
       }
     }
   }
@@ -823,9 +1041,9 @@ void SceneRenderer::UpdatePBRTextures(Material *material) {
     writes[i].pTexelBufferView = nullptr; // Not used
   }
 
-  std::cout
-      << "[SceneRenderer] About to call vkUpdateDescriptorSets, DescriptorSet: "
-      << (void *)m_DescriptorSet << std::endl;
+  std::cout << "[SceneRenderer] About to call vkUpdateDescriptorSets, "
+               "DescriptorSet: "
+            << (void *)m_DescriptorSet << std::endl;
 
   vkUpdateDescriptorSets(m_Device->GetDevice(),
                          static_cast<uint32_t>(writes.size()), writes.data(), 0,
@@ -905,11 +1123,11 @@ void SceneRenderer::CreateMaterialDescriptorSetsRecursive(GraphNode *node) {
       if (material && !material->HasDescriptorSet()) {
         // Ensure material has default textures for missing slots
         material->CheckRequiredTextures(m_Device);
-        // Create the per-material descriptor set (with UBO + textures + shadow
-        // map)
+        // Create the per-material descriptor set (with UBO + textures +
+        // shadow map)
         material->CreateDescriptorSet(
             m_Device, m_DescriptorPool, m_DescriptorSetLayout, m_DefaultTexture,
-            m_UniformBuffer->GetBuffer(), sizeof(UniformBufferObject),
+            m_UniformBuffers[0]->GetBuffer(), sizeof(UniformBufferObject),
             m_ShadowMap ? m_ShadowMap->GetCubeImageView() : VK_NULL_HANDLE,
             m_ShadowMap ? m_ShadowMap->GetSampler() : VK_NULL_HANDLE);
       }
@@ -940,8 +1158,8 @@ void SceneRenderer::InitializeShadowResources() {
   m_FaceTextures.clear();
   for (uint32_t i = 0; i < PointShadowMap::NUM_FACES; i++) {
     auto faceView = m_ShadowMap->GetFaceImageView(i);
-    // Use the shadow map's sampler (or create a new one if needed, but safe to
-    // reuse)
+    // Use the shadow map's sampler (or create a new one if needed, but safe
+    // to reuse)
     auto sampler = m_ShadowMap->GetSampler();
     int size = (int)m_ShadowMap->GetResolution();
 
@@ -1111,8 +1329,8 @@ void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
                          0, sizeof(ShadowPushConstants), &pc);
 
       // Bind and draw mesh
-      // std::cout << "Rendering shadow mesh for node: " << node->GetName() << "
-      // vertices: " << mesh->GetVertexCount() << std::endl;
+      // std::cout << "Rendering shadow mesh for node: " << node->GetName() <<
+      // " vertices: " << mesh->GetVertexCount() << std::endl;
       mesh->Bind(cmd);
       uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
       if (indexCount > 0) {
