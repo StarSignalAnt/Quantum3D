@@ -1,39 +1,48 @@
+class GameNode
 
-class Node
+    int32 x;
+    int32 y;
+    int32 frame;
 
-    int32 val = 250;
+    method void GameNode()
+        x = 0
+        y = 0
+        frame = 0
+        printf("GameNode constructor called")
+    end
+
+    method int32 Update(float32 deltaTime)
+        x = x + 1
+        y = y + 1
+        frame = frame + 1
+        printf("Update: deltaTime =", deltaTime, "frame =", frame, "position =", x, y)
+        return 500
+    end
+
+    method void Render()
+        printf("Render: Drawing at", x, y)
+    end
 
 end
 
-class Test<T>
+class Player(GameNode)
 
-    T Val;
-    Test<T> Next = null;
+    int32 health;
+    string name;
 
+    method void Player()
+        health = 100
+        name = "Hero"
+        printf("Player constructor called - health:", health)
+    end
 
+    method void TakeDamage(int32 amount)
+        health = health - amount
+        printf("Player took damage:", amount, "- health now:", health)
+    end
 
-    method void Test(T node)
+    method void Render()
+        printf("Render Player:", name, "at", x, y, "with health", health)
+    end
 
-        Val = node;
-
-        if Val !=null
-
-            printf("T:",Val.val+1000+100);
-
-        else
-
-            printf("Val = null");
-
-        end 
-
-
-    end 
-
-end 
-
-Node n1 = new Node();
-
-Test<Node> t1 = new Test<Node>(n1);
-
-
-//3:18
+end

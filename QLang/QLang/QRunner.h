@@ -102,6 +102,91 @@ public:
     }
   }
 
+  // ========== Engine Integration API ==========
+
+  // Find a class definition by name
+  // Returns nullptr if class not found
+  std::shared_ptr<QClass> FindClass(const std::string &name) {
+    auto it = m_Classes.find(name);
+    if (it != m_Classes.end()) {
+      return it->second;
+    }
+    return nullptr;
+  }
+
+  // Create an instance of a class by name
+  // Initializes all members (including inherited) and calls constructors
+  // Returns nullptr if class not found
+  std::shared_ptr<QClassInstance>
+  CreateInstance(const std::string &className,
+                 const std::vector<QValue> &constructorArgs = {}) {
+    std::cout << "[DEBUG] QRunner::CreateInstance() - creating: " << className
+              << std::endl;
+
+    // Find the class definition
+    auto classIt = m_Classes.find(className);
+    if (classIt == m_Classes.end()) {
+      std::cerr << "[ERROR] QRunner::CreateInstance() - class not found: "
+                << className << std::endl;
+      return nullptr;
+    }
+
+    std::shared_ptr<QClass> classDef = classIt->second;
+
+    // Create the instance
+    auto instance = std::make_shared<QClassInstance>(classDef);
+
+    // Initialize all members (including inherited members via recursion)
+    std::unordered_map<std::string, std::string> typeMapping;
+    InitializeInstanceMembers(instance, classDef, typeMapping);
+
+    // Find and call constructor if exists (constructor has same name as class)
+    auto constructor = FindMethodInClass(classDef, className, constructorArgs);
+    if (constructor) {
+      std::cout << "[DEBUG] QRunner::CreateInstance() - calling constructor"
+                << std::endl;
+      ExecuteMethod(constructor, instance, constructorArgs);
+    }
+
+    std::cout << "[DEBUG] QRunner::CreateInstance() - instance created"
+              << std::endl;
+    return instance;
+  }
+
+  // Call a method on an instance
+  // Returns the method's return value (or monostate if void)
+  QValue CallMethod(std::shared_ptr<QClassInstance> instance,
+                    const std::string &methodName,
+                    const std::vector<QValue> &args = {}) {
+    if (!instance) {
+      std::cerr << "[ERROR] QRunner::CallMethod() - null instance" << std::endl;
+      return std::monostate{};
+    }
+
+    std::cout << "[DEBUG] QRunner::CallMethod() - calling " << methodName
+              << " on " << instance->GetClassName() << std::endl;
+
+    auto classDef = instance->GetClassDef();
+
+    // Find the method (searches inheritance chain via FindMethod)
+    auto method = FindMethod(classDef, methodName, args);
+    if (!method) {
+      std::cerr << "[ERROR] QRunner::CallMethod() - method '" << methodName
+                << "' not found in class '" << classDef->GetName() << "'"
+                << std::endl;
+      return std::monostate{};
+    }
+
+    // Execute the method
+    ExecuteMethod(method, instance, args);
+
+    // Return the result if there was a return statement
+    if (m_HasReturn) {
+      return GetReturnValue();
+    }
+    return std::monostate{};
+  }
+
 private:
   std::shared_ptr<QContext> m_Context;
   std::unordered_map<std::string, std::shared_ptr<QClass>> m_Classes;
@@ -349,6 +434,51 @@ private:
       }
     }
 
+    // Method not found in current class, check parent class (inheritance)
+    if (classDef->HasParent()) {
+      std::string parentName = classDef->GetParentClassName();
+      auto parentIt = m_Classes.find(parentName);
+      if (parentIt != m_Classes.end()) {
+        std::cout << "[DEBUG] FindMethod() - searching parent class: "
+                  << parentName << std::endl;
+        return FindMethod(parentIt->second, methodName, args, typeMapping);
+      } else {
+        std::cerr << "[ERROR] FindMethod() - parent class not found: "
+                  << parentName << std::endl;
+      }
+    }
+
+    return nullptr;
+  }
+
+  // Find a method only in the specified class (no inheritance traversal)
+  // Used for calling parent constructors specifically
+  std::shared_ptr<QMethod> FindMethodInClass(std::shared_ptr<QClass> classDef,
+                                             const std::string &methodName,
+                                             const std::vector<QValue> &args) {
+    for (const auto &method : classDef->GetMethods()) {
+      if (method->GetName() != methodName) {
+        continue;
+      }
+
+      const auto &params = method->GetParameters();
+      if (params.size() != args.size()) {
+        continue;
+      }
+
+      // Check parameter types
+      bool typesMatch = true;
+      for (size_t i = 0; i < params.size(); i++) {
+        if (!CheckTypeMatch(args[i], params[i].type)) {
+          typesMatch = false;
+          break;
+        }
+      }
+
+      if (typesMatch) {
+        return method;
+      }
+    }
     return nullptr;
   }
 
@@ -877,6 +1007,38 @@ private:
     std::cout << "[DEBUG] QRunner::InitializeInstanceMembers() - initializing "
                  "members for: "
               << classDef->GetName() << std::endl;
+
+    // First, initialize parent class members (inheritance)
+    if (classDef->HasParent()) {
+      std::string parentName = classDef->GetParentClassName();
+      auto parentIt = m_Classes.find(parentName);
+      if (parentIt != m_Classes.end()) {
+        std::cout << "[DEBUG] InitializeInstanceMembers() - initializing "
+                     "parent members from: "
+                  << parentName << std::endl;
+        InitializeInstanceMembers(instance, parentIt->second, typeMapping);
+
+        // Call parent's default constructor if it exists
+        auto parentClassDef = parentIt->second;
+        std::vector<QValue> emptyArgs;
+        auto parentConstructor =
+            FindMethodInClass(parentClassDef, parentName, emptyArgs);
+        if (parentConstructor) {
+          std::cout << "[DEBUG] InitializeInstanceMembers() - calling parent "
+                       "constructor: "
+                    << parentName << std::endl;
+          ExecuteMethod(parentConstructor, instance, emptyArgs);
+        } else {
+          std::cout << "[DEBUG] InitializeInstanceMembers() - no parent "
+                       "constructor found (optional)"
+                    << std::endl;
+        }
+      } else {
+        std::cerr << "[ERROR] InitializeInstanceMembers() - parent class not "
+                     "found: "
+                  << parentName << std::endl;
+      }
+    }
 
     for (const auto &member : classDef->GetMembers()) {
       std::string memberName = member->GetName();

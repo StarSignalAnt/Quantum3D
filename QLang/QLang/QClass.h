@@ -35,6 +35,17 @@ public:
 
   bool IsGeneric() const { return !m_TypeParameters.empty(); }
 
+  // Parent class for inheritance (e.g., class Dog(Animal))
+  void SetParentClass(const std::string &parentName) {
+    m_ParentClassName = parentName;
+    std::cout << "[DEBUG] QClass(" << m_Name
+              << ") - set parent class: " << parentName << std::endl;
+  }
+
+  const std::string &GetParentClassName() const { return m_ParentClassName; }
+
+  bool HasParent() const { return !m_ParentClassName.empty(); }
+
   void AddMember(std::shared_ptr<QVariableDecl> member) {
     m_Members.push_back(member);
     std::cout << "[DEBUG] QClass(" << m_Name
@@ -69,6 +80,9 @@ public:
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "Class: " << m_Name;
+    if (HasParent()) {
+      std::cout << " extends " << m_ParentClassName;
+    }
     if (IsGeneric()) {
       std::cout << "<";
       for (size_t i = 0; i < m_TypeParameters.size(); i++) {
@@ -96,6 +110,7 @@ public:
 
 private:
   std::string m_Name;
+  std::string m_ParentClassName;             // Parent class for inheritance
   std::vector<std::string> m_TypeParameters; // Generic type params (T, K, V)
   std::vector<std::shared_ptr<QVariableDecl>> m_Members;
   std::vector<std::shared_ptr<QMethod>> m_Methods;

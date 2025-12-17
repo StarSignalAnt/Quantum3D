@@ -50,99 +50,121 @@ public:
 };
 
 int main() {
-  std::cout << "=== QLang Test ===" << std::endl;
+  std::cout << "=== QLang Engine Integration Demo ===" << std::endl;
   std::cout << std::endl;
 
   // Create shared error collector
   auto errorCollector = std::make_shared<QErrorCollector>();
 
-  // Tokenization
-  std::cout << "--- Tokenization ---" << std::endl;
+  // ========== STEP 1: Parse the script ==========
+  std::cout << "--- Step 1: Parsing Script ---" << std::endl;
   Tokenizer tokenizer("test/test.q", errorCollector);
   tokenizer.Tokenize();
 
   if (errorCollector->HasErrors()) {
-    std::cout << "Tokenization failed with errors:" << std::endl;
+    std::cout << "Tokenization failed:" << std::endl;
     errorCollector->ListErrors();
     return 1;
   }
 
-  tokenizer.PrintTokens();
-  std::cout << std::endl;
-
-  // Parsing
-  std::cout << "--- Parsing ---" << std::endl;
   Parser parser(tokenizer.GetTokens(), errorCollector);
   auto program = parser.Parse();
 
   if (errorCollector->HasErrors()) {
-    std::cout << "Parsing failed with errors:" << std::endl;
-    errorCollector->ListErrors(true); // Enable full function context
+    std::cout << "Parsing failed:" << std::endl;
+    errorCollector->ListErrors(true);
     return 1;
   }
 
-  std::cout << std::endl;
-
-  // Print AST
-  std::cout << "--- AST ---" << std::endl;
+  // Print AST to show class structure
+  std::cout << std::endl << "--- AST (Class Definitions) ---" << std::endl;
   program->Print();
-
   std::cout << std::endl;
 
-  // Create context and register native functions
-  std::cout << "--- Setting up Context ---" << std::endl;
-  auto context = std::make_shared<QContext>("program");
-
-  // Add native functions
+  // ========== STEP 2: Create runner and register classes ==========
+  std::cout << "--- Step 2: Setting up Runner ---" << std::endl;
+  auto context = std::make_shared<QContext>("engine");
   context->AddFunc("printf", func_printf);
   context->AddFunc("print", func_print);
 
-  std::cout << std::endl;
-
-  // Run the program
-  std::cout << "--- Running Program ---" << std::endl;
   QRunner runner(context, errorCollector);
-  runner.Run(program);
+  runner.Run(program); // This registers all classes
 
-  if (errorCollector->GetErrorCount() > 0) {
-    std::cout << "Execution finished with errors:" << std::endl;
-    errorCollector->ListErrors(true);
-  } else if (errorCollector->GetWarningCount() > 0) {
-    std::cout << "Execution finished with warnings:" << std::endl;
-    errorCollector->ListErrors(true);
+  std::cout << std::endl;
+
+  // ========== STEP 3: Find classes (like the engine would) ==========
+  std::cout << "--- Step 3: Finding Classes ---" << std::endl;
+
+  auto gameNodeClass = runner.FindClass("GameNode");
+  if (gameNodeClass) {
+    std::cout << "Found class: GameNode" << std::endl;
   }
 
-  return 0;
-
-  auto cls = runner.FindClassInstance("t1");
-
-  Test *test = new Test;
-
-  cls->SetMember("cls2", static_cast<void *>(test));
-
-  if (cls) {
-    auto member = cls->GetMember("cls2");
-
-    // ALWAYS check before using std::get!
-    if (std::holds_alternative<void *>(member)) {
-      void *ptr = std::get<void *>(member);
-      std::cout << "Got cptr: " << ptr << std::endl;
-      Test *t = (Test *)ptr;
-      std::cout << "TX:" << t->x << std::endl;
-    } else if (std::holds_alternative<std::monostate>(member)) {
-      std::cout << "Member is null/undefined" << std::endl;
-    } else {
-      std::cout << "Member is a different type" << std::endl;
-    }
-  } else {
-    std::cout << "NO CLS" << std::endl;
+  auto playerClass = runner.FindClass("Player");
+  if (playerClass) {
+    std::cout << "Found class: Player (extends GameNode)" << std::endl;
   }
 
   std::cout << std::endl;
 
-  // Show final context state
-  std::cout << "--- Final Context State ---" << std::endl;
-  context->PrintVariables();
+  // ========== STEP 4: Create instances ==========
+  std::cout << "--- Step 4: Creating Instances ---" << std::endl;
+
+  // Create a basic GameNode instance
+  auto node1 = runner.CreateInstance("GameNode");
+
+  std::cout << std::endl;
+
+  // Create a Player instance (inherits from GameNode)
+  auto player = runner.CreateInstance("Player");
+
+  std::cout << std::endl;
+
+  // ========== STEP 5: Simulate game loop - call methods ==========
+  std::cout << "--- Step 5: Simulating Game Loop ---" << std::endl;
+
+  // Simulate 3 frames of update/render with deltaTime
+  float deltaTime = 0.016f; // ~60 FPS
+
+  for (int frame = 0; frame < 3; frame++) {
+    std::cout << std::endl << "=== Frame " << frame << " ===" << std::endl;
+
+    // Create args vector with deltaTime for Update
+    std::vector<QValue> updateArgs = {deltaTime};
+
+    // Update GameNode with deltaTime and capture return value
+    QValue result = runner.CallMethod(node1, "Update", updateArgs);
+    if (std::holds_alternative<int32_t>(result)) {
+      std::cout << "[C++] Update returned: " << std::get<int32_t>(result)
+                << std::endl;
+    }
+
+    // Update Player (uses inherited Update from GameNode)
+    runner.CallMethod(player, "Update", updateArgs);
+
+    // Render GameNode
+    //  runner.CallMethod(node1, "Render");
+
+    // Render Player (uses overridden Render)
+    // runner.CallMethod(player, "Render");
+
+    // Simulate variable frame time
+    deltaTime += 0.001f;
+  }
+
+  std::cout << std::endl;
+
+  // ========== STEP 6: Call Player-specific method ==========
+  std::cout << "--- Step 6: Player-specific Methods ---" << std::endl;
+
+  // TakeDamage is defined only in Player
+  std::vector<QValue> damageArgs = {static_cast<int32_t>(25)};
+  runner.CallMethod(player, "TakeDamage", damageArgs);
+  runner.CallMethod(player, "TakeDamage", damageArgs);
+  runner.CallMethod(player, "Render");
+
+  std::cout << std::endl;
+  std::cout << "=== Demo Complete ===" << std::endl;
 
   return 0;
 }

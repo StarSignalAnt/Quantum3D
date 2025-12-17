@@ -569,6 +569,35 @@ std::shared_ptr<QClass> Parser::ParseClass() {
 
   auto cls = std::make_shared<QClass>(nameToken.value);
 
+  // Check for inheritance syntax: class Name(ParentClass)
+  if (Check(TokenType::T_LPAREN)) {
+    Advance(); // consume '('
+    std::cout << "[DEBUG] ParseClass() - parsing parent class" << std::endl;
+
+    if (!Check(TokenType::T_IDENTIFIER)) {
+      ReportError("expected parent class name after '('");
+    } else {
+      Token parentToken = Advance();
+
+      // Validate that the parent class exists
+      if (!IsClassName(parentToken.value)) {
+        ReportError("unknown parent class '" + parentToken.value +
+                    "' - parent class must be defined before child class");
+      } else {
+        cls->SetParentClass(parentToken.value);
+        std::cout << "[DEBUG] ParseClass() - parent class: "
+                  << parentToken.value << std::endl;
+      }
+    }
+
+    // Consume ')'
+    if (Check(TokenType::T_RPAREN)) {
+      Advance();
+    } else {
+      ReportError("expected ')' after parent class name");
+    }
+  }
+
   // Check for generic type parameters <T, U, V, ...>
   if (Check(TokenType::T_LESS)) {
     Advance(); // consume '<'
