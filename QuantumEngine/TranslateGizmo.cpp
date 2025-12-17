@@ -14,22 +14,9 @@ TranslateGizmo::TranslateGizmo(Vivid::VividDevice *device) {
 
 bool TranslateGizmo::OnMouseClicked(int x, int y, bool isPressed, int width,
                                     int height) {
-  std::cout << "[TranslateGizmo] OnMouseClicked(" << x << ", " << y << ", "
-            << (isPressed ? "pressed" : "released") << ")" << std::endl;
-  std::cout << "  Viewport: " << m_ViewportWidth << "x" << m_ViewportHeight
-            << std::endl;
-  std::cout << "  Gizmo pos: " << m_Position.x << ", " << m_Position.y << ", "
-            << m_Position.z << std::endl;
-  std::cout << "  Has target: " << (GetTargetNode() ? "yes" : "no")
-            << std::endl;
-  std::cout << "  Meshes: X=" << (m_AxisX ? "valid" : "null")
-            << " Y=" << (m_AxisY ? "valid" : "null")
-            << " Z=" << (m_AxisZ ? "valid" : "null") << std::endl;
-
   if (isPressed) {
     // Check if we hit an axis
     GizmoAxis hit = HitTest(x, y, width, height);
-    std::cout << "  HitTest result: " << static_cast<int>(hit) << std::endl;
     if (hit != GizmoAxis::None) {
       m_IsDragging = true;
       m_ActiveAxis = hit;
@@ -39,22 +26,41 @@ bool TranslateGizmo::OnMouseClicked(int x, int y, bool isPressed, int width,
       auto target = GetTargetNode();
       if (target) {
         m_DragStartNodePos = target->GetWorldPosition();
+
+        // Capture axis direction at drag start (use consistently throughout
+        // drag)
+        m_DragAxisDirection = GetAxisDirection(m_ActiveAxis);
+
+        // Calculate initial t-parameter along the axis where the ray intersects
+        Ray ray = CalculatePickingRay(x, y);
+        glm::vec3 axisOrigin = m_DragStartNodePos;
+
+        // Find closest point on axis line to the ray (ray-line closest point)
+        // Line: P = axisOrigin + t * axisDir
+        // Ray: Q = ray.origin + s * ray.direction
+        glm::vec3 w0 = axisOrigin - ray.origin;
+        float a = glm::dot(m_DragAxisDirection, m_DragAxisDirection);
+        float b = glm::dot(m_DragAxisDirection, ray.direction);
+        float c = glm::dot(ray.direction, ray.direction);
+        float d = glm::dot(m_DragAxisDirection, w0);
+        float e = glm::dot(ray.direction, w0);
+        float denom = a * c - b * b;
+
+        if (std::abs(denom) > 0.0001f) {
+          m_DragStartAxisT = (b * e - c * d) / denom;
+        } else {
+          m_DragStartAxisT = 0.0f;
+        }
       }
 
-      std::cout << "[TranslateGizmo] Started dragging axis "
-                << (hit == GizmoAxis::X   ? "X"
-                    : hit == GizmoAxis::Y ? "Y"
-                                          : "Z")
-                << std::endl;
       return true; // Consumed the click
     }
   } else {
     // Mouse released
     if (m_IsDragging) {
-      std::cout << "[TranslateGizmo] Stopped dragging" << std::endl;
       m_IsDragging = false;
       m_ActiveAxis = GizmoAxis::None;
-      return true; // Consumed the release (was dragging)
+      return true; // Consumed the release
     }
   }
   return false; // Did not consume
@@ -68,50 +74,34 @@ void TranslateGizmo::OnMouseMoved(int x, int y) {
   if (!target)
     return;
 
-  // Calculate mouse delta
-  glm::vec2 mouseDelta = glm::vec2(x, y) - m_LastMousePos;
-  m_LastMousePos = glm::vec2(x, y);
+  // Use the axis direction captured at drag start (stored in
+  // m_DragAxisDirection)
+  glm::vec3 axisOrigin = m_DragStartNodePos;
 
-  // Get axis direction in world space
-  glm::vec3 axisDir = GetAxisDirection(m_ActiveAxis);
+  // Cast ray from current mouse position
+  Ray ray = CalculatePickingRay(x, y);
 
-  // Project axis to screen space to determine movement direction
-  glm::mat4 viewProj = m_ProjMatrix * m_ViewMatrix;
-  glm::vec4 gizmoScreen = viewProj * glm::vec4(m_Position, 1.0f);
-  glm::vec4 axisEndScreen = viewProj * glm::vec4(m_Position + axisDir, 1.0f);
+  // Find closest point on axis line to the ray (ray-line closest point)
+  glm::vec3 w0 = axisOrigin - ray.origin;
+  float a = glm::dot(m_DragAxisDirection, m_DragAxisDirection);
+  float b = glm::dot(m_DragAxisDirection, ray.direction);
+  float c = glm::dot(ray.direction, ray.direction);
+  float d = glm::dot(m_DragAxisDirection, w0);
+  float e = glm::dot(ray.direction, w0);
+  float denom = a * c - b * b;
 
-  if (gizmoScreen.w > 0.001f && axisEndScreen.w > 0.001f) {
-    gizmoScreen /= gizmoScreen.w;
-    axisEndScreen /= axisEndScreen.w;
+  if (std::abs(denom) > 0.0001f) {
+    float currentT = (b * e - c * d) / denom;
 
-    // Get screen-space axis direction
-    glm::vec2 screenAxisDir =
-        glm::vec2(axisEndScreen.x - gizmoScreen.x,
-                  gizmoScreen.y - axisEndScreen.y); // Y inverted
-    float screenAxisLen = glm::length(screenAxisDir);
+    // Calculate delta t and apply to node position
+    float deltaT = currentT - m_DragStartAxisT;
 
-    if (screenAxisLen > 0.001f) {
-      screenAxisDir = glm::normalize(screenAxisDir);
+    // Move the target node along the axis
+    glm::vec3 newPos = m_DragStartNodePos + m_DragAxisDirection * deltaT;
+    target->SetLocalPosition(newPos);
 
-      // Project mouse delta onto screen axis
-      glm::vec2 normalizedDelta =
-          mouseDelta / glm::vec2(m_ViewportWidth, m_ViewportHeight) * 2.0f;
-      float movement = glm::dot(normalizedDelta, screenAxisDir);
-
-      // Scale movement by distance to camera for consistent feel
-      glm::vec3 cameraPos = GetCameraPosition();
-      float distance = glm::length(cameraPos - m_Position);
-
-      float sensitivity = 2.0f; // Adjust for feel
-      float worldMovement = movement * distance * sensitivity;
-
-      // Move the target node along the axis
-      glm::vec3 newPos = target->GetWorldPosition() + axisDir * worldMovement;
-      target->SetLocalPosition(newPos);
-
-      // Update gizmo position to follow
-      m_Position = newPos;
-    }
+    // Update gizmo position to follow
+    m_Position = newPos;
   }
 }
 
@@ -127,12 +117,14 @@ GizmoAxis TranslateGizmo::HitTest(int mouseX, int mouseY, int width,
   // Use base class ray calculation
   Ray ray = CalculatePickingRay(mouseX, mouseY);
 
-  // Calculate gizmo model matrix (position + scale)
+  // Calculate gizmo model matrix (position + rotation + scale)
   float scale = m_CurrentScale;
   if (scale < 0.001f) {
     scale = CalculateScreenConstantScale();
   }
+  glm::mat4 rotation = GetGizmoRotation();
   glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), m_Position);
+  modelMatrix = modelMatrix * rotation; // Apply local/global rotation
   modelMatrix = glm::scale(modelMatrix, glm::vec3(scale));
 
   std::cout << "  Ray origin: " << ray.origin.x << ", " << ray.origin.y << ", "
@@ -164,16 +156,25 @@ GizmoAxis TranslateGizmo::HitTest(int mouseX, int mouseY, int width,
 }
 
 glm::vec3 TranslateGizmo::GetAxisDirection(GizmoAxis axis) const {
+  // Get base axis
+  glm::vec3 baseAxis;
   switch (axis) {
   case GizmoAxis::X:
-    return glm::vec3(1, 0, 0);
+    baseAxis = glm::vec3(1, 0, 0);
+    break;
   case GizmoAxis::Y:
-    return glm::vec3(0, 1, 0);
+    baseAxis = glm::vec3(0, 1, 0);
+    break;
   case GizmoAxis::Z:
-    return glm::vec3(0, 0, 1);
+    baseAxis = glm::vec3(0, 0, 1);
+    break;
   default:
     return glm::vec3(0);
   }
+
+  // Transform by current gizmo rotation (local/global space)
+  glm::mat4 rotation = GetGizmoRotation();
+  return glm::normalize(glm::vec3(rotation * glm::vec4(baseAxis, 0.0f)));
 }
 
 glm::vec3 TranslateGizmo::ProjectMouseToAxis(int mouseX, int mouseY,
@@ -275,8 +276,10 @@ void TranslateGizmo::Render(SceneRenderer *renderer, VkCommandBuffer cmd,
   // Use base class scale calculation
   m_CurrentScale = CalculateScreenConstantScale();
 
-  // Calculate Model Matrix (at m_Position with distance-based scale)
+  // Calculate Model Matrix (position + rotation + scale)
+  glm::mat4 rotation = GetGizmoRotation();
   glm::mat4 model = glm::translate(glm::mat4(1.0f), m_Position);
+  model = model * rotation; // Apply local/global rotation
   model = glm::scale(model, glm::vec3(m_CurrentScale));
 
   // Call SceneRenderer to draw each axis

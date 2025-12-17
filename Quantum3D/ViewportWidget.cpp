@@ -325,12 +325,15 @@ void ViewportWidget::renderFrame() {
     // Phase 3: Main scene rendering
     if (m_SceneRenderer) {
       // Update gizmo view state for hit detection
+      // IMPORTANT: Use logical pixels (width(), height()) NOT physical pixels
+      // (m_Width, m_Height) because Qt mouse events deliver coordinates in
+      // logical pixels
       if (m_EditorCamera) {
         glm::mat4 view = m_EditorCamera->GetViewMatrix();
         glm::mat4 proj = glm::perspective(
-            glm::radians(45.0f), static_cast<float>(m_Width) / m_Height, 0.01f,
+            glm::radians(45.0f), static_cast<float>(width()) / height(), 0.01f,
             1000.0f);
-        m_SceneRenderer->SetGizmoViewState(view, proj, m_Width, m_Height);
+        m_SceneRenderer->SetGizmoViewState(view, proj, width(), height());
       }
 
       m_SceneRenderer->RenderScene(m_Renderer->GetCommandBuffer(), m_Width,
@@ -417,8 +420,8 @@ void ViewportWidget::mousePressEvent(QMouseEvent *event) {
     int mouseY = static_cast<int>(event->position().y());
 
     // First, check if gizmo wants to handle this click
-    if (m_SceneRenderer &&
-        m_SceneRenderer->OnGizmoMouseClicked(mouseX, mouseY, true,width(),height())) {
+    if (m_SceneRenderer && m_SceneRenderer->OnGizmoMouseClicked(
+                               mouseX, mouseY, true, width(), height())) {
       // Gizmo consumed the click, don't do node selection
     } else if (m_SceneGraph) {
       // Gizmo didn't consume, do normal node selection
@@ -452,7 +455,7 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent *event) {
     if (m_SceneRenderer) {
       m_SceneRenderer->OnGizmoMouseClicked(
           static_cast<int>(event->position().x()),
-          static_cast<int>(event->position().y()), false,width(),height());
+          static_cast<int>(event->position().y()), false, width(), height());
     }
   }
   if (event->button() == Qt::RightButton) {
@@ -515,5 +518,38 @@ void ViewportWidget::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
     } else {
       m_SceneRenderer->SetGizmoTargetNode(nullptr);
     }
+  }
+}
+
+void ViewportWidget::UpdateGizmoSpace() {
+  if (m_SceneRenderer) {
+    // Map EngineGlobals::CoordinateSpace to Quantum::GizmoSpace
+    auto engineSpace = EngineGlobals::GetSpace();
+    Quantum::GizmoSpace gizmoSpace = (engineSpace == CoordinateSpace::Local)
+                                         ? Quantum::GizmoSpace::Local
+                                         : Quantum::GizmoSpace::Global;
+    m_SceneRenderer->SetGizmoSpace(gizmoSpace);
+  }
+}
+
+void ViewportWidget::UpdateGizmoType() {
+  if (m_SceneRenderer) {
+    // Map EngineGlobals::GizmoType to Quantum::GizmoType
+    auto engineType = EngineGlobals::GetGizmoMode();
+    Quantum::GizmoType gizmoType;
+    switch (engineType) {
+    case GizmoType::Translate:
+      gizmoType = Quantum::GizmoType::Translate;
+      break;
+    case GizmoType::Rotate:
+      gizmoType = Quantum::GizmoType::Rotate;
+      break;
+    case GizmoType::Scale:
+      gizmoType = Quantum::GizmoType::Scale;
+      break;
+    default:
+      gizmoType = Quantum::GizmoType::Translate;
+    }
+    m_SceneRenderer->SetGizmoType(gizmoType);
   }
 }

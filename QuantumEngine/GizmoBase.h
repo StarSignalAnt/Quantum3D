@@ -12,6 +12,12 @@ class GraphNode;     // Forward declaration
 // Axis identifiers for gizmo interaction
 enum class GizmoAxis { None = 0, X, Y, Z };
 
+// Coordinate space for gizmo operations
+enum class GizmoSpace { Local, Global };
+
+// Gizmo tool type
+enum class GizmoType { Translate, Rotate, Scale };
+
 // Ray structure for picking
 struct Ray {
   glm::vec3 origin{0.0f};
@@ -59,7 +65,14 @@ public:
   // Get the currently active axis
   GizmoAxis GetActiveAxis() const { return m_ActiveAxis; }
 
+  // Coordinate space (Local = object orientation, Global = world axes)
+  void SetSpace(GizmoSpace space) { m_Space = space; }
+  GizmoSpace GetSpace() const { return m_Space; }
+
 protected:
+  // Get gizmo rotation based on current space (identity for global, node
+  // rotation for local)
+  glm::mat4 GetGizmoRotation() const;
   // === Shared Ray Utilities ===
 
   // Calculate a picking ray from screen coordinates
@@ -93,7 +106,13 @@ protected:
   GizmoAxis m_ActiveAxis = GizmoAxis::None;
   glm::vec2 m_LastMousePos{0.0f};
   glm::vec3 m_DragStartNodePos{0.0f};
+  glm::vec3 m_DragAxisDirection{0.0f}; // Axis direction captured at drag start
+  float m_DragStartAxisT =
+      0.0f; // Initial t-parameter along axis when drag started
   float m_CurrentScale = 1.0f;
+
+  // Coordinate space mode
+  GizmoSpace m_Space = GizmoSpace::Local;
 };
 
 } // namespace Quantum

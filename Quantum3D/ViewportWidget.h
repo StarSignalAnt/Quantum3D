@@ -75,6 +75,8 @@ private:
 
 public:
   void SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node);
+  void UpdateGizmoSpace(); // Called by EngineGlobals when space changes
+  void UpdateGizmoType();  // Called by EngineGlobals when gizmo mode changes
 
 private:
   std::shared_ptr<Quantum::LightNode> m_MainLight; // Test light

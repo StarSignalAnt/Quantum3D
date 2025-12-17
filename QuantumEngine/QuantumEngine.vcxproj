@@ -240,6 +240,7 @@
     <ClCompile Include="SceneRenderer.cpp" />
     <ClCompile Include="PointShadowMap.cpp" />
     <ClCompile Include="TranslateGizmo.cpp" />
+    <ClCompile Include="RotateGizmo.cpp" />
     <ClCompile Include="GizmoBase.cpp" />
   </ItemGroup>
   <ItemGroup>

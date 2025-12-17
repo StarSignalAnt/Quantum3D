@@ -1,4 +1,5 @@
 #pragma once
+#include "GizmoBase.h"
 #include "PointShadowMap.h"
 #include "SceneGraph.h"
 #include "ShadowPipeline.h"
@@ -75,7 +76,6 @@ public:
   void RegisterWireframePipeline();
   void RenderSelection(VkCommandBuffer cmd,
                        std::shared_ptr<GraphNode> selectedNode);
-
   // Gizmo Support
   void DrawGizmoMesh(VkCommandBuffer cmd, std::shared_ptr<Mesh3D> mesh,
                      const glm::mat4 &model, const glm::vec3 &color,
@@ -84,12 +84,17 @@ public:
   void SetGizmoTargetNode(std::shared_ptr<GraphNode> node);
   void SetGizmoViewState(const glm::mat4 &view, const glm::mat4 &proj, int w,
                          int h);
-  bool OnGizmoMouseClicked(int x, int y, bool isPressed,int width,int height);
+  bool OnGizmoMouseClicked(int x, int y, bool isPressed, int width, int height);
   void OnGizmoMouseMoved(int x, int y);
   bool IsGizmoDragging() const;
+  void SetGizmoSpace(GizmoSpace space);
+  void SetGizmoType(GizmoType type);
 
 private:
-  std::unique_ptr<class GizmoBase> m_ActiveGizmo;
+  // Gizmo instances (all types stored, one active at a time)
+  std::unique_ptr<class GizmoBase> m_TranslateGizmo;
+  std::unique_ptr<class GizmoBase> m_RotateGizmo;
+  GizmoBase *m_ActiveGizmo = nullptr; // Points to active gizmo (not owning)
   void CreateDescriptorSetLayout();
   void CreateDescriptorPool();
   void CreateDescriptorSets();

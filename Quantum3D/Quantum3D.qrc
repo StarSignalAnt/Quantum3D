@@ -1,5 +1,7 @@
 <RCC>
     <qresource prefix="Quantum3D">
+        <file>icons/local.png</file>
+        <file>icons/global.png</file>
         <file>icons/translate.png</file>
         <file>icons/rotate.png</file>
         <file>icons/scale.png</file>

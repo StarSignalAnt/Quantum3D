@@ -1,22 +1,50 @@
 #include "QuantumToolBar.h"
+#include "EngineGlobals.h"
 #include "stdafx.h"
-#include <QtGui/QIcon>
 #include <QAction>
 #include <QActionGroup>
+#include <QtGui/QIcon>
 #include <iostream>
-
 
 QuantumToolBar::QuantumToolBar(QWidget *parent) : QToolBar(parent) {
   setObjectName("MainToolBar");
   setMovable(false);
-  setIconSize(QSize(24, 24));
+  setIconSize(QSize(34, 34));
   setupToolBar();
 }
 
 QuantumToolBar::~QuantumToolBar() {}
 
 void QuantumToolBar::setupToolBar() {
-  // Create action group for exclusive selection
+  // === Coordinate Mode Actions (Local/Global) ===
+  m_coordinateActionGroup = new QActionGroup(this);
+  m_coordinateActionGroup->setExclusive(true);
+
+  // Local action
+  m_localAction = new QAction(this);
+  m_localAction->setIcon(QIcon(":/Quantum3D/icons/local.png"));
+  m_localAction->setToolTip("Local Coordinates");
+  m_localAction->setCheckable(true);
+  m_localAction->setChecked(true); // Default selected
+  m_coordinateActionGroup->addAction(m_localAction);
+  addAction(m_localAction);
+  connect(m_localAction, &QAction::triggered, this,
+          &QuantumToolBar::onLocalClicked);
+
+  // Global action
+  m_globalAction = new QAction(this);
+  m_globalAction->setIcon(QIcon(":/Quantum3D/icons/global.png"));
+  m_globalAction->setToolTip("Global/World Coordinates");
+  m_globalAction->setCheckable(true);
+  m_coordinateActionGroup->addAction(m_globalAction);
+  addAction(m_globalAction);
+  connect(m_globalAction, &QAction::triggered, this,
+          &QuantumToolBar::onGlobalClicked);
+
+  // Separator between coordinate mode and gizmo mode
+  addSeparator();
+
+  // === Gizmo Mode Actions (Translate/Rotate/Scale) ===
   m_gizmoActionGroup = new QActionGroup(this);
   m_gizmoActionGroup->setExclusive(true);
 
@@ -58,20 +86,32 @@ void QuantumToolBar::setupToolBar() {
   addSeparator();
 }
 
+void QuantumToolBar::onLocalClicked() {
+  m_currentCoordinateMode = CoordinateMode::Local;
+  EngineGlobals::SetSpace(CoordinateSpace::Local);
+  emit coordinateModeChanged(m_currentCoordinateMode);
+}
+
+void QuantumToolBar::onGlobalClicked() {
+  m_currentCoordinateMode = CoordinateMode::Global;
+  EngineGlobals::SetSpace(CoordinateSpace::Global);
+  emit coordinateModeChanged(m_currentCoordinateMode);
+}
+
 void QuantumToolBar::onTranslateClicked() {
   m_currentGizmoMode = GizmoMode::Translate;
-  std::cout << "[QuantumToolBar] Gizmo mode: Translate" << std::endl;
+  EngineGlobals::SetGizmoMode(GizmoType::Translate);
   emit gizmoModeChanged(m_currentGizmoMode);
 }
 
 void QuantumToolBar::onRotateClicked() {
   m_currentGizmoMode = GizmoMode::Rotate;
-  std::cout << "[QuantumToolBar] Gizmo mode: Rotate" << std::endl;
+  EngineGlobals::SetGizmoMode(GizmoType::Rotate);
   emit gizmoModeChanged(m_currentGizmoMode);
 }
 
 void QuantumToolBar::onScaleClicked() {
   m_currentGizmoMode = GizmoMode::Scale;
-  std::cout << "[QuantumToolBar] Gizmo mode: Scale" << std::endl;
+  EngineGlobals::SetGizmoMode(GizmoType::Scale);
   emit gizmoModeChanged(m_currentGizmoMode);
 }

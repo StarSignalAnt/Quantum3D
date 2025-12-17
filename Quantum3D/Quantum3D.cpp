@@ -1,5 +1,6 @@
 #include "Quantum3D.h"
 #include "BrowserWidget.h"
+#include "EngineGlobals.h"
 #include "PropertiesWidget.h"
 #include "QuantumMenu.h"
 #include "QuantumToolBar.h"
@@ -29,6 +30,7 @@ void Quantum3D::setupDockWidgets() {
   // Create Viewport as central widget
   m_viewportWidget = new ViewportWidget(this);
   setCentralWidget(m_viewportWidget);
+  EngineGlobals::Viewport = m_viewportWidget;
 
   // Create Scene Graph dock widget
   m_sceneGraphWidget = new SceneGraphWidget(this);
@@ -36,6 +38,7 @@ void Quantum3D::setupDockWidgets() {
   m_sceneGraphDock->setWidget(m_sceneGraphWidget);
   m_sceneGraphDock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::LeftDockWidgetArea, m_sceneGraphDock);
+  EngineGlobals::SceneGraphPanel = m_sceneGraphWidget;
 
   // Create Properties dock widget
   m_propertiesWidget = new PropertiesWidget(this);
@@ -43,6 +46,7 @@ void Quantum3D::setupDockWidgets() {
   m_propertiesDock->setWidget(m_propertiesWidget);
   m_propertiesDock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::RightDockWidgetArea, m_propertiesDock);
+  EngineGlobals::PropertiesPanel = m_propertiesWidget;
 
   // Create Browser dock widget
   m_browserWidget = new BrowserWidget(this);
@@ -50,6 +54,7 @@ void Quantum3D::setupDockWidgets() {
   m_browserDock->setWidget(m_browserWidget);
   m_browserDock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::BottomDockWidgetArea, m_browserDock);
+  EngineGlobals::BrowserPanel = m_browserWidget;
 
   // Connect BrowserWidget model import signal to ViewportWidget slot
   connect(m_browserWidget, &BrowserWidget::ModelImported, m_viewportWidget,

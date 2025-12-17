@@ -6,8 +6,9 @@
 #include "Material.h"
 #include "Mesh3D.h"
 #include "RenderingPipelines.h"
+#include "RotateGizmo.h"
 #include "Texture2D.h"
-#include "TranslateGizmo.h" // Added by user instruction
+#include "TranslateGizmo.h"
 #include "VividApplication.h"
 #include "VividPipeline.h"
 #include "glm/glm.hpp"
@@ -140,9 +141,13 @@ void SceneRenderer::Initialize() {
               << std::endl;
   }
 
-  // Initialize Default Gizmo (Translate)
-  std::cout << "[SceneRenderer] Initializing TranslateGizmo..." << std::endl;
-  m_ActiveGizmo = std::make_unique<TranslateGizmo>(m_Device);
+  // Initialize Gizmos (all types)
+  std::cout << "[SceneRenderer] Initializing gizmos..." << std::endl;
+  m_TranslateGizmo = std::make_unique<TranslateGizmo>(m_Device);
+  m_RotateGizmo = std::make_unique<RotateGizmo>(m_Device);
+
+  // Default to Translate gizmo
+  m_ActiveGizmo = m_TranslateGizmo.get();
 
   // Register the PLPBR pipeline
   std::cout << "[SceneRenderer] Registering PLPBR pipeline with shaders:"
@@ -733,21 +738,8 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
     firstFrame = false;
   }
 
-  // Render Gizmos (Overlay) after scene
-  if (m_ActiveGizmo) {
-    // Need valid projection/view. They are passed to RenderNode?
-    // Does RenderScene have access to them?
-    // RenderScene args: cmd, width, height.
-    // RenderNode calculates them? No, RenderNode uses cached or arg?
-    // Wait, RenderScene doesn't seem to calculate View/Proj in the snippet I
-    // saw! RenderShadowPass calculates `lightSpaceMatrix`. RenderScene calls
-    // `RenderNode(cmd, root, width, height)`. Where are View/Proj coming from?
-    // RenderNode: `UniformBufferObject ubo = ...`
-    // `CameraNode* camera = m_SceneGraph->GetActiveCamera();`
-    // `ubo.view = camera->GetViewMatrix();`
-    // `ubo.proj = camera->GetProjectionMatrix();`
-    // Ah. I need to fetch the camera in RenderScene too.
-
+  // Render Gizmos (Overlay) after scene - only if there's a selected node
+  if (m_ActiveGizmo && m_ActiveGizmo->GetTargetNode()) {
     auto camera = m_SceneGraph->GetCurrentCamera();
     if (camera) {
       glm::mat4 view = camera->GetWorldMatrix(); // CameraNode::GetWorldMatrix
@@ -820,9 +812,10 @@ void SceneRenderer::SetGizmoViewState(const glm::mat4 &view,
   }
 }
 
-bool SceneRenderer::OnGizmoMouseClicked(int x, int y, bool isPressed, int width, int height ) {
+bool SceneRenderer::OnGizmoMouseClicked(int x, int y, bool isPressed, int width,
+                                        int height) {
   if (m_ActiveGizmo) {
-    return m_ActiveGizmo->OnMouseClicked(x, y, isPressed,width,height);
+    return m_ActiveGizmo->OnMouseClicked(x, y, isPressed, width, height);
   }
   return false;
 }
@@ -838,6 +831,42 @@ bool SceneRenderer::IsGizmoDragging() const {
     return m_ActiveGizmo->IsDragging();
   }
   return false;
+}
+
+void SceneRenderer::SetGizmoSpace(GizmoSpace space) {
+  if (m_ActiveGizmo) {
+    m_ActiveGizmo->SetSpace(space);
+  }
+}
+
+void SceneRenderer::SetGizmoType(GizmoType type) {
+  GizmoBase *newGizmo = nullptr;
+
+  switch (type) {
+  case GizmoType::Translate:
+    newGizmo = m_TranslateGizmo.get();
+    break;
+  case GizmoType::Rotate:
+    newGizmo = m_RotateGizmo.get();
+    break;
+  case GizmoType::Scale:
+    // Not implemented yet, fall back to translate
+    newGizmo = m_TranslateGizmo.get();
+    break;
+  }
+
+  if (newGizmo && newGizmo != m_ActiveGizmo) {
+    // Transfer state from old gizmo to new gizmo
+    if (m_ActiveGizmo) {
+      newGizmo->SetPosition(m_ActiveGizmo->GetPosition());
+      newGizmo->SetTargetNode(m_ActiveGizmo->GetTargetNode());
+      newGizmo->SetSpace(m_ActiveGizmo->GetSpace());
+      // ViewState is set each frame, no need to transfer
+    }
+    m_ActiveGizmo = newGizmo;
+    std::cout << "[SceneRenderer] Switched to gizmo type: "
+              << static_cast<int>(type) << std::endl;
+  }
 }
 
 void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,

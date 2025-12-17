@@ -1,5 +1,6 @@
 // EngineGlobals.cpp
 #include "EngineGlobals.h"
+#include "ViewportWidget.h"
 #include "stdafx.h"
 #include <iostream>
 
@@ -18,11 +19,11 @@ SceneGraphWidget *EngineGlobals::SceneGraphPanel = nullptr;
 PropertiesWidget *EngineGlobals::PropertiesPanel = nullptr;
 BrowserWidget *EngineGlobals::BrowserPanel = nullptr;
 
-// Interaction Mode
-InteractionMode EngineGlobals::CurrentInteractionMode =
-    InteractionMode::Translate;
+// Gizmo State
+CoordinateSpace EngineGlobals::CurrentSpace = CoordinateSpace::Local;
+GizmoType EngineGlobals::CurrentGizmoType = GizmoType::Translate;
 
-// === Functions ===
+// === Selection Functions ===
 
 void EngineGlobals::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
   SelectedNode = node;
@@ -32,9 +33,6 @@ void EngineGlobals::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
   } else {
     std::cout << "[EngineGlobals] Selection cleared" << std::endl;
   }
-
-  // TODO: Notify UI components of selection change if needed
-  // e.g., PropertiesPanel->OnSelectionChanged(node);
 }
 
 std::shared_ptr<Quantum::GraphNode> EngineGlobals::GetSelectedNode() {
@@ -43,27 +41,45 @@ std::shared_ptr<Quantum::GraphNode> EngineGlobals::GetSelectedNode() {
 
 void EngineGlobals::ClearSelection() { SetSelectedNode(nullptr); }
 
-void EngineGlobals::SetInteractionMode(InteractionMode mode) {
-  CurrentInteractionMode = mode;
+// === Gizmo Functions ===
 
-  const char *modeName = "Unknown";
-  switch (mode) {
-  case InteractionMode::Translate:
-    modeName = "Translate";
+void EngineGlobals::SetSpace(CoordinateSpace space) {
+  CurrentSpace = space;
+
+  const char *spaceName =
+      (space == CoordinateSpace::Local) ? "Local" : "Global";
+  std::cout << "[EngineGlobals] Coordinate space: " << spaceName << std::endl;
+
+  // Update the viewport's gizmo
+  if (Viewport) {
+    Viewport->UpdateGizmoSpace();
+  }
+}
+
+CoordinateSpace EngineGlobals::GetSpace() { return CurrentSpace; }
+
+void EngineGlobals::SetGizmoMode(GizmoType type) {
+  CurrentGizmoType = type;
+
+  const char *typeName = "Unknown";
+  switch (type) {
+  case GizmoType::Translate:
+    typeName = "Translate";
     break;
-  case InteractionMode::Rotate:
-    modeName = "Rotate";
+  case GizmoType::Rotate:
+    typeName = "Rotate";
     break;
-  case InteractionMode::Scale:
-    modeName = "Scale";
+  case GizmoType::Scale:
+    typeName = "Scale";
     break;
   }
 
-  std::cout << "[EngineGlobals] Interaction mode: " << modeName << std::endl;
+  std::cout << "[EngineGlobals] Gizmo mode: " << typeName << std::endl;
 
-  // TODO: Notify viewport/gizmo system of mode change if needed
+  // Update the viewport's gizmo type
+  if (Viewport) {
+    Viewport->UpdateGizmoType();
+  }
 }
 
-InteractionMode EngineGlobals::GetInteractionMode() {
-  return CurrentInteractionMode;
-}
+GizmoType EngineGlobals::GetGizmoMode() { return CurrentGizmoType; }

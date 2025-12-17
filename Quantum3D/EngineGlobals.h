@@ -13,8 +13,11 @@ class SceneGraphWidget;
 class PropertiesWidget;
 class BrowserWidget;
 
+// Coordinate space for gizmo transformations
+enum class CoordinateSpace { Local, Global };
+
 // Interaction mode for gizmos
-enum class InteractionMode { Translate, Rotate, Scale };
+enum class GizmoType { Translate, Rotate, Scale };
 
 class EngineGlobals {
 public:
@@ -31,23 +34,19 @@ public:
   static PropertiesWidget *PropertiesPanel;
   static BrowserWidget *BrowserPanel;
 
-  // === Interaction Mode ===
-  static InteractionMode CurrentInteractionMode;
+  // === Gizmo State ===
+  static CoordinateSpace CurrentSpace;
+  static GizmoType CurrentGizmoType;
 
-  // === Functions ===
-
-  // Set the selected node (triggers UI updates if needed)
+  // === Selection Functions ===
   static void SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node);
-
-  // Get the currently selected node (may be null)
   static std::shared_ptr<Quantum::GraphNode> GetSelectedNode();
-
-  // Clear the current selection
   static void ClearSelection();
 
-  // Set the current interaction mode
-  static void SetInteractionMode(InteractionMode mode);
+  // === Gizmo Functions ===
+  static void SetSpace(CoordinateSpace space);
+  static CoordinateSpace GetSpace();
 
-  // Get the current interaction mode
-  static InteractionMode GetInteractionMode();
+  static void SetGizmoMode(GizmoType type);
+  static GizmoType GetGizmoMode();
 };

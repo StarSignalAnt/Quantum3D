@@ -1,4 +1,5 @@
 #include "GizmoBase.h"
+#include "GraphNode.h"
 #include "glm/gtc/matrix_transform.hpp"
 #include <limits>
 
@@ -116,6 +117,33 @@ float GizmoBase::CalculateScreenConstantScale(float baseScale) const {
 glm::vec3 GizmoBase::GetCameraPosition() const {
   glm::mat4 invView = glm::inverse(m_ViewMatrix);
   return glm::vec3(invView[3]);
+}
+
+glm::mat4 GizmoBase::GetGizmoRotation() const {
+  if (m_Space == GizmoSpace::Global) {
+    // Global space: no rotation, axes aligned to world
+    return glm::mat4(1.0f);
+  }
+
+  // Local space: use target node's rotation
+  auto target = m_TargetNode.lock();
+  if (target) {
+    // Extract rotation from the world matrix (remove translation and scale)
+    glm::mat4 worldMatrix = target->GetWorldMatrix();
+
+    // Extract just the rotation (upper-left 3x3, normalized)
+    glm::vec3 col0 = glm::normalize(glm::vec3(worldMatrix[0]));
+    glm::vec3 col1 = glm::normalize(glm::vec3(worldMatrix[1]));
+    glm::vec3 col2 = glm::normalize(glm::vec3(worldMatrix[2]));
+
+    glm::mat4 rotation(1.0f);
+    rotation[0] = glm::vec4(col0, 0.0f);
+    rotation[1] = glm::vec4(col1, 0.0f);
+    rotation[2] = glm::vec4(col2, 0.0f);
+    return rotation;
+  }
+
+  return glm::mat4(1.0f);
 }
 
 } // namespace Quantum
