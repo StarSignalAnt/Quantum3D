@@ -7,6 +7,7 @@
 #include "Mesh3D.h"
 #include "RenderingPipelines.h"
 #include "Texture2D.h"
+#include "TranslateGizmo.h" // Added by user instruction
 #include "VividApplication.h"
 #include "VividPipeline.h"
 #include "glm/glm.hpp"
@@ -106,6 +107,19 @@ void SceneRenderer::Initialize() {
       "engine/shaders/PLSimple.frag.spv", Vivid::BlendConfig{},
       Vivid::PipelineType::Mesh3D);
 
+  // Register Gizmo Pipeline (Push Constants, No UBO)
+  Vivid::BlendConfig gizmoConfig;
+  gizmoConfig.blendEnable = VK_FALSE;
+  gizmoConfig.depthTestEnable = VK_FALSE;   // ALWAYS render on top of scene
+  gizmoConfig.depthWriteEnable = VK_FALSE;  // Don't write to depth buffer
+  gizmoConfig.cullMode = VK_CULL_MODE_NONE; // Disable culling for visibility
+  gizmoConfig.pushConstantSize = 80;        // mat4 (64) + vec4 (16) = 80 bytes
+
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLGizmoUnlit", "engine/shaders/PLGizmoUnlit.vert.spv",
+      "engine/shaders/PLGizmoUnlit.frag.spv", gizmoConfig,
+      Vivid::PipelineType::Mesh3D);
+
   if (RenderingPipelines::Get().HasPipeline("PLSimple")) {
     std::cout << "[SceneRenderer] PLSimple pipeline registered successfully"
               << std::endl;
@@ -125,6 +139,10 @@ void SceneRenderer::Initialize() {
                  "registration!"
               << std::endl;
   }
+
+  // Initialize Default Gizmo (Translate)
+  std::cout << "[SceneRenderer] Initializing TranslateGizmo..." << std::endl;
+  m_ActiveGizmo = std::make_unique<TranslateGizmo>(m_Device);
 
   // Register the PLPBR pipeline
   std::cout << "[SceneRenderer] Registering PLPBR pipeline with shaders:"
@@ -161,7 +179,8 @@ void SceneRenderer::Initialize() {
   additiveConfig.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   additiveConfig.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 
-  // Depth testing for additive pass - use LESS_OR_EQUAL for proper occlusion
+  // Depth testing for additive pass - use LESS_OR_EQUAL for proper
+  // occlusion
   additiveConfig.depthTestEnable = VK_TRUE;
   // CRITICAL: Use LESS_OR_EQUAL, not EQUAL - EQUAL is too strict for FP
   // precision
@@ -178,9 +197,17 @@ void SceneRenderer::Initialize() {
       "engine/shaders/PLPBR.frag.spv", additiveConfig,
       Vivid::PipelineType::Mesh3D);
 
-  std::cout
-      << "[SceneRenderer] PLPBR_Additive pipeline registered for multi-light"
-      << std::endl;
+  std::cout << "[SceneRenderer] PLPBR_Additive pipeline registered for "
+               "multi-light"
+            << std::endl;
+
+  // Register debugging wireframe pipeline
+  RegisterWireframePipeline();
+  // Create Unit Cube for debugging
+  m_UnitCube = Mesh3D::CreateUnitCube();
+  if (m_UnitCube) {
+    m_UnitCube->Finalize(m_Device);
+  }
 
   // Initialize shadow mapping resources
   InitializeShadowResources();
@@ -527,6 +554,17 @@ void SceneRenderer::CreateUniformBuffer() {
               << std::endl;
   }
 
+  // Create dedicated Gizmo UBO buffer (small, holds only a few gizmo draws)
+  size_t gizmoMaxDraws = 16; // Max 16 gizmo parts (XYZ axes = 3)
+  VkDeviceSize gizmoBufferSize = m_AlignedUBOSize * gizmoMaxDraws;
+  m_GizmoUniformBuffer = std::make_unique<Vivid::VividBuffer>(
+      m_Device, gizmoBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  m_GizmoUniformBuffer->Map();
+  std::cout << "[SceneRenderer] Created dedicated Gizmo UBO buffer ("
+            << gizmoBufferSize << " bytes)" << std::endl;
+
   std::cout << "[SceneRenderer] CreateUniformBuffer() completed successfully"
             << std::endl;
 }
@@ -589,6 +627,10 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
   // TODO: Implement per-frame descriptor updates to use multiple UBO buffers
   // For now, force buffer 0 since descriptors are created with buffer 0
   m_CurrentFrameIndex = 0;
+  m_CurrentDrawIndex = 0;      // Reset draw index for the new frame
+  m_CurrentPipeline = nullptr; // Reset pipeline tracking to force rebind
+  m_CurrentTexture = nullptr;  // Reset texture tracking
+  m_GizmoDrawIndex = 0;        // Reset gizmo draw index
 
   // Only log once per second to avoid spam
   static int frameCount = 0;
@@ -690,6 +732,112 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
   if (firstFrame) {
     firstFrame = false;
   }
+
+  // Render Gizmos (Overlay) after scene
+  if (m_ActiveGizmo) {
+    // Need valid projection/view. They are passed to RenderNode?
+    // Does RenderScene have access to them?
+    // RenderScene args: cmd, width, height.
+    // RenderNode calculates them? No, RenderNode uses cached or arg?
+    // Wait, RenderScene doesn't seem to calculate View/Proj in the snippet I
+    // saw! RenderShadowPass calculates `lightSpaceMatrix`. RenderScene calls
+    // `RenderNode(cmd, root, width, height)`. Where are View/Proj coming from?
+    // RenderNode: `UniformBufferObject ubo = ...`
+    // `CameraNode* camera = m_SceneGraph->GetActiveCamera();`
+    // `ubo.view = camera->GetViewMatrix();`
+    // `ubo.proj = camera->GetProjectionMatrix();`
+    // Ah. I need to fetch the camera in RenderScene too.
+
+    auto camera = m_SceneGraph->GetCurrentCamera();
+    if (camera) {
+      glm::mat4 view = camera->GetWorldMatrix(); // CameraNode::GetWorldMatrix
+                                                 // returns View Matrix
+      float aspect = (float)width / (float)height;
+      glm::mat4 proj =
+          glm::perspective(glm::radians(45.0f), aspect, 0.1f, 1000.0f);
+      proj[1][1] *= -1; // Vulkan clip space Y flip
+
+      m_ActiveGizmo->Render(this, cmd, view, proj);
+    }
+  }
+}
+
+void SceneRenderer::DrawGizmoMesh(VkCommandBuffer cmd,
+                                  std::shared_ptr<Mesh3D> mesh,
+                                  const glm::mat4 &model,
+                                  const glm::vec3 &color, const glm::mat4 &view,
+                                  const glm::mat4 &proj) {
+  if (!mesh || !mesh->IsFinalized())
+    return;
+
+  // Use PLGizmoUnlit pipeline (push constants, no UBO)
+  auto pipeline = RenderingPipelines::Get().GetPipeline("PLGizmoUnlit");
+  if (!pipeline) {
+    std::cerr << "[SceneRenderer] PLGizmoUnlit pipeline not found!"
+              << std::endl;
+    return;
+  }
+
+  pipeline->Bind(cmd);
+
+  // Push constants struct (must match shader layout)
+  struct GizmoPushConstants {
+    glm::mat4 mvp;
+    glm::vec4 color;
+  };
+
+  GizmoPushConstants pc;
+  pc.mvp = proj * view * model;
+  pc.color = glm::vec4(color, 1.0f);
+
+  // Push constants - no UBO, no descriptor sets needed for transform/color!
+  vkCmdPushConstants(cmd, pipeline->GetPipelineLayout(),
+                     VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GizmoPushConstants),
+                     &pc);
+
+  // Draw mesh (no descriptor sets needed for this simple unlit shader)
+  mesh->Bind(cmd);
+  vkCmdDrawIndexed(cmd, static_cast<uint32_t>(mesh->GetIndexCount()), 1, 0, 0,
+                   0);
+}
+
+void SceneRenderer::SetGizmoPosition(const glm::vec3 &position) {
+  if (m_ActiveGizmo) {
+    m_ActiveGizmo->SetPosition(position);
+  }
+}
+
+void SceneRenderer::SetGizmoTargetNode(std::shared_ptr<GraphNode> node) {
+  if (m_ActiveGizmo) {
+    m_ActiveGizmo->SetTargetNode(node);
+  }
+}
+
+void SceneRenderer::SetGizmoViewState(const glm::mat4 &view,
+                                      const glm::mat4 &proj, int w, int h) {
+  if (m_ActiveGizmo) {
+    m_ActiveGizmo->SetViewState(view, proj, w, h);
+  }
+}
+
+bool SceneRenderer::OnGizmoMouseClicked(int x, int y, bool isPressed, int width, int height ) {
+  if (m_ActiveGizmo) {
+    return m_ActiveGizmo->OnMouseClicked(x, y, isPressed,width,height);
+  }
+  return false;
+}
+
+void SceneRenderer::OnGizmoMouseMoved(int x, int y) {
+  if (m_ActiveGizmo) {
+    m_ActiveGizmo->OnMouseMoved(x, y);
+  }
+}
+
+bool SceneRenderer::IsGizmoDragging() const {
+  if (m_ActiveGizmo) {
+    return m_ActiveGizmo->IsDragging();
+  }
+  return false;
 }
 
 void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
@@ -1162,6 +1310,144 @@ void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
   for (const auto &child : node->GetChildren()) {
     RenderNodeToShadow(cmd, child.get(), lightSpaceMatrix, lightPos, farPlane);
   }
+}
+
+void SceneRenderer::RegisterWireframePipeline() {
+  std::cout << "[SceneRenderer] Registering Wireframe Pipeline..." << std::endl;
+  Vivid::BlendConfig wireframeConfig;
+  wireframeConfig.blendEnable = VK_FALSE;
+  wireframeConfig.depthTestEnable = VK_TRUE;
+  wireframeConfig.depthWriteEnable = VK_TRUE;
+  wireframeConfig.depthCompareOp =
+      VK_COMPARE_OP_LESS_OR_EQUAL; // Allow drawing on top of geometry
+  wireframeConfig.polygonMode = VK_POLYGON_MODE_LINE; // Wireframe
+  wireframeConfig.lineWidth = 2.0f;                   // Thicker lines
+  wireframeConfig.depthBiasEnable = VK_TRUE;
+  wireframeConfig.depthBiasConstantFactor = -2.0f; // Bias towards camera
+  wireframeConfig.depthBiasSlopeFactor = -2.0f;
+
+  // Re-use PLSimple shaders for wireframe (solid color)
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLSimple_Wireframe", "engine/shaders/PLSimple.vert.spv",
+      "engine/shaders/PLSimple.frag.spv", wireframeConfig,
+      Vivid::PipelineType::Mesh3D);
+}
+
+void SceneRenderer::RenderSelection(VkCommandBuffer cmd,
+                                    std::shared_ptr<GraphNode> selectedNode) {
+  if (!selectedNode || !m_UnitCube)
+    return;
+
+  // Wireframe pipeline
+  auto *pipeline = RenderingPipelines::Get().GetPipeline("PLSimple_Wireframe");
+  if (!pipeline)
+    return;
+
+  pipeline->Bind(cmd);
+
+  // Calculate World Bounds
+  glm::vec3 min, max;
+  selectedNode->GetWorldBounds(min, max);
+
+  // If bounds are invalid (degenerate), don't draw
+  if (min == max)
+    return;
+
+  // Calculate Transform Data
+  glm::vec3 center = (min + max) * 0.5f;
+  glm::vec3 size = max - min;
+  glm::vec3 scale = size; // Unit cube is 1x1x1, so scale is just size
+
+  // Construct Transform Matrix for the Unit Cube
+  // Selection box should be axis-aligned to world, so rotation is identity
+  glm::mat4 model = glm::translate(glm::mat4(1.0f), center);
+  //  model = glm::scale(model, scale);
+
+  // Update UBO?
+  // We need to push this model matrix to the shader.
+  // PLSimple uses the standard UBO layout (Set 0).
+  // We can reuse the current frame's UBO buffer but we need to write to it.
+  // CRITICAL: We need a dynamic offset or push constants for the model matrix
+  // to do this efficiently without flushing.
+  //
+  // For now, since SceneRenderer::RenderNode writes per-draw using dynamic
+  // offsets, we should do the same. But we are outside the main loop.
+  // AND we need a slot in the UBO buffer.
+  //
+  // Hack for now: Use a reserved slot or just check if we have space.
+  // Current RenderScene logic increments m_CurrentDrawIndex. We can use that!
+
+  if (m_CurrentDrawIndex >= m_MaxDraws) {
+    return; // No space in UBO
+  }
+
+  // --- Update UBO for Selection Box ---
+  UniformBufferObject ubo{};
+  ubo.model = model;
+
+  // Use same Camera/Proj as last used (stored where?)
+  // We need to access the camera again.
+  auto camera = m_SceneGraph->GetCurrentCamera();
+  if (camera) {
+    ubo.view = camera->GetWorldMatrix();
+    ubo.viewPos = camera->GetWorldPosition();
+  } else {
+    // Fallback
+    ubo.view = glm::mat4(1.0f);
+  }
+  // Projection logic duplicates RenderNode... should ideally refactor getProj
+  int width = Vivid::VividApplication::GetFrameWidth();
+  int height = Vivid::VividApplication::GetFrameHeight();
+  if (width <= 0)
+    width = 800;
+  if (height <= 0)
+    height = 600;
+
+  ubo.proj = glm::perspective(glm::radians(45.0f), (float)width / (float)height,
+                              0.1f, 100.0f);
+  ubo.proj[1][1] *= -1;
+
+  // Yellow Color for selection
+  ubo.lightColor = glm::vec3(
+      1.0f, 1.0f, 0.0f); // Re-purpose lightColor as object color for PLSimple
+  ubo.lightPos = glm::vec3(0.0f); // Unused by simple shader usually, or ignored
+  ubo.lightRange = 0.0f;
+
+  // Write to Buffer
+  // Note: This relies on m_UniformBuffers being mapped.
+  VkDeviceSize drawOffset = m_CurrentDrawIndex * m_AlignedUBOSize;
+  // Assuming m_CurrentFrameIndex is 0 as per RenderScene TODO
+  size_t frameIndex = 0; // m_CurrentFrameIndex;
+
+  m_UniformBuffers[frameIndex]->WriteToBuffer(&ubo, sizeof(UniformBufferObject),
+                                              drawOffset);
+
+  // Bind Global Descriptor (Dynamic Offset)
+  // Reuse binding logic
+  size_t globalSetIndex =
+      frameIndex *
+      m_SceneGraph->GetLights().size(); // Use 0th light slot equivalent
+  if (globalSetIndex < m_GlobalDescriptorSets.size()) {
+    VkDescriptorSet globalSet = m_GlobalDescriptorSets[globalSetIndex];
+
+    uint32_t dynamicOffset = static_cast<uint32_t>(drawOffset);
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipeline->GetPipelineLayout(), 0, 1, &globalSet, 1,
+                            &dynamicOffset);
+  }
+
+  // Default Material Set (White)
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          pipeline->GetPipelineLayout(), 1, 1,
+                          &m_DefaultMaterialSet, 0, nullptr);
+
+  // Draw Cube
+  m_UnitCube->Bind(cmd);
+  vkCmdDrawIndexed(cmd, static_cast<uint32_t>(m_UnitCube->GetIndexCount()), 1,
+                   0, 0, 0);
+
+  m_CurrentDrawIndex++;
 }
 
 } // namespace Quantum

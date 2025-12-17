@@ -71,7 +71,25 @@ public:
   // Debug rendering of shadow map faces
   void RenderShadowDebug(Vivid::Draw2D *draw2d);
 
+  // Selection Helpers
+  void RegisterWireframePipeline();
+  void RenderSelection(VkCommandBuffer cmd,
+                       std::shared_ptr<GraphNode> selectedNode);
+
+  // Gizmo Support
+  void DrawGizmoMesh(VkCommandBuffer cmd, std::shared_ptr<Mesh3D> mesh,
+                     const glm::mat4 &model, const glm::vec3 &color,
+                     const glm::mat4 &view, const glm::mat4 &proj);
+  void SetGizmoPosition(const glm::vec3 &position);
+  void SetGizmoTargetNode(std::shared_ptr<GraphNode> node);
+  void SetGizmoViewState(const glm::mat4 &view, const glm::mat4 &proj, int w,
+                         int h);
+  bool OnGizmoMouseClicked(int x, int y, bool isPressed,int width,int height);
+  void OnGizmoMouseMoved(int x, int y);
+  bool IsGizmoDragging() const;
+
 private:
+  std::unique_ptr<class GizmoBase> m_ActiveGizmo;
   void CreateDescriptorSetLayout();
   void CreateDescriptorPool();
   void CreateDescriptorSets();
@@ -114,6 +132,11 @@ private:
   uint32_t m_AlignedUBOSize = 0;
   mutable size_t m_CurrentDrawIndex = 0;
 
+  // Dedicated Gizmo UBO (separate from scene to prevent cross-frame corruption)
+  std::unique_ptr<Vivid::VividBuffer> m_GizmoUniformBuffer;
+  VkDescriptorSet m_GizmoDescriptorSet = VK_NULL_HANDLE;
+  mutable size_t m_GizmoDrawIndex = 0;
+
   // Track UBO capacity
   size_t m_CurrentUBOCapacity = 0;
 
@@ -144,6 +167,9 @@ private:
 
   // Debug textures for shadow faces
   std::vector<std::unique_ptr<Vivid::Texture2D>> m_FaceTextures;
+
+  // Selection Helpers
+  std::shared_ptr<Mesh3D> m_UnitCube;
 
   void UpdateTextureDescriptor(Vivid::Texture2D *texture);
   void UpdatePBRTextures(Material *material);

@@ -75,7 +75,7 @@ void VividPipeline::CreatePipeline(
   // Vertex Input - depends on pipeline type
   VkVertexInputBindingDescription bindingDescription{};
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
-  VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;
+  VkCullModeFlags cullMode = blendConfig.cullMode;
   VkFrontFace frontFace = VK_FRONT_FACE_CLOCKWISE;
 
   if (pipelineType == PipelineType::Sprite2D) {
@@ -145,8 +145,8 @@ void VividPipeline::CreatePipeline(
   rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
   rasterizer.depthClampEnable = VK_FALSE;
   rasterizer.rasterizerDiscardEnable = VK_FALSE;
-  rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-  rasterizer.lineWidth = 1.0f;
+  rasterizer.polygonMode = blendConfig.polygonMode;
+  rasterizer.lineWidth = blendConfig.lineWidth;
   rasterizer.cullMode = cullMode;
   rasterizer.frontFace = frontFace;
   rasterizer.depthBiasEnable = blendConfig.depthBiasEnable;
@@ -218,7 +218,11 @@ void VividPipeline::CreatePipeline(
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
   pushConstantRange.offset = 0;
-  pushConstantRange.size = sizeof(float) * 2; // Just screen_size (vec2)
+  // Use configured push constant size, or default (8 bytes for screen_size
+  // vec2)
+  pushConstantRange.size = (blendConfig.pushConstantSize > 0)
+                               ? blendConfig.pushConstantSize
+                               : sizeof(float) * 2;
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

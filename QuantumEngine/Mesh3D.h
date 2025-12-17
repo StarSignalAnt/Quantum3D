@@ -59,6 +59,8 @@ public:
   Mesh3D(const std::string &name = "Mesh");
   ~Mesh3D();
 
+  static std::shared_ptr<Mesh3D> CreateUnitCube();
+
   // Name
   const std::string &GetName() const { return m_Name; }
   void SetName(const std::string &name) { m_Name = name; }
@@ -112,6 +114,11 @@ public:
   glm::vec3 GetBoundsMin() const { return m_BoundsMin; }
   glm::vec3 GetBoundsMax() const { return m_BoundsMax; }
   void RecalculateBounds();
+
+  // Ray-mesh intersection for picking
+  // Returns true if ray hits mesh, with distance in outDistance
+  bool Intersect(const glm::mat4 &modelMatrix, const glm::vec3 &rayOrigin,
+                 const glm::vec3 &rayDirection, float &outDistance) const;
 
 private:
   std::string m_Name;

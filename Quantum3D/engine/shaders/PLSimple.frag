@@ -4,16 +4,29 @@
 layout(location = 0) in vec2 fragUV;
 layout(location = 1) in vec3 fragNormal;
 
-// Albedo texture sampler (binding 1 in descriptor set)
-layout(set = 0, binding = 1) uniform sampler2D albedoTexture;
+// Uniform buffer for color tinting
+layout(set = 0, binding = 0) uniform UniformBufferObject {
+    mat4 model;
+    mat4 view;
+    mat4 proj;
+    vec3 viewPos;
+    float padding;
+    vec3 lightPos;
+    float padding2;
+    vec3 lightColor; // Used as Tint Color
+    float lightRange;
+} ubo;
+
+// Albedo texture sampler (Set 1, Binding 0 for Material)
+layout(set = 1, binding = 0) uniform sampler2D albedoTexture;
 
 // Output color
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    // Sample the albedo texture - no lighting, just the texture color
+    // Sample the albedo texture
     vec4 albedo = texture(albedoTexture, fragUV);
     
-    // Output the texture color directly
-    outColor = albedo;
+    // Multiply by tint color (e.g. Yellow for selection)
+    outColor = albedo * vec4(ubo.lightColor, 1.0);
 }

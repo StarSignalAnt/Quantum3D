@@ -21,6 +21,14 @@ struct BlendConfig {
   VkBool32 depthBiasEnable = VK_FALSE;
   float depthBiasConstantFactor = 0.0f;
   float depthBiasSlopeFactor = 0.0f;
+
+  // Rasterization State
+  VkPolygonMode polygonMode = VK_POLYGON_MODE_FILL;
+  float lineWidth = 1.0f;
+  VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;
+
+  // Push constant size (0 = use default 8 bytes for screen_size)
+  uint32_t pushConstantSize = 0;
 };
 
 enum class PipelineType {

@@ -2,7 +2,6 @@
 #include <glm/glm.hpp>
 #include <memory>
 
-
 // Forward declarations
 namespace Quantum {
 class CameraNode;
@@ -23,6 +22,9 @@ public:
 
   void SetSpeed(float speed) { m_MoveSpeed = speed; }
   void SetRotationSpeed(float speed) { m_RotationSpeed = speed; }
+
+  // Get view matrix from underlying camera
+  glm::mat4 GetViewMatrix() const;
 
   // Set initial rotation state if needed
   void SetRotation(float yaw, float pitch);

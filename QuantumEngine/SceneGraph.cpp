@@ -1,6 +1,13 @@
 #include "SceneGraph.h"
+#include "CameraNode.h"
 #include "LightNode.h"
+#include "Mesh3D.h"
+#include "glm/gtc/matrix_transform.hpp"
+#include "pch.h"
+#include <algorithm>
 #include <functional>
+#include <limits>
+
 
 namespace Quantum {
 
@@ -92,6 +99,128 @@ size_t SceneGraph::GetTotalMeshCount() const {
   };
   traverse(m_Root.get());
   return count;
+}
+
+// =================================================================================================
+// Ray Casting / Picking
+// =================================================================================================
+
+std::shared_ptr<GraphNode> SceneGraph::SelectEntity(float mouseX, float mouseY,
+                                                    int width, int height) {
+  if (!m_CurrentCamera || !m_Root)
+    return nullptr;
+
+  // 1. Calculate Normalized Device Coordinates (NDC)
+  float x = (2.0f * mouseX) / width - 1.0f;
+  float y = (2.0f * mouseY) / height - 1.0f;
+
+  glm::vec4 ray_clip = glm::vec4(x, y, -1.0, 1.0);
+
+  // 2. Unproject to View Space
+  glm::mat4 proj = glm::perspective(glm::radians(45.0f),
+                                    (float)width / (float)height, 0.1f, 100.0f);
+  proj[1][1] *= -1; // Match SceneRenderer Y-flip
+
+  glm::vec4 ray_eye = glm::inverse(proj) * ray_clip;
+  ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0, 0.0); // Forward is -Z
+
+  // 3. Unproject to World Space
+  glm::mat4 view =
+      m_CurrentCamera->GetWorldMatrix();  // CameraNode returns View Matrix
+  glm::mat4 invView = glm::inverse(view); // Camera World Transform
+
+  glm::vec3 ray_wor = glm::vec3(invView * ray_eye);
+  ray_wor = glm::normalize(ray_wor);
+
+  Ray ray;
+  ray.origin = m_CurrentCamera->GetWorldPosition();
+  ray.direction = ray_wor;
+
+  // 4. Cast Ray
+  float closestDistance = std::numeric_limits<float>::max();
+  std::shared_ptr<GraphNode> hitNode = nullptr;
+
+  CastRayRecursive(m_Root.get(), ray, closestDistance, hitNode);
+
+  return hitNode;
+}
+
+void SceneGraph::CastRayRecursive(GraphNode *node, const Ray &ray,
+                                  float &closestDistance,
+                                  std::shared_ptr<GraphNode> &hitNode) {
+  if (!node)
+    return;
+
+  for (const auto &child : node->GetChildren()) {
+    if (!child)
+      continue;
+
+    glm::mat4 model = child->GetWorldMatrix();
+    const auto &meshes = child->GetMeshes();
+
+    // Check meshes
+    for (const auto &mesh : meshes) {
+      if (!mesh)
+        continue;
+      const auto &vertices = mesh->GetVertices();
+      const auto &triangles = mesh->GetTriangles();
+
+      for (const auto &tri : triangles) {
+        glm::vec3 v0 =
+            glm::vec3(model * glm::vec4(vertices[tri.v0].position, 1.0f));
+        glm::vec3 v1 =
+            glm::vec3(model * glm::vec4(vertices[tri.v1].position, 1.0f));
+        glm::vec3 v2 =
+            glm::vec3(model * glm::vec4(vertices[tri.v2].position, 1.0f));
+
+        float t = 0.0f;
+        if (RayTriangleIntersection(ray, v0, v1, v2, t)) {
+          if (t > 0.0f && t < closestDistance) {
+            closestDistance = t;
+            hitNode = child;
+          }
+        }
+      }
+    }
+
+    CastRayRecursive(child.get(), ray, closestDistance, hitNode);
+  }
+}
+
+bool SceneGraph::RayTriangleIntersection(const Ray &ray, const glm::vec3 &v0,
+                                         const glm::vec3 &v1,
+                                         const glm::vec3 &v2, float &t) {
+  const float EPSILON = 0.0000001f;
+  glm::vec3 edge1, edge2, h, s, q;
+  float a, f, u, v;
+
+  edge1 = v1 - v0;
+  edge2 = v2 - v0;
+  h = glm::cross(ray.direction, edge2);
+  a = glm::dot(edge1, h);
+
+  if (a > -EPSILON && a < EPSILON)
+    return false;
+
+  f = 1.0f / a;
+  s = ray.origin - v0;
+  u = f * glm::dot(s, h);
+
+  if (u < 0.0f || u > 1.0f)
+    return false;
+
+  q = glm::cross(s, edge1);
+  v = f * glm::dot(ray.direction, q);
+
+  if (v < 0.0f || u + v > 1.0f)
+    return false;
+
+  t = f * glm::dot(edge2, q);
+
+  if (t > EPSILON)
+    return true;
+  else
+    return false;
 }
 
 } // namespace Quantum

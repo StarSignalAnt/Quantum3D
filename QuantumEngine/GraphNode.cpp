@@ -145,6 +145,42 @@ void GraphNode::OnTransformChanged() {
   // Virtual hook for derived classes
 }
 
+void GraphNode::GetWorldBounds(glm::vec3 &min, glm::vec3 &max) const {
+  min = glm::vec3(FLT_MAX);
+  max = glm::vec3(-FLT_MAX);
+
+  glm::mat4 worldMatrix = GetWorldMatrix();
+
+  if (m_Meshes.empty()) {
+    // If no meshes, just use position? or empty?
+    // Let's use position as a point
+    min = max = GetWorldPosition();
+    return;
+  }
+
+  for (const auto &mesh : m_Meshes) {
+    if (!mesh)
+      continue;
+
+    // Get AABB corners in local space
+    glm::vec3 bMin = mesh->GetBoundsMin();
+    glm::vec3 bMax = mesh->GetBoundsMax();
+
+    // Transform all 8 corners
+    std::vector<glm::vec3> corners = {
+        glm::vec3(bMin.x, bMin.y, bMin.z), glm::vec3(bMax.x, bMin.y, bMin.z),
+        glm::vec3(bMin.x, bMax.y, bMin.z), glm::vec3(bMax.x, bMax.y, bMin.z),
+        glm::vec3(bMin.x, bMin.y, bMax.z), glm::vec3(bMax.x, bMin.y, bMax.z),
+        glm::vec3(bMin.x, bMax.y, bMax.z), glm::vec3(bMax.x, bMax.y, bMax.z)};
+
+    for (const auto &corner : corners) {
+      glm::vec4 worldPos = worldMatrix * glm::vec4(corner, 1.0f);
+      min = glm::min(min, glm::vec3(worldPos));
+      max = glm::max(max, glm::vec3(worldPos));
+    }
+  }
+}
+
 // ========== Hierarchy Management ==========
 
 void GraphNode::SetParent(GraphNode *parent) {

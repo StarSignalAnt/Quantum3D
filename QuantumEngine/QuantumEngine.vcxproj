@@ -117,7 +117,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Quantum\Assimp\include;C:\VulkanSDK\1.4.328.1\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Quantum\Assimp\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -191,6 +191,8 @@
     <ClInclude Include="LightNode.h" />
     <ClInclude Include="PointShadowMap.h" />
     <ClInclude Include="ShadowPipeline.h" />
+    <ClInclude Include="GizmoBase.h" />
+    <ClInclude Include="TranslateGizmo.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AppUI.cpp" />
@@ -237,6 +239,8 @@
     <ClCompile Include="AppInput.cpp" />
     <ClCompile Include="SceneRenderer.cpp" />
     <ClCompile Include="PointShadowMap.cpp" />
+    <ClCompile Include="TranslateGizmo.cpp" />
+    <ClCompile Include="GizmoBase.cpp" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="glfw" Version="3.4.0" />

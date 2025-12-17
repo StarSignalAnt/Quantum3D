@@ -1,6 +1,7 @@
 #include "Mesh3D.h"
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <vulkan/vulkan.h>
 
@@ -103,51 +104,52 @@ void Mesh3D::Clear() {
 
 void Mesh3D::SetMaterial(std::shared_ptr<Material> material) {
   m_Material = material;
+  m_BoundsMin = glm::vec3(0.0f);
+  m_BoundsMax = glm::vec3(0.0f);
 }
 
 // ========== Vulkan Buffer Creation ==========
 
 void Mesh3D::Finalize(Vivid::VividDevice *device) {
-  if (m_Vertices.empty() || m_Triangles.empty()) {
-    throw std::runtime_error(
-        "Cannot finalize mesh with no vertices or triangles");
+  if (m_Vertices.empty())
+    return;
+
+  RecalculateBounds(); // Ensure bounds are computed
+
+  if (m_VertexBuffer) {
+    m_VertexBuffer.reset();
+  }
+  if (m_IndexBuffer) {
+    m_IndexBuffer.reset();
   }
 
-  // Calculate bounds
-  RecalculateBounds();
-
-  // Create vertex buffer
-  VkDeviceSize vertexBufferSize = sizeof(Vertex3D) * m_Vertices.size();
-  std::cout << "[Mesh3D] Finalizing '" << m_Name << "': " << m_Vertices.size()
-            << " vertices (" << vertexBufferSize << " bytes)" << std::endl;
-
+  // Create Vertex Buffer
+  VkDeviceSize bufferSize = sizeof(Vertex3D) * m_Vertices.size();
   m_VertexBuffer = std::make_unique<Vivid::VividBuffer>(
-      device, vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      device, bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
   m_VertexBuffer->Map();
-  m_VertexBuffer->WriteToBuffer((void *)m_Vertices.data(), vertexBufferSize);
+  m_VertexBuffer->WriteToBuffer((void *)m_Vertices.data(), bufferSize);
   m_VertexBuffer->Unmap();
 
-  std::cout << "[Mesh3D] Vertex Buffer Created: "
-            << (void *)m_VertexBuffer->GetBuffer() << std::endl;
-
-  // Create index buffer
+  // Create Index Buffer
   std::vector<uint32_t> indices = GetIndexData();
-  VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
-  std::cout << "[Mesh3D] Finalizing '" << m_Name << "': " << indices.size()
-            << " indices (" << indexBufferSize << " bytes)" << std::endl;
+  if (!indices.empty()) {
+    VkDeviceSize indexBufferSize = sizeof(uint32_t) * indices.size();
+    m_IndexBuffer = std::make_unique<Vivid::VividBuffer>(
+        device, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  m_IndexBuffer = std::make_unique<Vivid::VividBuffer>(
-      device, indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  m_IndexBuffer->Map();
-  m_IndexBuffer->WriteToBuffer((void *)indices.data(), indexBufferSize);
-  m_IndexBuffer->Unmap();
+    m_IndexBuffer->Map();
+    m_IndexBuffer->WriteToBuffer((void *)indices.data(), indexBufferSize);
+    m_IndexBuffer->Unmap();
 
-  std::cout << "[Mesh3D] Index Buffer Created: "
-            << (void *)m_IndexBuffer->GetBuffer() << std::endl;
+    std::cout << "[Mesh3D] Index Buffer Created: "
+              << (void *)m_IndexBuffer->GetBuffer() << std::endl;
+  }
 
   m_Finalized = true;
 }
@@ -296,6 +298,97 @@ void Mesh3D::RecalculateTangents() {
   }
 
   m_Finalized = false;
+}
+
+std::shared_ptr<Mesh3D> Mesh3D::CreateUnitCube() {
+  auto mesh = std::make_shared<Mesh3D>("UnitCube");
+
+  // 8 vertices
+  // Front face
+  mesh->AddVertex(Vertex3D(glm::vec3(-0.5f, -0.5f, 0.5f))); // 0: BL
+  mesh->AddVertex(Vertex3D(glm::vec3(0.5f, -0.5f, 0.5f)));  // 1: BR
+  mesh->AddVertex(Vertex3D(glm::vec3(0.5f, 0.5f, 0.5f)));   // 2: TR
+  mesh->AddVertex(Vertex3D(glm::vec3(-0.5f, 0.5f, 0.5f)));  // 3: TL
+
+  // Back face
+  mesh->AddVertex(Vertex3D(glm::vec3(-0.5f, -0.5f, -0.5f))); // 4: BL
+  mesh->AddVertex(Vertex3D(glm::vec3(0.5f, -0.5f, -0.5f)));  // 5: BR
+  mesh->AddVertex(Vertex3D(glm::vec3(0.5f, 0.5f, -0.5f)));   // 6: TR
+  mesh->AddVertex(Vertex3D(glm::vec3(-0.5f, 0.5f, -0.5f)));  // 7: TL
+
+  // Indices (Triangles)
+  // Front
+  mesh->AddTriangle(0, 1, 2);
+  mesh->AddTriangle(2, 3, 0);
+  // Back
+  mesh->AddTriangle(5, 4, 7);
+  mesh->AddTriangle(7, 6, 5);
+  // Left
+  mesh->AddTriangle(4, 0, 3);
+  mesh->AddTriangle(3, 7, 4);
+  // Right
+  mesh->AddTriangle(1, 5, 6);
+  mesh->AddTriangle(6, 2, 1);
+  // Top
+  mesh->AddTriangle(3, 2, 6);
+  mesh->AddTriangle(6, 7, 3);
+  // Bottom
+  mesh->AddTriangle(4, 5, 1);
+  mesh->AddTriangle(1, 0, 4);
+
+  return mesh;
+}
+
+bool Mesh3D::Intersect(const glm::mat4 &modelMatrix, const glm::vec3 &rayOrigin,
+                       const glm::vec3 &rayDirection,
+                       float &outDistance) const {
+  const float EPSILON = 0.0000001f;
+  float closestT = std::numeric_limits<float>::max();
+  bool hit = false;
+
+  for (const auto &tri : m_Triangles) {
+    // Transform vertices to world space
+    glm::vec3 v0 =
+        glm::vec3(modelMatrix * glm::vec4(m_Vertices[tri.v0].position, 1.0f));
+    glm::vec3 v1 =
+        glm::vec3(modelMatrix * glm::vec4(m_Vertices[tri.v1].position, 1.0f));
+    glm::vec3 v2 =
+        glm::vec3(modelMatrix * glm::vec4(m_Vertices[tri.v2].position, 1.0f));
+
+    // Möller–Trumbore ray-triangle intersection
+    glm::vec3 edge1 = v1 - v0;
+    glm::vec3 edge2 = v2 - v0;
+    glm::vec3 h = glm::cross(rayDirection, edge2);
+    float a = glm::dot(edge1, h);
+
+    if (a > -EPSILON && a < EPSILON)
+      continue; // Ray parallel to triangle
+
+    float f = 1.0f / a;
+    glm::vec3 s = rayOrigin - v0;
+    float u = f * glm::dot(s, h);
+
+    if (u < 0.0f || u > 1.0f)
+      continue;
+
+    glm::vec3 q = glm::cross(s, edge1);
+    float v = f * glm::dot(rayDirection, q);
+
+    if (v < 0.0f || u + v > 1.0f)
+      continue;
+
+    float t = f * glm::dot(edge2, q);
+
+    if (t > EPSILON && t < closestT) {
+      closestT = t;
+      hit = true;
+    }
+  }
+
+  if (hit) {
+    outDistance = closestT;
+  }
+  return hit;
 }
 
 } // namespace Quantum

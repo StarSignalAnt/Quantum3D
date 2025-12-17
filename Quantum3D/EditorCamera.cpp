@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <glm/gtc/matrix_transform.hpp>
 
-
 EditorCamera::EditorCamera() {}
 
 void EditorCamera::SetCamera(std::shared_ptr<Quantum::CameraNode> camera) {
@@ -76,4 +75,11 @@ void EditorCamera::Move(const glm::vec3 &inputDirection, float deltaTime) {
     m_Camera->SetLocalPosition(currentPos +
                                finalMoveDir * m_MoveSpeed * deltaTime);
   }
+}
+
+glm::mat4 EditorCamera::GetViewMatrix() const {
+  if (m_Camera) {
+    return m_Camera->GetWorldMatrix();
+  }
+  return glm::mat4(1.0f);
 }

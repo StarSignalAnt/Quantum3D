@@ -199,19 +199,7 @@ void main() {
 
     outColor = vec4(color, 1.0);
 
-    // DEBUG: Detect invalid UBO data - show RED if any suspicious values
-    // Check for: zero light color, zero range, NaN, etc.
-    float totalLightColor = ubo.lightColor.r + ubo.lightColor.g + ubo.lightColor.b;
-    if (totalLightColor < 0.001) {
-        // No light color at all - show RED
-        outColor = vec4(1.0, 0.0, 0.0, 1.0);
-    } else if (ubo.lightRange < 0.001) {
-        // Zero range - show GREEN
-        outColor = vec4(0.0, 1.0, 0.0, 1.0);
-    } else if (isnan(ubo.lightPos.x) || isnan(ubo.lightPos.y) || isnan(ubo.lightPos.z)) {
-        // NaN in light position - show BLUE
-        outColor = vec4(0.0, 0.0, 1.0, 1.0);
-    }
+   
     // Normal lighting proceeds if no errors
 
 }

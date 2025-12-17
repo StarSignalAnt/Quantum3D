@@ -153,7 +153,6 @@ void ViewportWidget::initScene() {
     m_MainLight2 = l2;
     m_SceneGraph->AddLight(l2);
 
-
     m_SceneGraph->AddLight(m_MainLight);
 
     // Scaling the monkey down because import scalefactor is 100
@@ -164,6 +163,7 @@ void ViewportWidget::initScene() {
     if (m_TestModel) {
       m_TestModel->SetLocalScale(0.01f);
       m_SceneGraph->GetRoot()->AddChild(m_TestModel); // Re-enable adding child
+      m_SelectedNode = m_TestModel;
     }
     m_EditorCamera = std::make_unique<EditorCamera>();
     m_EditorCamera->SetCamera(camera);
@@ -316,7 +316,7 @@ void ViewportWidget::renderFrame() {
   if (m_Renderer && m_Renderer->BeginFrameCommandBuffer()) {
     // Phase 1: Shadow pass (before main render pass)
     if (m_SceneRenderer) {
-            m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
+      m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
     }
 
     // Phase 2: Begin main render pass
@@ -324,8 +324,23 @@ void ViewportWidget::renderFrame() {
 
     // Phase 3: Main scene rendering
     if (m_SceneRenderer) {
+      // Update gizmo view state for hit detection
+      if (m_EditorCamera) {
+        glm::mat4 view = m_EditorCamera->GetViewMatrix();
+        glm::mat4 proj = glm::perspective(
+            glm::radians(45.0f), static_cast<float>(m_Width) / m_Height, 0.01f,
+            1000.0f);
+        m_SceneRenderer->SetGizmoViewState(view, proj, m_Width, m_Height);
+      }
+
       m_SceneRenderer->RenderScene(m_Renderer->GetCommandBuffer(), m_Width,
                                    m_Height);
+
+      // Render Selection
+      if (m_SelectedNode) {
+        //     m_SceneRenderer->RenderSelection(m_Renderer->GetCommandBuffer(),
+        //                                    m_SelectedNode);
+      }
 
       // Phase 3.5: Debug overlay (Draw2D)
       if (m_Draw2D) {
@@ -379,10 +394,10 @@ void ViewportWidget::updateCamera(float deltaTime) {
     }
   }
   if (m_KeysDown[Qt::Key_T]) {
-      if (m_MainLight2 && m_SceneGraph && m_SceneGraph->GetCurrentCamera()) {
-          m_MainLight2->SetLocalPosition(
-              m_SceneGraph->GetCurrentCamera()->GetLocalPosition());
-      }
+    if (m_MainLight2 && m_SceneGraph && m_SceneGraph->GetCurrentCamera()) {
+      m_MainLight2->SetLocalPosition(
+          m_SceneGraph->GetCurrentCamera()->GetLocalPosition());
+    }
   }
 }
 
@@ -397,6 +412,28 @@ void ViewportWidget::keyReleaseEvent(QKeyEvent *event) {
 }
 
 void ViewportWidget::mousePressEvent(QMouseEvent *event) {
+  if (event->button() == Qt::LeftButton) {
+    int mouseX = static_cast<int>(event->position().x());
+    int mouseY = static_cast<int>(event->position().y());
+
+    // First, check if gizmo wants to handle this click
+    if (m_SceneRenderer &&
+        m_SceneRenderer->OnGizmoMouseClicked(mouseX, mouseY, true,width(),height())) {
+      // Gizmo consumed the click, don't do node selection
+    } else if (m_SceneGraph) {
+      // Gizmo didn't consume, do normal node selection
+      std::shared_ptr<Quantum::GraphNode> selected = m_SceneGraph->SelectEntity(
+          event->position().x(), event->position().y(), width(), height());
+
+      SetSelectedNode(selected);
+      if (selected) {
+        std::cout << "Selected Node: " << selected->GetName() << std::endl;
+      } else {
+        std::cout << "Selection Cleared" << std::endl;
+      }
+    }
+  }
+
   if (event->button() == Qt::RightButton) {
     m_IsLooking = true;
     m_OriginalCursorPos = QCursor::pos(); // Save global position
@@ -410,6 +447,14 @@ void ViewportWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void ViewportWidget::mouseReleaseEvent(QMouseEvent *event) {
+  if (event->button() == Qt::LeftButton) {
+    // Forward mouse release to gizmo
+    if (m_SceneRenderer) {
+      m_SceneRenderer->OnGizmoMouseClicked(
+          static_cast<int>(event->position().x()),
+          static_cast<int>(event->position().y()), false,width(),height());
+    }
+  }
   if (event->button() == Qt::RightButton) {
     m_IsLooking = false;
     // Restore cursor to original position
@@ -420,6 +465,12 @@ void ViewportWidget::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 void ViewportWidget::mouseMoveEvent(QMouseEvent *event) {
+  // Forward mouse move to gizmo (for dragging)
+  if (m_SceneRenderer) {
+    m_SceneRenderer->OnGizmoMouseMoved(static_cast<int>(event->position().x()),
+                                       static_cast<int>(event->position().y()));
+  }
+
   if (m_IsLooking) {
     // We are in infinite look mode
     // Calculate delta from the center of the widget (where we reset the
@@ -451,5 +502,18 @@ void ViewportWidget::OnModelImported() {
         << "[ViewportWidget] OnModelImported: Refreshing material textures..."
         << std::endl;
     m_SceneRenderer->RefreshMaterialTextures();
+  }
+}
+
+void ViewportWidget::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
+  m_SelectedNode = node;
+  // Update gizmo position and target node
+  if (m_SceneRenderer) {
+    if (node) {
+      m_SceneRenderer->SetGizmoPosition(node->GetWorldPosition());
+      m_SceneRenderer->SetGizmoTargetNode(node);
+    } else {
+      m_SceneRenderer->SetGizmoTargetNode(nullptr);
+    }
   }
 }

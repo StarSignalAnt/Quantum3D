@@ -49,12 +49,34 @@ public:
   // Get first light position (or default if no lights)
   glm::vec3 GetLightPosition() const;
 
+  // Ray Casting
+  struct Ray {
+    glm::vec3 origin;
+    glm::vec3 direction;
+  };
+
+  /// <summary>
+  /// Casts a ray from mouse coordinates and returns the closest intersected
+  /// node.
+  /// </summary>
+  std::shared_ptr<GraphNode> SelectEntity(float mouseX, float mouseY, int width,
+                                          int height);
+
 private:
   std::shared_ptr<GraphNode> m_Root;
   std::shared_ptr<CameraNode> m_CurrentCamera;
   std::vector<std::shared_ptr<LightNode>> m_Lights;
 
   size_t CountNodes(GraphNode *node) const;
+
+  // Helper for recursive ray casting
+  void CastRayRecursive(GraphNode *node, const Ray &ray, float &closestDistance,
+                        std::shared_ptr<GraphNode> &hitNode);
+
+  // Helper for ray-triangle intersection
+  bool RayTriangleIntersection(const Ray &ray, const glm::vec3 &v0,
+                               const glm::vec3 &v1, const glm::vec3 &v2,
+                               float &t);
 };
 
 } // namespace Quantum

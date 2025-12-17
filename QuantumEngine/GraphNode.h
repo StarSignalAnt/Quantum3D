@@ -54,6 +54,9 @@ public:
   // Get world position (extracted from world matrix)
   virtual glm::vec3 GetWorldPosition() const;
 
+  // Get world bounds of this node (mesh only)
+  void GetWorldBounds(glm::vec3 &min, glm::vec3 &max) const;
+
   // Hierarchy
   GraphNode *GetParent() const { return m_Parent; }
   const std::vector<std::shared_ptr<GraphNode>> &GetChildren() const {

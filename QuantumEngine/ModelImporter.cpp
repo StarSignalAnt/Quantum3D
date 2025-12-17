@@ -95,9 +95,19 @@ std::shared_ptr<GraphNode> ModelImporter::ProcessNode(
   glm::vec4 perspective;
   glm::decompose(newTransform, scale, rotation, translation, skew, perspective);
 
+  std::cout << "Node Pos:" << translation.x << "Y:" << translation.y << " Z:" << translation.z << std::endl;
+  
+  translation = translation / scale;
+
+  float ty = translation.y;
+  translation.y = -translation.z;
+  translation.z = ty;
+
   graphNode->SetLocalPosition(translation);
+  // 
   //graphNode->SetLocalRotation(glm::mat4_cast(rotation));
   graphNode->SetLocalScale(glm::vec3(1, 1, 1));
+
 
 
   // Debug print to confirm scale

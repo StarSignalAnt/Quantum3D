@@ -70,7 +70,13 @@ private:
   // Scene
   std::shared_ptr<Quantum::SceneGraph> m_SceneGraph;
   std::shared_ptr<Quantum::GraphNode> m_TestModel;
-  std::shared_ptr<Quantum::LightNode> m_MainLight2; // Test light
+  std::shared_ptr<Quantum::GraphNode> m_SelectedNode; // Currently selected node
+  std::shared_ptr<Quantum::LightNode> m_MainLight2;   // Test light
+
+public:
+  void SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node);
+
+private:
   std::shared_ptr<Quantum::LightNode> m_MainLight; // Test light
 
   bool m_VulkanInitialized = false;
