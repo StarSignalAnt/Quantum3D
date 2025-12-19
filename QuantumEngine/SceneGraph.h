@@ -65,7 +65,7 @@ public:
 
   void OnPlay();
   void OnStop();
-  void OnUpdate();
+  void OnUpdate(float dt);
 
   // Iterate over every node in the scene graph
   void ForEveryNode(const std::function<void(GraphNode *)> &callback);

@@ -40,16 +40,16 @@ public:
       if (i > 0) {
         const Token &prev = m_Elements[i - 1];
         if (IsValue(prev.type) && IsValue(token.type)) {
-          // Special case: function call 'Id (' is allowed? No, '(' is NOT a
-          // value. Special case: array access 'Id [' is allowed? No, '[' is NOT
-          // a value. So IsValue definition above excludes LPAREN/LBRACKET,
-          // which is correct. But RPAREN/RBRACKET ARE values (end of sub-expr).
-          // So 'a 100' -> Id Int -> Error.
-          // 'a b' -> Id Id -> Error.
-          // '(a) b' -> RPAREN Id -> Error.
-          collector->ReportError(
-              QErrorSeverity::Error, "Expected operator between values",
-              token.line, token.column, static_cast<int>(token.value.length()));
+          // It's only an error if the second token is NOT a closing punctuation
+          // (because '5 )' is a valid end of sub-expression, but '(a) b' or '5
+          // 5' is not)
+          if (token.type != TokenType::T_RPAREN &&
+              token.type != TokenType::T_RBRACKET) {
+            collector->ReportError(QErrorSeverity::Error,
+                                   "Expected operator between values",
+                                   token.line, token.column,
+                                   static_cast<int>(token.value.length()));
+          }
         }
       }
 

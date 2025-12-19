@@ -95,7 +95,7 @@ public:
 
   void OnPlay();
   void OnStop();
-  void OnUpdate();
+  void OnUpdate(float dt);
 
 protected:
   // Called when transform changes

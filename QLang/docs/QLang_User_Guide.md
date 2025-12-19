@@ -11,13 +11,16 @@ A comprehensive guide to the QLang scripting language for the Quantum Engine.
 3. [Data Types](#data-types)
 4. [Variables](#variables)
 5. [Operators](#operators)
-6. [Control Flow](#control-flow)
-7. [Functions](#functions)
-8. [Classes](#classes)
-9. [Inheritance](#inheritance)
-10. [Generics](#generics)
-11. [C++ Integration](#c-integration)
-12. [Error Handling](#error-handling)
+6. [Operator Overloading](#operator-overloading) *(New in v0.2)*
+7. [Control Flow](#control-flow)
+8. [Functions](#functions)
+9. [Classes](#classes)
+10. [Inheritance](#inheritance)
+11. [Generics](#generics)
+12. [Built-In Classes](#built-in-classes) *(New in v0.2)*
+13. [Engine Integration](#engine-integration)
+14. [Error Handling](#error-handling)
+15. [Changelog](#changelog)
 
 ---
 
@@ -27,6 +30,7 @@ QLang is a statically-typed scripting language designed for game development and
 
 - **Clean, readable syntax** inspired by modern languages
 - **Class-based OOP** with single inheritance
+- **Operator overloading** for custom types *(New in v0.2)*
 - **Generic types** for reusable components
 - **C++ interoperability** for native function calls and engine integration
 - **Strong typing** with explicit type declarations
@@ -165,12 +169,65 @@ count++    // Increment by 1
 count--    // Decrement by 1
 ```
 
-### Compound Assignment
+---
+
+## Operator Overloading
+
+*New in v0.2*
+
+Classes can overload arithmetic operators by defining specific methods. When an operator is used with a class instance on the left side, the corresponding method is called automatically.
+
+### Operator to Method Mapping
+
+| Operator | Method Name |
+|----------|-------------|
+| `+` | `Plus` |
+| `-` | `Minus` |
+| `*` | `Multiply` |
+| `/` | `Divide` |
+
+### Example: Vec3 Arithmetic
 
 ```
-x += 5     // x = x + 5
-x -= 3     // x = x - 3
+class Vec3
+    float32 X
+    float32 Y
+    float32 Z
+
+    method void Vec3(float32 x, float32 y, float32 z)
+        X = x
+        Y = y
+        Z = z
+    end
+
+    // Overload + for Vec3 + Vec3
+    method Vec3 Plus(Vec3 right)
+        return new Vec3(X + right.X, Y + right.Y, Z + right.Z)
+    end
+
+    // Overload + for Vec3 + scalar (function overloading)
+    method Vec3 Plus(float32 scalar)
+        return new Vec3(X + scalar, Y + scalar, Z + scalar)
+    end
+
+    // Overload * for Vec3 * scalar
+    method Vec3 Multiply(float32 scalar)
+        return new Vec3(X * scalar, Y * scalar, Z * scalar)
+    end
+end
+
+// Usage
+Vec3 a = new Vec3(1, 2, 3)
+Vec3 b = new Vec3(4, 5, 6)
+Vec3 sum = a + b           // Calls a.Plus(b)
+Vec3 scaled = a * 2.0      // Calls a.Multiply(2.0)
+Vec3 offset = a + 10.0     // Calls a.Plus(10.0)
 ```
+
+### Notes
+
+- Operator overloading supports **function overloading**. Define multiple versions of `Plus` to handle different argument types.
+- If no matching method is found, the default behavior (error for class instances) is used.
 
 ---
 
@@ -233,6 +290,17 @@ Native functions are registered from C++ and called directly:
 printf("Hello", 42, 3.14)
 print("Debug message")
 ```
+
+### Engine Native Functions
+
+*New in v0.2*
+
+| Function | Parameters | Description |
+|----------|------------|-------------|
+| `printf` | `...args` | Print values with type info |
+| `print` | `...args` | Print values |
+| `NodeTurn` | `cptr node, Vec3 rotation` | Rotate a scene node |
+| `NodeSetPosition` | `cptr node, Vec3 position` | Set node position |
 
 ### Custom Functions via Methods
 
@@ -328,33 +396,9 @@ class Math
         return a + b
     end
 
-    method string Add(string a, string b)
+    method float32 Add(float32 a, float32 b)
         return a + b
     end
-end
-
-Math m = new Math()
-int32 sum = m.Add(5, 10)              // Returns 15
-string text = m.Add("Hello", " World") // Returns "Hello World"
-```
-
-### Accessing Members
-
-```
-p1.health = 50
-printf("Score:", p1.score)
-p1.TakeDamage(25)
-```
-
-### Member Initialization
-
-Members can have default values:
-
-```
-class Item
-    int32 quantity = 1
-    string name = "Unknown Item"
-    float32 weight = 0.0
 end
 ```
 
@@ -375,10 +419,6 @@ class Animal
         age = 0
         name = "Animal"
     end
-
-    method void Speak()
-        printf("...")
-    end
 end
 
 class Dog(Animal)
@@ -388,64 +428,12 @@ class Dog(Animal)
         breed = "Unknown"
         name = "Dog"    // Accessing inherited member
     end
-
-    // Override parent method
-    method void Speak()
-        printf("Woof!")
-    end
 end
 ```
 
 ### Constructor Chaining
 
-Parent constructors are called automatically before child constructors:
-
-```
-Dog d = new Dog()
-// 1. Animal members initialized
-// 2. Animal() constructor called
-// 3. Dog members initialized
-// 4. Dog() constructor called
-```
-
-### Multi-Level Inheritance
-
-Inheritance chains are fully supported:
-
-```
-class Entity
-    int32 id
-end
-
-class Actor(Entity)
-    int32 health
-end
-
-class Player(Actor)
-    string name
-end
-
-// Player has: id, health, and name
-```
-
-### Method Lookup
-
-Methods are searched from child to parent:
-
-```
-class Base
-    method void DoSomething()
-        printf("Base implementation")
-    end
-end
-
-class Child(Base)
-    // Inherits DoSomething from Base
-end
-
-Child c = new Child()
-c.DoSomething()    // Calls Base.DoSomething
-```
+Parent constructors are called automatically before child constructors.
 
 ---
 
@@ -471,107 +459,231 @@ end
 
 ### Using Generic Classes
 
-Specify the type when creating instances:
-
 ```
-class Node
-    int32 data = 42
-end
-
-Container<Node> c = new Container<Node>(new Node())
+Container<int32> c = new Container<int32>(42)
+int32 val = c.GetValue()
 ```
 
-### Multiple Type Parameters
+---
+
+## Built-In Classes
+
+*New in v0.2*
+
+QLang provides several built-in classes for common game development tasks. These are automatically loaded when the engine starts.
+
+---
+
+### Vec3
+
+A 3D vector class with comprehensive operator overloading and utility methods.
+
+**Location:** `engine/qlang/classes/Vec3.q`
+
+#### Members
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `X` | `float32` | X component |
+| `Y` | `float32` | Y component |
+| `Z` | `float32` | Z component |
+
+#### Constructors
+
+| Signature | Description |
+|-----------|-------------|
+| `Vec3()` | Creates a zero vector (0, 0, 0) |
+| `Vec3(float32 x, float32 y, float32 z)` | Creates a vector with specified components |
+| `Vec3(float32 value)` | Creates a vector with all components set to the same value |
+
+#### Operator Overloads
+
+| Operator | Method | Parameters | Returns | Description |
+|----------|--------|------------|---------|-------------|
+| `+` | `Plus` | `Vec3 right` | `Vec3` | Component-wise addition |
+| `+` | `Plus` | `float32 scalar` | `Vec3` | Add scalar to all components |
+| `-` | `Minus` | `Vec3 right` | `Vec3` | Component-wise subtraction |
+| `-` | `Minus` | `float32 scalar` | `Vec3` | Subtract scalar from all components |
+| `*` | `Multiply` | `Vec3 right` | `Vec3` | Component-wise multiplication |
+| `*` | `Multiply` | `float32 scalar` | `Vec3` | Scale all components |
+| `/` | `Divide` | `Vec3 right` | `Vec3` | Component-wise division |
+| `/` | `Divide` | `float32 scalar` | `Vec3` | Divide all components by scalar |
+
+#### Utility Methods
+
+| Method | Parameters | Returns | Description |
+|--------|------------|---------|-------------|
+| `Dot` | `Vec3 other` | `float32` | Dot product of two vectors |
+| `Cross` | `Vec3 other` | `Vec3` | Cross product of two vectors |
+| `LengthSquared` | — | `float32` | Squared length (faster than computing actual length) |
+| `Negate` | — | `Vec3` | Returns the negated vector (-X, -Y, -Z) |
+| `Lerp` | `Vec3 target, float32 t` | `Vec3` | Linear interpolation towards target by factor t |
+| `Print` | — | `void` | Prints the vector to console |
+
+#### Factory Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `Zero()` | `Vec3(0, 0, 0)` | Zero vector |
+| `One()` | `Vec3(1, 1, 1)` | Unit vector (all ones) |
+| `Up()` | `Vec3(0, 1, 0)` | Up direction (+Y) |
+| `Down()` | `Vec3(0, -1, 0)` | Down direction (-Y) |
+| `Left()` | `Vec3(-1, 0, 0)` | Left direction (-X) |
+| `Right()` | `Vec3(1, 0, 0)` | Right direction (+X) |
+| `Forward()` | `Vec3(0, 0, 1)` | Forward direction (+Z) |
+| `Back()` | `Vec3(0, 0, -1)` | Back direction (-Z) |
+
+#### Example Usage
 
 ```
-class Pair<K, V>
-    K key
-    V value
-    
-    method void Pair(K k, V v)
-        key = k
-        value = v
+Vec3 a = new Vec3(1, 2, 3)
+Vec3 b = new Vec3(4, 5, 6)
+
+// Operator overloading
+Vec3 sum = a + b                    // (5, 7, 9)
+Vec3 scaled = a * 2.0               // (2, 4, 6)
+Vec3 diff = b - a                   // (3, 3, 3)
+
+// Utility methods
+float32 dot = a.Dot(b)              // 32
+Vec3 cross = a.Cross(b)             // (-3, 6, -3)
+Vec3 lerped = a.Lerp(b, 0.5)        // (2.5, 3.5, 4.5)
+
+// Factory methods
+Vec3 origin = a.Zero()              // (0, 0, 0)
+Vec3 up = a.Up()                    // (0, 1, 0)
+```
+
+---
+
+### GameNode
+
+Base class for all engine-integrated game objects. Extend this class to create custom game behavior.
+
+**Location:** `engine/qlang/classes/GameNode.q`
+
+#### Members
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `NodePtr` | `cptr` | Pointer to the C++ GraphNode (set by engine) |
+
+#### Lifecycle Methods
+
+Override these methods to implement custom behavior:
+
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `OnPlay()` | — | Called when play mode starts |
+| `OnUpdate(float32 dt)` | `dt`: Delta time in seconds | Called every frame during play |
+| `OnRender()` | — | Called during rendering phase |
+| `OnStop()` | — | Called when play mode stops |
+
+#### Transform Methods
+
+| Method | Parameters | Description |
+|--------|------------|-------------|
+| `Turn(Vec3 rotation)` | Rotation in degrees (Euler angles) | Rotates the node by the specified amount |
+| `SetPosition(Vec3 position)` | World position | Sets the node's position |
+| `GetPosition()` | — | Returns the node's current position |
+
+#### Example Usage
+
+```
+class Player(GameNode)
+    float32 speed = 5.0
+    float32 rotationSpeed = 90.0
+
+    method void OnUpdate(float32 dt)
+        // Move forward
+        Vec3 move = new Vec3(speed * dt, 0, 0)
+        Vec3 pos = GetPosition()
+        SetPosition(pos + move)
+
+        // Rotate
+        Vec3 rot = new Vec3(0, rotationSpeed * dt, 0)
+        Turn(rot)
     end
 end
 ```
 
 ---
 
-## C++ Integration
 
-### Engine Integration API
+### GameNode Base Class
 
-From C++, you can interact with QLang classes using QRunner:
+*Updated in v0.2*
 
-```cpp
-// Parse and run script to register classes
-QRunner runner(context, errorCollector);
-runner.Run(program);
-
-// Find a class definition
-auto playerClass = runner.FindClass("Player");
-
-// Create an instance
-auto player = runner.CreateInstance("Player");
-
-// Call methods
-std::vector<QValue> args = {25};  // TakeDamage(25)
-runner.CallMethod(player, "TakeDamage", args);
-
-// Get return values
-QValue result = runner.CallMethod(player, "GetHealth");
-if (std::holds_alternative<int32_t>(result)) {
-    int32_t health = std::get<int32_t>(result);
-}
-```
-
-### Native Function Registration
-
-Register C++ functions for QLang to call:
-
-```cpp
-QValue myPrint(QContext* ctx, const std::vector<QValue>& args) {
-    for (const auto& arg : args) {
-        std::cout << ValueToString(arg) << " ";
-    }
-    std::cout << std::endl;
-    return std::monostate{};  // void return
-}
-
-context->AddFunc("printf", myPrint);
-```
-
-### Game Node Pattern
-
-Typical usage for 3D engine game nodes:
+The `GameNode` class provides lifecycle hooks for engine integration:
 
 ```
-// QLang script
 class GameNode
-    int32 x
-    int32 y
-    
-    method int32 Update(float32 deltaTime)
-        x = x + 1
-        return 0
+    cptr NodePtr
+
+    method void OnPlay()
+        // Called when play starts
     end
-    
-    method void Render()
-        printf("Draw at", x, y)
+
+    method void OnUpdate(float32 dt)
+        // Called every frame with delta time
+    end
+
+    method void OnRender()
+        // Called during rendering
+    end
+
+    method void OnStop()
+        // Called when play stops
+    end
+
+    method void Turn(Vec3 rotation)
+        NodeTurn(NodePtr, rotation)
+    end
+
+    method void SetPosition(Vec3 position)
+        NodeSetPosition(NodePtr, position)
     end
 end
 ```
 
-```cpp
-// C++ engine
-auto node = runner.CreateInstance("GameNode");
+### Creating Custom Game Nodes
 
-// Game loop
-while (running) {
-    std::vector<QValue> args = {deltaTime};
-    runner.CallMethod(node, "Update", args);
-    runner.CallMethod(node, "Render");
-}
+Extend `GameNode` to create custom behavior:
+
+```
+class MyPlayer(GameNode)
+    float32 speed = 5.0
+
+    method void OnUpdate(float32 dt)
+        Vec3 move = new Vec3(speed * dt, 0, 0)
+        Vec3 pos = GetPosition()
+        SetPosition(pos + move)
+    end
+end
+```
+
+### Vec3 Class
+
+*Updated in v0.2*
+
+The built-in `Vec3` class supports operator overloading:
+
+```
+class Vec3
+    float32 X
+    float32 Y
+    float32 Z
+
+    method void Vec3(float32 x, float32 y, float32 z)
+        X = x
+        Y = y
+        Z = z
+    end
+
+    method Vec3 Plus(Vec3 right)
+        return new Vec3(X + right.X, Y + right.Y, Z + right.Z)
+    end
+end
 ```
 
 ---
@@ -596,14 +708,6 @@ Runtime errors include a call stack trace:
   at Main
 ```
 
-### Common Errors
-
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `unknown parent class 'X'` | Parent not defined before child | Define parent class first |
-| `expected 'end' to close class` | Missing `end` keyword | Add `end` after class body |
-| `method not found` | Wrong name or parameter types | Check method signature |
-
 ---
 
 ## Appendix: Reserved Keywords
@@ -617,4 +721,34 @@ this    to      true    void    wend    while
 
 ---
 
-*QLang v1.0 - Quantum Engine Scripting Language*
+## Changelog
+
+### v0.2 (December 2024)
+
+**New Features:**
+- **Operator Overloading**: Classes can now define `Plus`, `Minus`, `Multiply`, and `Divide` methods to overload `+`, `-`, `*`, `/` operators.
+- **Function Overloading for Operators**: Multiple `Plus` (or other) methods with different parameter types are supported.
+- **Delta Time**: `OnUpdate` now receives a `float32 dt` parameter for frame-independent updates.
+- **New Native Functions**: Added `NodeSetPosition(cptr, Vec3)` for setting node positions.
+- **Built-In Classes Documentation**: Added comprehensive API reference for `Vec3` and `GameNode`.
+
+**Updated Classes:**
+- **Vec3**: Full operator overloading (+, -, *, /), dot/cross product, lerp, negate, factory methods (Zero, One, Up, Down, Left, Right, Forward, Back).
+- **GameNode**: `OnUpdate` signature changed to `OnUpdate(float32 dt)`. Added `SetPosition(Vec3)` and `Turn(Vec3)` methods.
+
+**Bug Fixes:**
+- Fixed false positive "Expected operator between values" error when using closing parentheses in constructor calls.
+- Fixed literal handling in `TokenToValue` to correctly parse integers, floats, and booleans.
+- Improved constructor error reporting when no matching constructor is found.
+
+### v0.1 (Initial Release)
+
+- Core language features: classes, methods, inheritance, generics
+- Primitive types: int32, int64, float32, float64, string, bool, cptr
+- Control flow: if/elseif/else, while/wend, for/next
+- Native function registration
+- C++ QRunner API for engine integration
+
+---
+
+*QLang v0.2 - Quantum Engine Scripting Language*

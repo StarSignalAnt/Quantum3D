@@ -98,6 +98,78 @@ QValue node_turn(QContext *ctx, const std::vector<QValue> &args) {
   return std::monostate{};
 }
 
+
+QValue node_setPosition(QContext* ctx, const std::vector<QValue>& args) {
+    // Validate arguments
+    if (args.size() < 2) {
+        std::cerr
+            << "[ERROR] node_turn requires 2 arguments: cptr node, Vec3 rotation"
+            << std::endl;
+        return std::monostate{};
+    }
+
+    // Extract node pointer from arg 0 (cptr)
+    if (!std::holds_alternative<void*>(args[0])) {
+        std::cerr << "[ERROR] node_turn: arg 0 must be a cptr (node pointer)"
+            << std::endl;
+        return std::monostate{};
+    }
+    void* nodePtr = std::get<void*>(args[0]);
+    Quantum::GraphNode* node = static_cast<Quantum::GraphNode*>(nodePtr);
+
+    if (!node) {
+        std::cerr << "[ERROR] node_turn: node pointer is null" << std::endl;
+        return std::monostate{};
+    }
+
+    // Extract Vec3 class instance from arg 1
+    if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(args[1])) {
+        std::cerr << "[ERROR] node_turn: arg 1 must be a Vec3 class instance"
+            << std::endl;
+        return std::monostate{};
+    }
+    auto vec3Instance = std::get<std::shared_ptr<QClassInstance>>(args[1]);
+
+    // Get x, y, z from the Vec3 instance
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+
+    QInstanceValue xVal = vec3Instance->GetMember("X");
+    QInstanceValue yVal = vec3Instance->GetMember("Y");
+    QInstanceValue zVal = vec3Instance->GetMember("Z");
+
+    // Extract float values (handle both float and int types)
+    if (std::holds_alternative<float>(xVal))
+        x = std::get<float>(xVal);
+    else if (std::holds_alternative<int32_t>(xVal))
+        x = static_cast<float>(std::get<int32_t>(xVal));
+    else if (std::holds_alternative<double>(xVal))
+        x = static_cast<float>(std::get<double>(xVal));
+
+    if (std::holds_alternative<float>(yVal))
+        y = std::get<float>(yVal);
+    else if (std::holds_alternative<int32_t>(yVal))
+        y = static_cast<float>(std::get<int32_t>(yVal));
+    else if (std::holds_alternative<double>(yVal))
+        y = static_cast<float>(std::get<double>(yVal));
+
+    if (std::holds_alternative<float>(zVal))
+        z = std::get<float>(zVal);
+    else if (std::holds_alternative<int32_t>(zVal))
+        z = static_cast<float>(std::get<int32_t>(zVal));
+    else if (std::holds_alternative<double>(zVal))
+        z = static_cast<float>(std::get<double>(zVal));
+
+    // Apply rotation (Euler angles in degrees)
+    //glm::vec3 currentRotation = node->GetRotationEuler();
+    node->SetLocalPosition(glm::vec3(x, y, z));
+
+
+    std::cout << "[DEBUG] node_turn: rotated node by (" << x << ", " << y << ", "
+        << z << ")" << std::endl;
+
+    return std::monostate{};
+}
+
 // Native print function - prints values with their types
 QValue func_print(QContext *ctx, const std::vector<QValue> &args) {
   std::cout << "[PRINT] ";
@@ -136,6 +208,7 @@ QLangDomain::QLangDomain() {
   m_Context->AddFunc("printf", func_printf);
   m_Context->AddFunc("print", func_print);
   m_Context->AddFunc("NodeTurn", node_turn);
+  m_Context->AddFunc("NodeSetPosition", node_setPosition);
   m_Runner = make_shared<QRunner>(m_Context, errorCollector);
 
   LoadAndRegisterFolder("engine/qlang/classes");

@@ -1670,6 +1670,28 @@ private:
   // Apply an operator to two values
   QValue ApplyOperator(const QValue &left, const std::string &op,
                        const QValue &right) {
+    // Check for operator overloading on class instances
+    if (std::holds_alternative<std::shared_ptr<QClassInstance>>(left)) {
+      auto instance = std::get<std::shared_ptr<QClassInstance>>(left);
+      std::string methodName;
+      if (op == "+")
+        methodName = "Plus";
+      else if (op == "-")
+        methodName = "Minus";
+      else if (op == "*")
+        methodName = "Multiply";
+      else if (op == "/")
+        methodName = "Divide";
+
+      if (!methodName.empty()) {
+        // Check if method exists before calling to avoid error spam if not
+        // overloaded
+        if (FindMethod(instance->GetClassDef(), methodName, {right})) {
+          return CallMethod(instance, methodName, {right});
+        }
+      }
+    }
+
     // Logical operators (work on booleans)
     if (op == "&&") {
       bool l = ToBool(left);

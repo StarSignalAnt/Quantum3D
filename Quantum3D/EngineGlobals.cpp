@@ -125,9 +125,9 @@ void EngineGlobals::OnStop() {
 
 }
 
-void EngineGlobals::OnUpdate() {
+void EngineGlobals::OnUpdate(float dt) {
 
     if (!m_Playing) return;
-    EditorScene->OnUpdate();
+    EditorScene->OnUpdate(dt);
 
 }

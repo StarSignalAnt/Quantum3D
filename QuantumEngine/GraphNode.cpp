@@ -334,14 +334,19 @@ void GraphNode::OnPlay() {
 
 void GraphNode::OnStop() {}
 
-void GraphNode::OnUpdate()
+void GraphNode::OnUpdate(float dt)
 
 {
 
+    std::vector<QValue> updateArgs = { dt };
+
+
     for (auto cls : m_QClasses) {
 
+
+
         // QValue result = runner.CallMethod(node1, "Update", updateArgs);
-        QLangDomain::m_QLang->RunMethod(cls, "OnUpdate");
+        QLangDomain::m_QLang->RunMethod(cls, "OnUpdate",updateArgs);
     }
 
 }

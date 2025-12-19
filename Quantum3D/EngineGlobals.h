@@ -55,7 +55,7 @@ public:
 
   static void OnPlay();
   static void OnStop();
-  static void OnUpdate();
+  static void OnUpdate(float dt);
 
   static bool m_Playing;
 };

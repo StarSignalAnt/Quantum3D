@@ -22,7 +22,7 @@ class GameNode
 
     end 
 
-    method void OnUpdate()
+    method void OnUpdate(float32 dt)
 
         printf("GameNode.OnUpdate");
 
@@ -42,11 +42,15 @@ class GameNode
 
     method void Turn(Vec3 rotation)
 
-        printf("In GameNode.Turn");
         NodeTurn(NodePtr,rotation);
 
     end 
 
+    method void SetPosition(Vec3 position)
+
+        NodeSetPosition(NodePtr,position);
+
+    end 
 
 
 end 

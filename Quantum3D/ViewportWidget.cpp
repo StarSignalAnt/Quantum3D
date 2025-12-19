@@ -93,6 +93,7 @@ void ViewportWidget::initVulkan() {
     connect(m_RenderTimer, &QTimer::timeout, this,
             &ViewportWidget::renderFrame);
     m_RenderTimer->start(16); // ~60 FPS
+    m_FrameTimer.start();
 
     m_VulkanInitialized = true;
     std::cout << "Vulkan initialized successfully for ViewportWidget"
@@ -317,8 +318,11 @@ void ViewportWidget::renderFrame() {
     }
   }
 
+  // Calculate delta time
+  m_DeltaTime = m_FrameTimer.restart() / 1000.0f;
+
   // Update camera logic
-  updateCamera(0.016f); // Approx 60 FPS
+  updateCamera(m_DeltaTime);
 
   // Render frame using split-phase for shadow pass injection
   if (m_Renderer && m_Renderer->BeginFrameCommandBuffer()) {
@@ -344,8 +348,7 @@ void ViewportWidget::renderFrame() {
         m_SceneRenderer->SetGizmoViewState(view, proj, width(), height());
       }
 
-
-      EngineGlobals::OnUpdate();
+      EngineGlobals::OnUpdate(m_DeltaTime);
 
       m_SceneRenderer->RenderScene(m_Renderer->GetCommandBuffer(), m_Width,
                                    m_Height);

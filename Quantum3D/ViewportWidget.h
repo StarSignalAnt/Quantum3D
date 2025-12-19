@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QTimer>
@@ -118,4 +119,7 @@ private:
 
   // Helper: Check if a click hits a light icon, returns the light if hit
   std::shared_ptr<Quantum::LightNode> HitTestLightIcons(int mouseX, int mouseY);
+
+  float m_DeltaTime = 0.0f;
+  QElapsedTimer m_FrameTimer;
 };

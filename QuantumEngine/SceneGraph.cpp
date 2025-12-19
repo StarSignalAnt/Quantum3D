@@ -246,14 +246,14 @@ void SceneGraph::OnStop()
     m_Playing = false;
 }
 
-void SceneGraph::OnUpdate() {
+void SceneGraph::OnUpdate(float dt) {
 
     if (!m_Playing) return;
 
-    ForEveryNode([](Quantum::GraphNode* node) {
+    ForEveryNode([dt](Quantum::GraphNode* node) {
        // std::cout << "Node: " << node->GetName() << std::endl;
         // Do something with the node
-        node->OnUpdate();
+        node->OnUpdate(dt);
         });
 
 
