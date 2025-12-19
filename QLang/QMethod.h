@@ -22,7 +22,9 @@ struct QMethodParam {
 class QMethod : public QActionNode {
 public:
   QMethod(const std::string &name) : m_Name(name) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QMethod created: " << name << std::endl;
+#endif
     m_Body = std::make_shared<QCode>();
   }
 

@@ -16,8 +16,10 @@ class QInstanceDecl : public QNode {
 public:
   QInstanceDecl(const std::string &className, const std::string &instanceName)
       : m_ClassName(className), m_InstanceName(instanceName) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QInstanceDecl created: " << className << " "
               << instanceName << std::endl;
+#endif
   }
 
   std::string GetName() const override { return m_InstanceName; }
@@ -35,6 +37,7 @@ public:
   // Generic type arguments (e.g., List<int32> -> ["int32"])
   void SetTypeArguments(const std::vector<std::string> &args) {
     m_TypeArguments = args;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QInstanceDecl(" << m_InstanceName
               << ") - type args: ";
     for (size_t i = 0; i < args.size(); i++) {
@@ -43,6 +46,7 @@ public:
         std::cout << ", ";
     }
     std::cout << std::endl;
+#endif
   }
 
   const std::vector<std::string> &GetTypeArguments() const {

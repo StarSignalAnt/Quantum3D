@@ -9,14 +9,20 @@
 // QExpression - a list of expression elements (tokens)
 class QExpression : public QActionNode {
 public:
-  QExpression() { std::cout << "[DEBUG] QExpression created" << std::endl; }
+  QExpression() {
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] QExpression created" << std::endl;
+#endif
+  }
 
   std::string GetName() const override { return "QExpression"; }
 
   void AddElement(const Token &token) {
     m_Elements.push_back(token);
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QExpression - added element: " << token.value
               << std::endl;
+#endif
   }
 
   const std::vector<Token> &GetElements() const { return m_Elements; }

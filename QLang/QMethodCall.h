@@ -12,8 +12,10 @@ class QMethodCall : public QNode {
 public:
   QMethodCall(const std::string &instanceName, const std::string &methodName)
       : m_InstanceName(instanceName), m_MethodName(methodName) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QMethodCall created: " << instanceName << "."
               << methodName << "()" << std::endl;
+#endif
   }
 
   std::string GetName() const override {

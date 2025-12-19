@@ -4,15 +4,19 @@
 #include <iostream>
 
 Parser::Parser(const std::vector<Token> &tokens) : m_Tokens(tokens) {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] Parser created with " << tokens.size() << " tokens"
             << std::endl;
+#endif
 }
 
 Parser::Parser(const std::vector<Token> &tokens,
                std::shared_ptr<QErrorCollector> errorCollector)
     : m_Tokens(tokens), m_ErrorCollector(errorCollector) {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] Parser created with " << tokens.size()
             << " tokens and error collector" << std::endl;
+#endif
 }
 
 void Parser::ReportError(const std::string &message, QErrorSeverity severity) {
@@ -51,15 +55,23 @@ void Parser::RecoverToNextStatement() {
   }
 }
 
-Parser::~Parser() { std::cout << "[DEBUG] Parser destroyed" << std::endl; }
+Parser::~Parser() {
+#if QLANG_DEBUG
+  std::cout << "[DEBUG] Parser destroyed" << std::endl;
+#endif
+}
 
 std::shared_ptr<QProgram> Parser::Parse() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] Parse() called - starting parse" << std::endl;
+#endif
   return ParseProgram();
 }
 
 std::shared_ptr<QProgram> Parser::ParseProgram() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseProgram() - creating QProgram node" << std::endl;
+#endif
 
   auto program = std::make_shared<QProgram>();
 
@@ -93,17 +105,23 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
     program->CheckForErrors(m_ErrorCollector);
   }
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseProgram() - parsed successfully" << std::endl;
+#endif
   return program;
 }
 
 void Parser::ParseCode(std::shared_ptr<QCode> code) {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseCode() - parsing code block" << std::endl;
+#endif
 
   while (!IsAtEnd()) {
     Token current = Peek();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseCode() - current token: " << current.value
               << " at line " << current.line << std::endl;
+#endif
 
     // Check for block end markers
     if (current.type == TokenType::T_END || current.type == TokenType::T_EOF ||
@@ -111,7 +129,9 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
         current.type == TokenType::T_ELSE ||
         current.type == TokenType::T_NEXT ||
         current.type == TokenType::T_WEND) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseCode() - reached end of block" << std::endl;
+#endif
       break;
     }
 
@@ -250,12 +270,16 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
     }
   } // End while
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseCode() - finished parsing block" << std::endl;
+#endif
 }
 
 std::shared_ptr<QStatement> Parser::ParseStatement() {
   Token identifier = Peek();
+#if QLANG_DEBUG
   std::cout << "Parsing " << identifier.value << std::endl;
+#endif
 
   // Consume the identifier
   Advance();
@@ -264,8 +288,10 @@ std::shared_ptr<QStatement> Parser::ParseStatement() {
 
   // Check for parameters - look for '('
   if (Check(TokenType::T_LPAREN)) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseStatement() - found '(', parsing parameters"
               << std::endl;
+#endif
     auto params = ParseParameters();
     statement->SetParameters(params);
   } else {
@@ -279,28 +305,36 @@ std::shared_ptr<QStatement> Parser::ParseStatement() {
   // Consume end of line if present
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseStatement() - consumed end of line" << std::endl;
+#endif
   }
 
   return statement;
 }
 
 std::shared_ptr<QParameters> Parser::ParseParameters() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseParameters() - starting" << std::endl;
+#endif
 
   auto params = std::make_shared<QParameters>();
 
   // Consume '('
   if (Check(TokenType::T_LPAREN)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseParameters() - consumed '('" << std::endl;
+#endif
   }
 
   // Check for empty parameters ()
   if (Check(TokenType::T_RPAREN)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseParameters() - empty parameters, consumed ')'"
               << std::endl;
+#endif
     return params;
   }
 
@@ -313,7 +347,9 @@ std::shared_ptr<QParameters> Parser::ParseParameters() {
   // Parse remaining expressions separated by ','
   while (Check(TokenType::T_COMMA)) {
     Advance(); // consume ','
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseParameters() - consumed ','" << std::endl;
+#endif
 
     expr = ParseExpression();
     if (expr) {
@@ -324,7 +360,9 @@ std::shared_ptr<QParameters> Parser::ParseParameters() {
   // Consume ')'
   if (Check(TokenType::T_RPAREN)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseParameters() - consumed ')'" << std::endl;
+#endif
   } else {
     std::cerr << "[ERROR] ParseParameters() - expected ')'" << std::endl;
   }
@@ -333,7 +371,9 @@ std::shared_ptr<QParameters> Parser::ParseParameters() {
 }
 
 std::shared_ptr<QExpression> Parser::ParseExpression() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseExpression() - starting" << std::endl;
+#endif
 
   auto expr = std::make_shared<QExpression>();
   int parenDepth = 0;
@@ -369,8 +409,10 @@ std::shared_ptr<QExpression> Parser::ParseExpression() {
     }
   }
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseExpression() - finished with "
             << expr->GetElements().size() << " elements" << std::endl;
+#endif
 
   return expr;
 }
@@ -444,13 +486,17 @@ bool Parser::IsTypeToken(TokenType type) const {
 }
 
 std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseVariableDecl() - parsing variable declaration"
             << std::endl;
+#endif
 
   // Get the type token
   Token typeToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseVariableDecl() - type: " << typeToken.value
             << std::endl;
+#endif
 
   // Type validation is deferred to runtime
   // Accept any identifier as a potential type (primitives, classes, generics)
@@ -486,8 +532,10 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
   }
 
   Token nameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseVariableDecl() - name: " << nameToken.value
             << std::endl;
+#endif
 
   auto varDecl = std::make_shared<QVariableDecl>(
       typeToken.type, nameToken.value, typeToken.value);
@@ -496,8 +544,10 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
   // Check for initializer (= expression)
   if (Check(TokenType::T_OPERATOR) && Peek().value == "=") {
     Advance(); // consume '='
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseVariableDecl() - parsing initializer"
               << std::endl;
+#endif
 
     auto initializer = ParseExpression();
     varDecl->SetInitializer(initializer);
@@ -506,8 +556,10 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
   // Consume end of line (Mandatory for declarations)
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseVariableDecl() - consumed semicolon"
               << std::endl;
+#endif
   } else if (!Check(TokenType::T_EOF)) {
     // If NOT at EOF, report error (missing semicolon)
     // This will catch "i2f Val == null" cases where '==' is found instead of
@@ -519,7 +571,9 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
 }
 
 std::shared_ptr<QClass> Parser::ParseClass() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseClass() - parsing class definition" << std::endl;
+#endif
 
   // Consume 'class' keyword
   Advance();
@@ -532,8 +586,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   }
 
   Token nameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseClass() - class name: " << nameToken.value
             << std::endl;
+#endif
 
   // Register class name immediately so self-referential members (e.g. Node
   // next) works
@@ -548,7 +604,9 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   // Check for inheritance syntax: class Name(ParentClass)
   if (Check(TokenType::T_LPAREN)) {
     Advance(); // consume '('
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseClass() - parsing parent class" << std::endl;
+#endif
 
     if (!Check(TokenType::T_IDENTIFIER)) {
       ReportError("expected parent class name after '('");
@@ -558,8 +616,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       // Defer parent class validation to runtime (CreateInstance time)
       // This allows child classes to be defined before parent classes
       cls->SetParentClass(parentToken.value);
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseClass() - parent class: " << parentToken.value
                 << std::endl;
+#endif
     }
 
     // Consume ')'
@@ -573,8 +633,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   // Check for generic type parameters <T, U, V, ...>
   if (Check(TokenType::T_LESS)) {
     Advance(); // consume '<'
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseClass() - parsing generic type parameters"
               << std::endl;
+#endif
 
     std::vector<std::string> typeParams;
     while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
@@ -586,8 +648,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       }
       Token typeParam = Advance();
       typeParams.push_back(typeParam.value);
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseClass() - type parameter: " << typeParam.value
                 << std::endl;
+#endif
 
       // Check for comma (more parameters) or end
       if (Check(TokenType::T_COMMA)) {
@@ -633,8 +697,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
                std::find(m_CurrentTypeParams.begin(), m_CurrentTypeParams.end(),
                          current.value) != m_CurrentTypeParams.end()) {
       // This is a generic type parameter used as a member type
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseClass() - parsing generic type member: "
                 << current.value << std::endl;
+#endif
       auto member = ParseVariableDecl();
       if (member) {
         cls->AddMember(member);
@@ -643,8 +709,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
     } else if (current.type == TokenType::T_IDENTIFIER &&
                IsClassName(current.value)) {
       // This is a class-type member declaration
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseClass() - parsing class-type member: "
                 << current.value << std::endl;
+#endif
       auto member = ParseClassTypeMember();
       if (member) {
         cls->AddMember(member);
@@ -653,8 +721,10 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       Advance(); // Skip newlines in class body
     } else {
       // Skip unknown tokens inside class
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseClass() - skipping token: " << current.value
                 << std::endl;
+#endif
       Advance();
     }
   }
@@ -662,7 +732,9 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   // Consume 'end' keyword
   if (Check(TokenType::T_END)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseClass() - consumed 'end'" << std::endl;
+#endif
   } else {
     ReportError("expected 'end' to close class");
     RecoverToNextStatement();
@@ -676,7 +748,9 @@ std::shared_ptr<QClass> Parser::ParseClass() {
 }
 
 std::shared_ptr<QMethod> Parser::ParseMethod() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMethod() - parsing method" << std::endl;
+#endif
 
   // Consume 'method' keyword
   Advance();
@@ -690,16 +764,20 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
     returnType = typeToken.type;
     returnTypeName = typeToken.value;
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMethod() - return type: " << returnTypeName
               << std::endl;
+#endif
   } else if (typeToken.type == TokenType::T_IDENTIFIER &&
              PeekNext().type == TokenType::T_IDENTIFIER) {
     // Return type is a class name (identifier)
     returnType = typeToken.type;
     returnTypeName = typeToken.value;
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMethod() - class return type: " << returnTypeName
               << std::endl;
+#endif
   }
 
   // Expect method name (identifier)
@@ -709,8 +787,10 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
   }
 
   Token nameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMethod() - method name: " << nameToken.value
             << std::endl;
+#endif
 
   auto method = std::make_shared<QMethod>(nameToken.value);
   method->SetReturnType(returnType, returnTypeName);
@@ -744,8 +824,10 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
           Advance(); // consume name
 
           method->AddParameter(paramType, paramName, paramTypeName);
+#if QLANG_DEBUG
           std::cout << "[DEBUG] ParseMethod() - parsed param: " << paramName
                     << " (type: " << paramTypeName << ")" << std::endl;
+#endif
         } else {
           ReportError("expected parameter name");
         }
@@ -762,8 +844,10 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
 
     if (Check(TokenType::T_RPAREN)) {
       Advance(); // consume ')'
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseMethod() - consumed parameters, count: "
                 << method->GetParameters().size() << std::endl;
+#endif
     }
   }
 
@@ -773,7 +857,9 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
   // Consume 'end' keyword for method
   if (Check(TokenType::T_END)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMethod() - consumed 'end'" << std::endl;
+#endif
   } else {
     ReportError("expected 'end' to close method");
   }
@@ -795,27 +881,35 @@ bool Parser::IsClassName(const std::string &name) const {
 }
 
 std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseInstanceDecl() - parsing instance declaration"
             << std::endl;
+#endif
 
   // Get class name
   Token classNameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseInstanceDecl() - class: " << classNameToken.value
             << std::endl;
+#endif
 
   // Check for generic type arguments <type1, type2, ...>
   std::vector<std::string> typeArgs;
   if (Check(TokenType::T_LESS)) {
     Advance(); // consume '<'
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseInstanceDecl() - parsing type arguments"
               << std::endl;
+#endif
 
     while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
       // Get the type name (could be identifier or type keyword)
       Token typeArg = Advance();
       typeArgs.push_back(typeArg.value);
+#if QLANG_DEBUG
       std::cout << "[DEBUG] ParseInstanceDecl() - type arg: " << typeArg.value
                 << std::endl;
+#endif
 
       // Check for comma or end
       if (Check(TokenType::T_COMMA)) {
@@ -836,8 +930,10 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
   }
 
   Token instanceNameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseInstanceDecl() - instance: "
             << instanceNameToken.value << std::endl;
+#endif
 
   auto instanceDecl = std::make_shared<QInstanceDecl>(classNameToken.value,
                                                       instanceNameToken.value);
@@ -895,20 +991,26 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
   // Consume semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseInstanceDecl() - consumed semicolon"
               << std::endl;
+#endif
   }
 
   return instanceDecl;
 }
 
 std::shared_ptr<QMethodCall> Parser::ParseMethodCall() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMethodCall() - parsing method call" << std::endl;
+#endif
 
   // Get first identifier (instance name)
   Token firstToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMethodCall() - first: " << firstToken.value
             << std::endl;
+#endif
 
   // Build the path by consuming .identifier patterns
   std::vector<std::string> pathParts;
@@ -924,8 +1026,10 @@ std::shared_ptr<QMethodCall> Parser::ParseMethodCall() {
 
     Token next = Advance();
     pathParts.push_back(next.value);
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMethodCall() - path part: " << next.value
               << std::endl;
+#endif
   }
 
   // Must have at least 2 parts: instance and method
@@ -946,8 +1050,10 @@ std::shared_ptr<QMethodCall> Parser::ParseMethodCall() {
     instancePath += pathParts[i];
   }
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMethodCall() - instance path: " << instancePath
             << ", method: " << methodName << std::endl;
+#endif
 
   auto methodCall = std::make_shared<QMethodCall>(instancePath, methodName);
 
@@ -960,20 +1066,26 @@ std::shared_ptr<QMethodCall> Parser::ParseMethodCall() {
   // Consume semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMethodCall() - consumed semicolon" << std::endl;
+#endif
   }
 
   return methodCall;
 }
 
 std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMemberAssign() - parsing member assignment"
             << std::endl;
+#endif
 
   // Get instance name
   Token instanceNameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMemberAssign() - instance: "
             << instanceNameToken.value << std::endl;
+#endif
 
   // Expect '.'
   if (!Check(TokenType::T_DOT)) {
@@ -992,8 +1104,10 @@ std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
   std::string memberPath;
   Token memberNameToken = Advance();
   memberPath = memberNameToken.value;
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMemberAssign() - member: " << memberNameToken.value
             << std::endl;
+#endif
 
   // Continue consuming .identifier patterns until we hit '='
   while (Check(TokenType::T_DOT)) {
@@ -1004,12 +1118,16 @@ std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
     }
     Token nextMember = Advance();
     memberPath += "." + nextMember.value;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMemberAssign() - chained member: "
               << nextMember.value << std::endl;
+#endif
   }
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMemberAssign() - full path: "
             << instanceNameToken.value << "." << memberPath << std::endl;
+#endif
 
   auto memberAssign =
       std::make_shared<QMemberAssign>(instanceNameToken.value, memberPath);
@@ -1025,28 +1143,36 @@ std::shared_ptr<QMemberAssign> Parser::ParseMemberAssign() {
   auto valueExpr = ParseExpression();
   memberAssign->SetValueExpression(valueExpr);
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMemberAssign() - parsed value expression"
             << std::endl;
+#endif
 
   // Consume semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseMemberAssign() - consumed semicolon"
               << std::endl;
+#endif
   }
 
   return memberAssign;
 }
 
 std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseClassTypeMember() - parsing class-type member"
             << std::endl;
+#endif
 
   // Get class type name (e.g., "other")
   Token classTypeToken = Advance();
   std::string classTypeName = classTypeToken.value;
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseClassTypeMember() - class type: " << classTypeName
             << std::endl;
+#endif
 
   // Parse generic type parameters if present: ClassName<T, U> Name
   std::vector<std::string> typeParams;
@@ -1076,8 +1202,10 @@ std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
 
   Token memberNameToken = Advance();
   std::string memberName = memberNameToken.value;
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseClassTypeMember() - member name: " << memberName
             << std::endl;
+#endif
 
   // Create variable declaration with T_IDENTIFIER type, but include the
   // classTypeName
@@ -1093,15 +1221,19 @@ std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
     auto initExpr = ParseExpression();
     member->SetInitializer(initExpr);
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseClassTypeMember() - parsed initializer"
               << std::endl;
+#endif
   }
 
   // Consume semicolon (Mandatory)
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseClassTypeMember() - consumed semicolon"
               << std::endl;
+#endif
   } else if (!Check(TokenType::T_EOF)) {
     ReportError("Expected end of line (or ';') after member declaration");
   }
@@ -1110,7 +1242,9 @@ std::shared_ptr<QVariableDecl> Parser::ParseClassTypeMember() {
 }
 
 std::shared_ptr<QReturn> Parser::ParseReturn() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseReturn() - parsing return statement" << std::endl;
+#endif
 
   // Consume 'return' keyword
   Advance();
@@ -1122,26 +1256,34 @@ std::shared_ptr<QReturn> Parser::ParseReturn() {
       !Check(TokenType::T_END)) {
     auto expr = ParseExpression();
     returnStmt->SetExpression(expr);
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseReturn() - parsed return expression"
               << std::endl;
+#endif
   }
 
   // Consume semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseReturn() - consumed semicolon" << std::endl;
+#endif
   }
 
   return returnStmt;
 }
 
 std::shared_ptr<QAssign> Parser::ParseAssign() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseAssign() - parsing assignment" << std::endl;
+#endif
 
   // Get variable name
   Token nameToken = Advance();
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseAssign() - variable: " << nameToken.value
             << std::endl;
+#endif
 
   // Expect '='
   if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
@@ -1159,14 +1301,18 @@ std::shared_ptr<QAssign> Parser::ParseAssign() {
   // Consume semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseAssign() - consumed semicolon" << std::endl;
+#endif
   }
 
   return assign;
 }
 
 std::shared_ptr<QIf> Parser::ParseIf() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseIf() - parsing if statement" << std::endl;
+#endif
   Advance(); // consume 'if'
 
   auto ifNode = std::make_shared<QIf>();
@@ -1185,7 +1331,9 @@ std::shared_ptr<QIf> Parser::ParseIf() {
 
   // Check for elseif or else
   while (Check(TokenType::T_ELSEIF)) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseIf() - parsing elseif" << std::endl;
+#endif
     Advance(); // consume 'elseif'
 
     auto elseIfCond = ParseExpression();
@@ -1196,7 +1344,9 @@ std::shared_ptr<QIf> Parser::ParseIf() {
   }
 
   if (Check(TokenType::T_ELSE)) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseIf() - parsing else" << std::endl;
+#endif
     Advance(); // consume 'else'
 
     auto elseBlock = std::make_shared<QCode>();
@@ -1209,7 +1359,9 @@ std::shared_ptr<QIf> Parser::ParseIf() {
 }
 
 std::shared_ptr<QFor> Parser::ParseFor() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseFor() - parsing for loop" << std::endl;
+#endif
 
   Advance(); // Consume 'for'
 
@@ -1229,8 +1381,10 @@ std::shared_ptr<QFor> Parser::ParseFor() {
     varType = current.type;
     hasType = true;
     Advance(); // Consume type
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseFor() - type declared: " << current.value
               << std::endl;
+#endif
   }
 
   // Expect variable name
@@ -1277,7 +1431,9 @@ std::shared_ptr<QFor> Parser::ParseFor() {
   forNode->SetRange(startExpr, endExpr, stepExpr);
 
   // Parse body
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseFor() - parsing body" << std::endl;
+#endif
   auto body = std::make_shared<QCode>();
   ParseCode(body);
   forNode->SetBody(body);
@@ -1285,7 +1441,9 @@ std::shared_ptr<QFor> Parser::ParseFor() {
   // Expect 'next'
   if (Check(TokenType::T_NEXT)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseFor() - consumed 'next'" << std::endl;
+#endif
   } else {
     std::cerr << "[ERROR] ParseFor() - expected 'next'" << std::endl;
   }
@@ -1294,7 +1452,9 @@ std::shared_ptr<QFor> Parser::ParseFor() {
 }
 
 std::shared_ptr<QWhile> Parser::ParseWhile() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseWhile() - parsing while loop" << std::endl;
+#endif
 
   Advance(); // Consume 'while'
 
@@ -1310,7 +1470,9 @@ std::shared_ptr<QWhile> Parser::ParseWhile() {
   whileNode->SetCondition(condition);
 
   // Parse body
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseWhile() - parsing body" << std::endl;
+#endif
   auto body = std::make_shared<QCode>();
   ParseCode(body);
   whileNode->SetBody(body);
@@ -1318,7 +1480,9 @@ std::shared_ptr<QWhile> Parser::ParseWhile() {
   // Expect 'wend'
   if (Check(TokenType::T_WEND)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseWhile() - consumed 'wend'" << std::endl;
+#endif
   } else {
     std::cerr << "[ERROR] ParseWhile() - expected 'wend'" << std::endl;
   }
@@ -1327,14 +1491,18 @@ std::shared_ptr<QWhile> Parser::ParseWhile() {
 }
 
 std::shared_ptr<QIncrement> Parser::ParseIncrement() {
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseIncrement() - parsing increment/decrement"
             << std::endl;
+#endif
 
   // Get variable name
   Token varToken = Advance();
   std::string varName = varToken.value;
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseIncrement() - variable: " << varName << std::endl;
+#endif
 
   // Get operator (++ or --)
   if (!Check(TokenType::T_OPERATOR)) {
@@ -1345,15 +1513,19 @@ std::shared_ptr<QIncrement> Parser::ParseIncrement() {
   Token opToken = Advance();
   bool isIncrement = (opToken.value == "++");
 
+#if QLANG_DEBUG
   std::cout << "[DEBUG] ParseIncrement() - operator: " << opToken.value
             << std::endl;
+#endif
 
   auto incrementNode = std::make_shared<QIncrement>(varName, isIncrement);
 
   // Consume optional semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
     Advance();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] ParseIncrement() - consumed semicolon" << std::endl;
+#endif
   }
 
   return incrementNode;

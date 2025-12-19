@@ -8,7 +8,11 @@
 // QReturn - represents a return statement (e.g., return 50;)
 class QReturn : public QNode {
 public:
-  QReturn() { std::cout << "[DEBUG] QReturn created" << std::endl; }
+  QReturn() {
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] QReturn created" << std::endl;
+#endif
+  }
 
   std::string GetName() const override { return "return"; }
 

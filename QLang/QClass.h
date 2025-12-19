@@ -12,7 +12,9 @@
 class QClass : public QActionNode {
 public:
   QClass(const std::string &name) : m_Name(name) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QClass created: " << name << std::endl;
+#endif
   }
 
   std::string GetName() const override { return m_Name; }

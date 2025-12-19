@@ -11,8 +11,10 @@ class QMemberAssign : public QNode {
 public:
   QMemberAssign(const std::string &instanceName, const std::string &memberName)
       : m_InstanceName(instanceName), m_MemberName(memberName) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QMemberAssign created: " << instanceName << "."
               << memberName << std::endl;
+#endif
   }
 
   std::string GetName() const override {

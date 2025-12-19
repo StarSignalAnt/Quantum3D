@@ -10,7 +10,9 @@
 class QStatement : public QNode {
 public:
   QStatement(const std::string &name) : m_Name(name) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QStatement created: " << name << std::endl;
+#endif
   }
 
   std::string GetName() const override { return m_Name; }

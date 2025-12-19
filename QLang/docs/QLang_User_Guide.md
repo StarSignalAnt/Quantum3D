@@ -723,7 +723,7 @@ this    to      true    void    wend    while
 
 ## Changelog
 
-### v0.2 (December 2024)
+### v0.2 (19.12.2025)
 
 **New Features:**
 - **Operator Overloading**: Classes can now define `Plus`, `Minus`, `Multiply`, and `Divide` methods to overload `+`, `-`, `*`, `/` operators.

@@ -13,7 +13,9 @@ public:
   QVariableDecl(TokenType varType, const std::string &name,
                 const std::string &typeName = "")
       : m_VarType(varType), m_Name(name), m_TypeName(typeName) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QVariableDecl created: " << name << std::endl;
+#endif
   }
 
   std::string GetName() const override { return m_Name; }

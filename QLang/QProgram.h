@@ -11,7 +11,9 @@
 class QProgram : public QActionNode {
 public:
   QProgram() {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QProgram created" << std::endl;
+#endif
     m_Code = std::make_shared<QCode>();
   }
 

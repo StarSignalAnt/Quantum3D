@@ -9,14 +9,18 @@
 // QParameters - holds a list of expressions (parameters)
 class QParameters : public QActionNode {
 public:
+#if QLANG_DEBUG
   QParameters() { std::cout << "[DEBUG] QParameters created" << std::endl; }
+#endif
 
   std::string GetName() const override { return "QParameters"; }
 
   void AddParameter(std::shared_ptr<QExpression> expr) {
     m_Parameters.push_back(expr);
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QParameters - added parameter #"
               << m_Parameters.size() << std::endl;
+#endif
   }
 
   const std::vector<std::shared_ptr<QExpression>> &GetParameters() const {

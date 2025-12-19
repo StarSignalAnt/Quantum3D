@@ -10,7 +10,9 @@
 // QIf - represents an if-elseif-else control structure
 class QIf : public QNode {
 public:
-  QIf() { std::cout << "[DEBUG] QIf created" << std::endl; }
+#if QLANG_DEBUG
+  std::cout << "[DEBUG] QIf created" << std::endl;
+#endif
 
   std::string GetName() const override { return "If"; }
 

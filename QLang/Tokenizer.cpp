@@ -169,9 +169,11 @@ void Tokenizer::PrintTokens() const {
       typeStr = "T_VOID";
       break;
     }
+#if QLANG_DEBUG
     std::cout << "Token(" << typeStr << ", '" << token.value
               << "', Line: " << token.line << ", Col: " << token.column << ")"
               << std::endl;
+#endif
   }
 }
 

@@ -22,13 +22,17 @@
 class QRunner {
 public:
   QRunner(std::shared_ptr<QContext> context) : m_Context(context) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner created" << std::endl;
+#endif
   }
 
   QRunner(std::shared_ptr<QContext> context,
           std::shared_ptr<QErrorCollector> errorCollector)
       : m_Context(context), m_ErrorCollector(errorCollector) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner created with error collector" << std::endl;
+#endif
   }
 
   // Error access
@@ -40,23 +44,33 @@ public:
   }
   const QCallStack &GetCallStack() const { return m_CallStack; }
 
-  ~QRunner() { std::cout << "[DEBUG] QRunner destroyed" << std::endl; }
+  ~QRunner() {
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] QRunner destroyed" << std::endl;
+#endif
+  }
 
   // Run a program
   void Run(std::shared_ptr<QProgram> program) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::Run() - starting execution" << std::endl;
+#endif
 
     // Register class definitions from the program
     for (const auto &cls : program->GetClasses()) {
       m_Classes[cls->GetName()] = cls;
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::Run() - registered class: "
                 << cls->GetName() << std::endl;
+#endif
     }
 
     auto code = program->GetCode();
     ExecuteCode(code);
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::Run() - execution complete" << std::endl;
+#endif
   }
 
   // ========== Introspection API ==========
@@ -120,8 +134,10 @@ public:
   std::shared_ptr<QClassInstance>
   CreateInstance(const std::string &className,
                  const std::vector<QValue> &constructorArgs = {}) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::CreateInstance() - creating: " << className
               << std::endl;
+#endif
 
     // Find the class definition
     auto classIt = m_Classes.find(className);
@@ -143,8 +159,10 @@ public:
     // Find and call constructor if exists (constructor has same name as class)
     auto constructor = FindMethodInClass(classDef, className, constructorArgs);
     if (constructor) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::CreateInstance() - calling constructor"
                 << std::endl;
+#endif
       ExecuteMethod(constructor, instance, constructorArgs);
     } else if (!constructorArgs.empty()) {
       ReportRuntimeError("no constructor found for class '" + className +
@@ -152,8 +170,10 @@ public:
                          std::to_string(constructorArgs.size()) + " arguments");
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::CreateInstance() - instance created"
               << std::endl;
+#endif
     return instance;
   }
 
@@ -167,8 +187,10 @@ public:
       return std::monostate{};
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::CallMethod() - calling " << methodName
               << " on " << instance->GetClassName() << std::endl;
+#endif
 
     auto classDef = instance->GetClassDef();
 
@@ -228,8 +250,10 @@ private:
     } else {
       // It's a base QStatement, which represents a function call in our parser
       std::string funcName = stmt->GetName();
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteStatement() - executing function: "
                 << funcName << std::endl;
+#endif
 
       // Build arguments from parameters
       std::vector<QValue> args;
@@ -244,8 +268,10 @@ private:
       // Check if this is a registered function
       if (m_Context->HasFunc(funcName)) {
         QValue result = m_Context->CallFunc(funcName, args);
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::ExecuteStatement() - function returned: "
                   << ValueToString(result) << std::endl;
+#endif
       } else if (m_Context->HasVariable("__this__")) {
         // Resolve method on this
         QValue thisVal = m_Context->GetVariable("__this__");
@@ -276,16 +302,20 @@ private:
 
   // Execute a QCode block
   void ExecuteCode(std::shared_ptr<QCode> code) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteCode() - executing code block"
               << std::endl;
+#endif
 
     const auto &nodes = code->GetNodes();
     for (const auto &node : nodes) {
       ExecuteNode(node);
       if (m_HasReturn) {
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::ExecuteCode() - return detected, "
                      "stopping execution"
                   << std::endl;
+#endif
         break;
       }
     }
@@ -370,8 +400,10 @@ private:
       return;
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteNode() - unknown node type: "
               << node->GetName() << std::endl;
+#endif
   }
 
   // Execute a variable declaration
@@ -379,8 +411,10 @@ private:
     std::string name = varDecl->GetName();
     TokenType varType = varDecl->GetVarType();
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteVariableDecl() - declaring: " << name
               << std::endl;
+#endif
 
     QValue value;
 
@@ -469,23 +503,29 @@ private:
       std::shared_ptr<QClass> classDef, const std::string &methodName,
       const std::vector<QValue> &args,
       const std::unordered_map<std::string, std::string> &typeMapping = {}) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] FindMethod() - looking for: " << methodName
               << " with " << args.size() << " args" << std::endl;
+#endif
 
     // Pass 1: Strict match
     auto match =
         FindMethodInternal(classDef, methodName, args, typeMapping, true);
     if (match) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] FindMethod() - found exact match: " << methodName
                 << std::endl;
+#endif
       return match;
     }
 
     // Pass 2: Fuzzy match (with implicit conversions)
     match = FindMethodInternal(classDef, methodName, args, typeMapping, false);
     if (match) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] FindMethod() - found fuzzy match: " << methodName
                 << std::endl;
+#endif
     }
     return match;
   }
@@ -510,11 +550,13 @@ private:
       for (size_t i = 0; i < params.size(); i++) {
         if (!CheckTypeMatch(args[i], params[i].type, params[i].typeName,
                             strict)) {
+#if QLANG_DEBUG
           std::cout << "[DEBUG] FindMethodInClassInternal() - param type "
                        "mismatch at index "
                     << i << ": expected " << params[i].typeName << " (type "
                     << static_cast<int>(params[i].type) << "), got "
                     << GetValueTypeName(args[i]) << std::endl;
+#endif
           typesMatch = false;
           break;
         }
@@ -638,8 +680,10 @@ private:
     std::string className = instanceDecl->GetClassName();
     std::string instanceName = instanceDecl->GetInstanceName();
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteInstanceDecl() - creating instance: "
               << className << " " << instanceName << std::endl;
+#endif
 
     // Look up the class definition
     auto classIt = m_Classes.find(className);
@@ -659,8 +703,10 @@ private:
 
       for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); i++) {
         typeMapping[typeParams[i]] = typeArgs[i];
+#if QLANG_DEBUG
         std::cout << "[DEBUG] ExecuteInstanceDecl() - type mapping: "
                   << typeParams[i] << " -> " << typeArgs[i] << std::endl;
+#endif
       }
     }
 
@@ -690,9 +736,11 @@ private:
     auto constructor =
         FindMethod(classDef, className, constructorArgs, typeMapping);
     if (constructor) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteInstanceDecl() - executing "
                    "constructor for: "
                 << className << std::endl;
+#endif
       ExecuteMethod(constructor, instance, constructorArgs);
     } else {
       // If args were provided but no constructor found, that's an issue (unless
@@ -703,17 +751,21 @@ private:
                   << className << " with provided arguments" << std::endl;
       } else {
         // Default constructor (no args) is optional if not defined
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::ExecuteInstanceDecl() - no default "
                      "constructor found (optional)"
                   << std::endl;
+#endif
       }
     }
 
     // Store the instance in the context
     m_Context->SetVariable(instanceName, instance);
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteInstanceDecl() - instance created: "
               << instanceName << std::endl;
+#endif
   }
 
   // Execute a method call on an instance (e.g., t1.TestMeth() or
@@ -722,8 +774,10 @@ private:
     std::string instancePath = methodCall->GetInstanceName();
     std::string methodName = methodCall->GetMethodName();
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMethodCall() - calling: "
               << instancePath << "." << methodName << "()" << std::endl;
+#endif
 
     // Split instance path by dots for chained access
     std::vector<std::string> pathParts;
@@ -759,8 +813,10 @@ private:
     // Traverse remaining path parts to get to final instance
     for (size_t i = 1; i < pathParts.size(); i++) {
       std::string nestedName = pathParts[i];
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteMethodCall() - traversing: "
                 << nestedName << std::endl;
+#endif
 
       if (currentInstance->HasNestedInstance(nestedName)) {
         currentInstance = currentInstance->GetNestedInstance(nestedName);
@@ -815,22 +871,28 @@ private:
       return;
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMethodCall() - found method: "
               << methodName << std::endl;
+#endif
     // Arguments already evaluated above
 
     // Execute the method with the instance context and arguments
     ExecuteMethod(targetMethod, currentInstance, argValues);
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMethodCall() - method call complete"
               << std::endl;
+#endif
   }
 
   // Execute a variable assignment
   void ExecuteAssign(std::shared_ptr<QAssign> assign) {
     std::string varName = assign->GetVariableName();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteAssign() - assigning variable: "
               << varName << std::endl;
+#endif
 
     QValue newValue;
     auto valExpr = assign->GetValueExpression();
@@ -852,8 +914,10 @@ private:
     std::string instanceName = memberAssign->GetInstanceName();
     std::string memberPath = memberAssign->GetMemberName();
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMemberAssign() - assigning: "
               << instanceName << "." << memberPath << std::endl;
+#endif
 
     // Split member path by dots for chained access (e.g., "ot.check" ->
     // ["ot", "check"])
@@ -921,9 +985,11 @@ private:
     currentInstance->SetMember(finalMemberName,
                                ConvertQValueToInstanceValue(newValue));
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMemberAssign() - set "
               << finalMemberName << " = " << ValueToString(newValue)
               << std::endl;
+#endif
 
     // SYNC FIX: If we modified the current context's 'this' instance,
     // we must also update the local variable shadow to prevent it from
@@ -935,9 +1001,11 @@ private:
         // We modified the current instance directly
         if (m_Context->HasLocalVariable(finalMemberName)) {
           m_Context->SetVariable(finalMemberName, newValue);
+#if QLANG_DEBUG
           std::cout << "[DEBUG] QRunner::ExecuteMemberAssign() - synced local "
                        "shadow: "
                     << finalMemberName << std::endl;
+#endif
         }
       }
     }
@@ -945,14 +1013,18 @@ private:
 
   // Execute an if statement
   void ExecuteIf(std::shared_ptr<QIf> ifStmt) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteIf() - executing if" << std::endl;
+#endif
 
     // Check main condition
     QValue condVal = EvaluateExpression(ifStmt->GetCondition());
     if (IsTrue(condVal)) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteIf() - condition true, executing "
                    "then block"
                 << std::endl;
+#endif
       ExecuteCode(ifStmt->GetThenBlock());
       return;
     }
@@ -961,8 +1033,10 @@ private:
     for (const auto &pair : ifStmt->GetElseIfBlocks()) {
       QValue elseifCond = EvaluateExpression(pair.first);
       if (IsTrue(elseifCond)) {
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::ExecuteIf() - elseif condition true"
                   << std::endl;
+#endif
         ExecuteCode(pair.second);
         return;
       }
@@ -970,21 +1044,27 @@ private:
 
     // Execute else block if exists
     if (ifStmt->HasElse()) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteIf() - executing else block"
                 << std::endl;
+#endif
       ExecuteCode(ifStmt->GetElseBlock());
     }
   }
 
   // Execute a return statement
   void ExecuteReturn(std::shared_ptr<QReturn> returnStmt) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteReturn() - executing return"
               << std::endl;
+#endif
 
     if (returnStmt->HasExpression()) {
       m_ReturnValue = EvaluateExpression(returnStmt->GetExpression());
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteReturn() - return value: "
                 << ValueToString(m_ReturnValue) << std::endl;
+#endif
     } else {
       m_ReturnValue = std::monostate{};
     }
@@ -1005,8 +1085,10 @@ private:
   void ExecuteMethod(std::shared_ptr<QMethod> method,
                      std::shared_ptr<QClassInstance> instance,
                      const std::vector<QValue> &args = {}) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMethod() - executing method: "
               << method->GetName() << std::endl;
+#endif
 
     // Create a child context for the method execution
     // This context will have access to instance members as local variables
@@ -1018,8 +1100,10 @@ private:
       // Convert QInstanceValue to QValue
       QValue qval = ConvertInstanceValueToQValue(memberValue);
       methodContext->SetVariable(memberName, qval);
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteMethod() - loaded member: "
                 << memberName << std::endl;
+#endif
     }
 
     // Also load nested class instances into the method context
@@ -1028,9 +1112,11 @@ private:
       auto nestedInstance = instance->GetNestedInstance(nestedName);
       if (nestedInstance) {
         methodContext->SetVariable(nestedName, nestedInstance);
+#if QLANG_DEBUG
         std::cout
             << "[DEBUG] QRunner::ExecuteMethod() - loaded nested instance: "
             << nestedName << std::endl;
+#endif
       }
     }
 
@@ -1039,8 +1125,10 @@ private:
     methodContext->SetVariable("__this__", instance);
     // Also set "this" so string lookups (like in ExecuteMemberAssign) work
     methodContext->SetVariable("this", instance);
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMethod() - set 'this' reference"
               << std::endl;
+#endif
 
     // Push to call stack
     m_CallStack.Push(method->GetName(), instance->GetClassName());
@@ -1050,9 +1138,11 @@ private:
     for (size_t i = 0; i < params.size() && i < args.size(); i++) {
       QValue coercedArg = CoerceToType(args[i], params[i].type);
       methodContext->SetVariable(params[i].name, coercedArg);
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteMethod() - bound param "
                 << params[i].name << " = " << ValueToString(coercedArg)
                 << " (from " << ValueToString(args[i]) << ")" << std::endl;
+#endif
     }
 
     // Save current context and switch to method context
@@ -1068,8 +1158,10 @@ private:
         QValue newValue = methodContext->GetVariable(memberName);
         QInstanceValue instVal = ConvertQValueToInstanceValue(newValue);
         instance->SetMember(memberName, instVal);
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::ExecuteMethod() - updated member: "
                   << memberName << std::endl;
+#endif
       }
     }
 
@@ -1079,8 +1171,10 @@ private:
     // Pop from call stack
     m_CallStack.Pop();
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMethod() - method complete: "
               << method->GetName() << std::endl;
+#endif
   }
 
   // Convert QInstanceValue to QValue
@@ -1131,18 +1225,22 @@ private:
       std::shared_ptr<QClassInstance> instance,
       std::shared_ptr<QClass> classDef,
       const std::unordered_map<std::string, std::string> &typeMapping = {}) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::InitializeInstanceMembers() - initializing "
                  "members for: "
               << classDef->GetName() << std::endl;
+#endif
 
     // First, initialize parent class members (inheritance)
     if (classDef->HasParent()) {
       std::string parentName = classDef->GetParentClassName();
       auto parentIt = m_Classes.find(parentName);
       if (parentIt != m_Classes.end()) {
+#if QLANG_DEBUG
         std::cout << "[DEBUG] InitializeInstanceMembers() - initializing "
                      "parent members from: "
                   << parentName << std::endl;
+#endif
         InitializeInstanceMembers(instance, parentIt->second, typeMapping);
 
         // Call parent's default constructor if it exists
@@ -1151,9 +1249,11 @@ private:
         auto parentConstructor =
             FindMethodInClass(parentClassDef, parentName, emptyArgs);
         if (parentConstructor) {
+#if QLANG_DEBUG
           std::cout << "[DEBUG] InitializeInstanceMembers() - calling parent "
                        "constructor: "
                     << parentName << std::endl;
+#endif
           ExecuteMethod(parentConstructor, instance, emptyArgs);
         } else {
           std::cout << "[DEBUG] InitializeInstanceMembers() - no parent "
@@ -1179,9 +1279,11 @@ private:
           // Resolve the generic type to concrete type
           std::string concreteType = it->second;
           TokenType resolvedType = TypeNameToTokenType(concreteType);
+#if QLANG_DEBUG
           std::cout
               << "[DEBUG] InitializeInstanceMembers() - resolved generic type "
               << typeName << " -> " << concreteType << std::endl;
+#endif
           memberType = resolvedType;
         }
       }
@@ -1202,9 +1304,11 @@ private:
             elements[1].type == TokenType::T_IDENTIFIER) {
           std::string nestedClassName = elements[1].value;
 
+#if QLANG_DEBUG
           std::cout << "[DEBUG] QRunner::InitializeInstanceMembers() - "
                        "creating nested instance: "
                     << nestedClassName << std::endl;
+#endif
 
           // Look up the nested class definition
           auto classIt = m_Classes.find(nestedClassName);
@@ -1227,9 +1331,11 @@ private:
           // Find and call constructor if exists
           for (const auto &method : nestedClassDef->GetMethods()) {
             if (method->GetName() == nestedClassName) {
+#if QLANG_DEBUG
               std::cout << "[DEBUG] InitializeInstanceMembers() - executing "
                            "nested constructor: "
                         << nestedClassName << std::endl;
+#endif
               ExecuteMethod(method, nestedInstance);
               break;
             }
@@ -1239,9 +1345,11 @@ private:
           // Note: We store as QValue (shared_ptr<QClassInstance>) directly
           value = nestedInstance;
 
+#if QLANG_DEBUG
           std::cout << "[DEBUG] InitializeInstanceMembers() - nested instance "
                        "created: "
                     << memberName << std::endl;
+#endif
         } else {
           // Unknown initializer pattern for class type
           std::cerr << "[ERROR] InitializeInstanceMembers() - unknown "
@@ -1268,9 +1376,11 @@ private:
         // Store as QValue directly - this is a nested instance reference
         // We'll need to extend instance storage to handle this case
         // For now, store the instance name reference
+#if QLANG_DEBUG
         std::cout << "[DEBUG] InitializeInstanceMembers() - storing nested "
                      "instance reference for: "
                   << memberName << std::endl;
+#endif
         // Note: QInstanceValue can't hold shared_ptr<QClassInstance>
         // We'll store it in a separate map in QClassInstance
         instance->SetNestedInstance(
@@ -1280,8 +1390,10 @@ private:
         QInstanceValue instVal = ConvertQValueToInstanceValue(value);
         instance->SetMember(memberName, instVal);
 
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::InitializeInstanceMembers() - set "
                   << memberName << " = " << ValueToString(value) << std::endl;
+#endif
       }
     }
   }
@@ -1462,9 +1574,11 @@ private:
           methodCall.line = elements[i].line;
           result.push_back(methodCall);
           i = k - 1; // Position after call
+#if QLANG_DEBUG
           std::cout << "[DEBUG] PreprocessMemberAccess() - "
                     << (hasNew ? "new " : "")
                     << "method call: " << methodCall.value << std::endl;
+#endif
         } else {
           // Member access
           Token memberAccess;
@@ -1474,9 +1588,11 @@ private:
           memberAccess.line = elements[i].line;
           result.push_back(memberAccess);
           i = j - 1; // Position at last consumed token
+#if QLANG_DEBUG
           std::cout << "[DEBUG] PreprocessMemberAccess() - "
                     << (hasNew ? "new " : "")
                     << "combined: " << memberAccess.value << std::endl;
+#endif
         }
       } else {
         if (hasNew) {
@@ -1539,8 +1655,10 @@ private:
             negativeToken.line = token.line;
             processedElements.push_back(negativeToken);
             i++; // Skip the number we just consumed
+#if QLANG_DEBUG
             std::cout << "[DEBUG] EvaluateExpression() - combined unary minus: "
                       << negativeToken.value << std::endl;
+#endif
             continue;
           } else if (next.type == TokenType::T_FLOAT) {
             Token negativeToken;
@@ -1565,8 +1683,10 @@ private:
       return TokenToValue(elements[0]);
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] EvaluateExpression() - using Shunting Yard RPN"
               << std::endl;
+#endif
 
     // Shunting Yard: convert infix to RPN
     std::vector<Token> outputQueue;
@@ -1620,11 +1740,13 @@ private:
     }
 
     // Debug: print RPN
+#if QLANG_DEBUG
     std::cout << "[DEBUG] RPN: ";
     for (const auto &t : outputQueue) {
       std::cout << t.value << " ";
     }
     std::cout << std::endl;
+#endif
 
     // Evaluate RPN
     std::vector<QValue> valueStack;
@@ -1646,9 +1768,11 @@ private:
         QValue result = ApplyOperator(left, token.value, right);
         valueStack.push_back(result);
 
+#if QLANG_DEBUG
         std::cout << "[DEBUG] RPN eval: " << ValueToString(left) << " "
                   << token.value << " " << ValueToString(right) << " = "
                   << ValueToString(result) << std::endl;
+#endif
       } else {
         // Operand - push value
         valueStack.push_back(TokenToValue(token));
@@ -1660,9 +1784,11 @@ private:
     }
 
     QValue result = valueStack.back();
+#if QLANG_DEBUG
     std::cout << "[DEBUG] EvaluateExpression() - result: "
               << ValueToString(result) << " (" << GetValueTypeName(result)
               << ")" << std::endl;
+#endif
 
     return result;
   }
@@ -1955,9 +2081,11 @@ private:
           std::string instancePath = pathAndMethod.substr(0, lastDotPos);
           std::string methodName = pathAndMethod.substr(lastDotPos + 1);
 
+#if QLANG_DEBUG
           std::cout << "[DEBUG] TokenToValue() - method call: " << instancePath
                     << "." << methodName << "() with " << argValues.size()
                     << " args" << std::endl;
+#endif
 
           // Split instance path by dots for chained access
           std::vector<std::string> pathParts;
@@ -2026,8 +2154,10 @@ private:
           if (m_HasReturn) {
             QValue returnVal = m_ReturnValue;
             m_HasReturn = false;
+#if QLANG_DEBUG
             std::cout << "[DEBUG] TokenToValue() - method returned: "
                       << ValueToString(returnVal) << std::endl;
+#endif
             return returnVal;
           }
 
@@ -2036,9 +2166,11 @@ private:
           // Standalone call (no dot) - e.g. "GetPosition()"
           std::string methodName = pathAndMethod;
 
+#if QLANG_DEBUG
           std::cout << "[DEBUG] TokenToValue() - standalone call: "
                     << methodName << "() with " << argValues.size() << " args"
                     << std::endl;
+#endif
 
           // 1. Check for global native function
           if (m_Context->HasFunc(methodName)) {
@@ -2064,9 +2196,11 @@ private:
                 if (m_HasReturn) {
                   QValue returnVal = m_ReturnValue;
                   m_HasReturn = false;
+#if QLANG_DEBUG
                   std::cout
                       << "[DEBUG] TokenToValue() - standalone method returned: "
                       << ValueToString(returnVal) << std::endl;
+#endif
                   return returnVal;
                 }
                 return std::monostate{}; // void method
@@ -2077,9 +2211,11 @@ private:
           // 3. Check if it's a constructor call (e.g. Vec3(1,2,3) without
           // 'new')
           if (m_Classes.find(methodName) != m_Classes.end()) {
+#if QLANG_DEBUG
             std::cout << "[DEBUG] TokenToValue() - resolved as implicit "
                          "constructor for class: "
                       << methodName << std::endl;
+#endif
             return CreateInstance(methodName, argValues);
           }
 
@@ -2125,8 +2261,10 @@ private:
         }
 
         std::string instanceName = parts[0];
+#if QLANG_DEBUG
         std::cout << "[DEBUG] TokenToValue() - chained access starting with: "
                   << instanceName << std::endl;
+#endif
 
         // Look up initial instance
         // Look up initial instance
@@ -2152,8 +2290,10 @@ private:
         // Traverse the chain (all but the last part)
         for (size_t i = 1; i < parts.size() - 1; i++) {
           std::string nestedName = parts[i];
+#if QLANG_DEBUG
           std::cout << "[DEBUG] TokenToValue() - traversing: " << nestedName
                     << std::endl;
+#endif
 
           if (currentInstance->HasNestedInstance(nestedName)) {
             currentInstance = currentInstance->GetNestedInstance(nestedName);
@@ -2222,8 +2362,10 @@ private:
 
   // Execute a for loop
   void ExecuteFor(std::shared_ptr<QFor> forStmt) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteFor() - executing for loop"
               << std::endl;
+#endif
 
     std::string varName = forStmt->GetVarName();
 
@@ -2243,17 +2385,21 @@ private:
     if (forStmt->HasDeclaredType()) {
       declaredType = forStmt->GetVarType();
       startVal = CoerceToType(startVal, declaredType);
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteFor() - coerced to declared type"
                 << std::endl;
+#endif
     }
 
     // Initialize loop variable
     m_Context->SetVariable(varName, startVal);
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteFor() - loop initialized: " << varName
               << " = " << ValueToString(startVal) << " to "
               << ValueToString(endVal) << " step " << ValueToString(stepVal)
               << std::endl;
+#endif
 
     // Loop
     while (true) {
@@ -2327,13 +2473,17 @@ private:
       m_Context->SetVariable(varName, newVal);
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteFor() - loop finished" << std::endl;
+#endif
   }
 
   // Execute a while loop
   void ExecuteWhile(std::shared_ptr<QWhile> whileStmt) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteWhile() - executing while loop"
               << std::endl;
+#endif
 
     int iterations = 0;
     const int maxIterations = 1000000; // Safety limit
@@ -2343,9 +2493,11 @@ private:
       QValue conditionVal = EvaluateExpression(whileStmt->GetCondition());
       bool conditionTrue = IsTrue(conditionVal);
 
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QRunner::ExecuteWhile() - condition: "
                 << ValueToString(conditionVal) << " = "
                 << (conditionTrue ? "true" : "false") << std::endl;
+#endif
 
       if (!conditionTrue) {
         break;
@@ -2362,14 +2514,18 @@ private:
       ExecuteCode(whileStmt->GetBody());
 
       if (m_HasReturn) {
+#if QLANG_DEBUG
         std::cout << "[DEBUG] QRunner::ExecuteWhile() - return detected"
                   << std::endl;
+#endif
         break;
       }
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteWhile() - loop finished after "
               << iterations << " iterations" << std::endl;
+#endif
   }
 
   // Execute an increment or decrement statement
@@ -2377,9 +2533,11 @@ private:
     std::string varName = incrementStmt->GetVarName();
     bool isIncrement = incrementStmt->IsIncrement();
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteIncrement() - "
               << (isIncrement ? "incrementing" : "decrementing") << " "
               << varName << std::endl;
+#endif
 
     // Get current value
     QValue currentVal = m_Context->GetVariable(varName);
@@ -2408,8 +2566,10 @@ private:
     // Store the updated value
     m_Context->SetVariable(varName, newVal);
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteIncrement() - " << varName << " = "
               << ValueToString(newVal) << std::endl;
+#endif
   }
 
   double GetDoubleValue(const QValue &val) {

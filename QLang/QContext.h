@@ -9,7 +9,6 @@
 #include <variant>
 #include <vector>
 
-
 // Forward declarations
 class QContext;
 class QClassInstance;
@@ -88,18 +87,24 @@ class QContext {
 public:
   // Create a root context (no parent)
   QContext(const std::string &name = "root") : m_Name(name), m_Parent(nullptr) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext created: " << name << std::endl;
+#endif
   }
 
   // Create a child context with a parent
   QContext(const std::string &name, std::shared_ptr<QContext> parent)
       : m_Name(name), m_Parent(parent) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext created: " << name
               << " (parent: " << parent->GetName() << ")" << std::endl;
+#endif
   }
 
   ~QContext() {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext destroyed: " << m_Name << std::endl;
+#endif
   }
 
   const std::string &GetName() const { return m_Name; }
@@ -107,30 +112,38 @@ public:
   // Set a variable in this context
   void SetVariable(const std::string &name, const QValue &value) {
     m_Variables[name] = value;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext(" << m_Name << ") - set variable: " << name
               << " = " << ValueToString(value) << " ("
               << GetValueTypeName(value) << ")" << std::endl;
+#endif
   }
 
   // Get a variable - searches this context first, then parent contexts
   QValue GetVariable(const std::string &name) const {
     auto it = m_Variables.find(name);
     if (it != m_Variables.end()) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QContext(" << m_Name
                 << ") - found variable: " << name << " = "
                 << ValueToString(it->second) << std::endl;
+#endif
       return it->second;
     }
 
     // Search parent context
     if (m_Parent) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QContext(" << m_Name << ") - variable '" << name
                 << "' not found, searching parent..." << std::endl;
+#endif
       return m_Parent->GetVariable(name);
     }
 
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext(" << m_Name << ") - variable '" << name
               << "' not found!" << std::endl;
+#endif
     return std::monostate{}; // Return null if not found
   }
 
@@ -153,8 +166,10 @@ public:
   // Add a native C++ function to the context
   void AddFunc(const std::string &name, QNativeFunc func) {
     m_Functions[name] = func;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext(" << m_Name << ") - added function: " << name
               << std::endl;
+#endif
   }
 
   // Check if a function exists
@@ -168,22 +183,28 @@ public:
 
   // Call a native function by name
   QValue CallFunc(const std::string &name, const std::vector<QValue> &args) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext(" << m_Name
               << ") - calling function: " << name << " with " << args.size()
               << " args" << std::endl;
+#endif
 
     // Search in this context
     auto it = m_Functions.find(name);
     if (it != m_Functions.end()) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QContext(" << m_Name
                 << ") - found function: " << name << std::endl;
+#endif
       return it->second(this, args);
     }
 
     // Search parent context
     if (m_Parent) {
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QContext(" << m_Name << ") - function '" << name
                 << "' not found, searching parent..." << std::endl;
+#endif
       return m_Parent->CallFunc(name, args);
     }
 
@@ -194,8 +215,10 @@ public:
 
   // Create a child context (for method calls, blocks, etc.)
   std::shared_ptr<QContext> CreateChildContext(const std::string &name) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QContext(" << m_Name
               << ") - creating child context: " << name << std::endl;
+#endif
     // Note: We need to use shared_from_this pattern properly
     // For now, we'll create a new context with this as parent
     return std::make_shared<QContext>(

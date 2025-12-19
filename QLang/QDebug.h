@@ -8,12 +8,3 @@ namespace QDebug {
 static bool Enabled = false;
 }
 
-// Debug print macro - only outputs when debug is enabled
-#define QDEBUG(msg)                                                            \
-  if (QDebug::Enabled) {                                                       \
-    std::cout << msg;                                                          \
-  }
-#define QDEBUG_LINE(msg)                                                       \
-  if (QDebug::Enabled) {                                                       \
-    std::cout << msg << std::endl;                                             \
-  }

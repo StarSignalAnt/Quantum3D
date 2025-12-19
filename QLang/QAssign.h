@@ -10,7 +10,9 @@
 class QAssign : public QNode {
 public:
   QAssign(const std::string &variableName) : m_VariableName(variableName) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QAssign created: " << variableName << std::endl;
+#endif
   }
 
   std::string GetName() const override { return "Assign"; }

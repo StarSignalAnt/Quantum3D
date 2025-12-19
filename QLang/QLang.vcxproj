@@ -141,6 +141,7 @@
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="QDebug.h" />
     <ClInclude Include="Tokenizer.h" />
     <ClInclude Include="QActionNode.h" />
     <ClInclude Include="QNode.h" />

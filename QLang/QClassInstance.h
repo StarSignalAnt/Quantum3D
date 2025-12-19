@@ -17,8 +17,10 @@ class QClassInstance {
 public:
   QClassInstance(std::shared_ptr<QClass> classDef)
       : m_ClassDef(classDef), m_ClassName(classDef->GetName()) {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QClassInstance created for class: " << m_ClassName
               << std::endl;
+#endif
     InitializeMembers();
   }
 
@@ -31,8 +33,10 @@ public:
   // Set a member variable value
   void SetMember(const std::string &name, const QInstanceValue &value) {
     m_Members[name] = value;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QClassInstance(" << m_ClassName
               << ") - set member: " << name << std::endl;
+#endif
   }
 
   // Get a member variable value
@@ -61,8 +65,10 @@ public:
   void SetNestedInstance(const std::string &name,
                          std::shared_ptr<QClassInstance> instance) {
     m_NestedInstances[name] = instance;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QClassInstance(" << m_ClassName
               << ") - set nested instance: " << name << std::endl;
+#endif
   }
 
   // Get a nested class instance member
@@ -119,8 +125,10 @@ public:
   void
   SetTypeMapping(const std::unordered_map<std::string, std::string> &mapping) {
     m_TypeMapping = mapping;
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QClassInstance(" << m_ClassName
               << ") - set type mapping" << std::endl;
+#endif
   }
 
   const std::unordered_map<std::string, std::string> &GetTypeMapping() const {
@@ -140,8 +148,10 @@ private:
 
   // Initialize member variables with default values from class definition
   void InitializeMembers() {
+#if QLANG_DEBUG
     std::cout << "[DEBUG] QClassInstance - initializing members for "
               << m_ClassName << std::endl;
+#endif
 
     for (const auto &member : m_ClassDef->GetMembers()) {
       std::string memberName = member->GetName();
@@ -177,8 +187,10 @@ private:
       }
 
       m_Members[memberName] = defaultVal;
+#if QLANG_DEBUG
       std::cout << "[DEBUG] QClassInstance - initialized member: " << memberName
                 << std::endl;
+#endif
     }
   }
 };
