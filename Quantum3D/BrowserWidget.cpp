@@ -3,6 +3,7 @@
 
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
+#include <QtWidgets/QApplication>
 #include <QtWidgets/QFileIconProvider>
 #include <QtWidgets/QVBoxLayout>
 #include <algorithm>
@@ -139,6 +140,56 @@ void BrowserListWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(viewport());
     drawHoveredOverlay(&painter);
   }
+}
+
+void BrowserListWidget::mousePressEvent(QMouseEvent *event) {
+  if (event->button() == Qt::LeftButton) {
+    m_DragStartPosition = event->pos();
+  }
+  QListWidget::mousePressEvent(event);
+}
+
+void BrowserListWidget::mouseMoveEvent(QMouseEvent *event) {
+  if (!(event->buttons() & Qt::LeftButton)) {
+    QListWidget::mouseMoveEvent(event);
+    return;
+  }
+
+  // Check if we've moved far enough to start a drag
+  if ((event->pos() - m_DragStartPosition).manhattanLength() <
+      QApplication::startDragDistance()) {
+    QListWidget::mouseMoveEvent(event);
+    return;
+  }
+
+  // Get the item at the drag start position
+  QListWidgetItem *dragItem = itemAt(m_DragStartPosition);
+  if (dragItem) {
+    startDrag(dragItem);
+  }
+}
+
+void BrowserListWidget::startDrag(QListWidgetItem *item) {
+  QString filePath = item->data(Qt::UserRole).toString();
+
+  // Only allow dragging .q files
+  if (!filePath.endsWith(".q", Qt::CaseInsensitive)) {
+    return;
+  }
+
+  QMimeData *mimeData = new QMimeData();
+  mimeData->setData("application/x-qlang-script", filePath.toUtf8());
+  mimeData->setText(filePath);
+
+  QDrag *drag = new QDrag(this);
+  drag->setMimeData(mimeData);
+
+  // Set a visual representation for the drag
+  QPixmap pixmap = item->icon().pixmap(48, 48);
+  drag->setPixmap(pixmap);
+  drag->setHotSpot(QPoint(pixmap.width() / 2, pixmap.height() / 2));
+
+  drag->exec(Qt::CopyAction);
 }
 
 void BrowserListWidget::drawHoveredOverlay(QPainter *painter) {

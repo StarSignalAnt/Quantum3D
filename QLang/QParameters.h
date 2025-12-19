@@ -1,13 +1,13 @@
 #pragma once
 
-#include "QAction.h"
+#include "QActionNode.h"
 #include "QExpression.h"
 #include <iostream>
 #include <memory>
 #include <vector>
 
 // QParameters - holds a list of expressions (parameters)
-class QParameters : public QAction {
+class QParameters : public QActionNode {
 public:
   QParameters() { std::cout << "[DEBUG] QParameters created" << std::endl; }
 

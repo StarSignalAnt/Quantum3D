@@ -1,6 +1,6 @@
 #pragma once
 
-#include "QAction.h"
+#include "QActionNode.h"
 #include "QClass.h"
 #include "QCode.h"
 #include <iostream>
@@ -8,7 +8,7 @@
 #include <vector>
 
 // QProgram - top level action node
-class QProgram : public QAction {
+class QProgram : public QActionNode {
 public:
   QProgram() {
     std::cout << "[DEBUG] QProgram created" << std::endl;

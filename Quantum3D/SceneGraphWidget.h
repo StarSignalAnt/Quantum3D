@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QtGui/QPainter>
@@ -50,6 +52,9 @@ protected:
   void resizeEvent(QResizeEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void wheelEvent(QWheelEvent *event) override;
+  void dragEnterEvent(QDragEnterEvent *event) override;
+  void dragMoveEvent(QDragMoveEvent *event) override;
+  void dropEvent(QDropEvent *event) override;
 
 private:
   // Rebuild the flat list from the scene graph

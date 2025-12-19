@@ -1,7 +1,9 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "GraphNode.h"
 #include "Mesh3D.h"
+#include "QLangDomain.h"
 #include <algorithm>
+#include <cmath>
 
 namespace Quantum {
 
@@ -68,6 +70,35 @@ void GraphNode::SetLocalRotationAxisAngle(const glm::vec3 &axis,
   m_LocalRotation =
       glm::rotate(glm::mat4(1.0f), angleRadians, glm::normalize(axis));
   InvalidateTransform();
+}
+
+glm::vec3 GraphNode::GetRotationEuler() const {
+  // Extract Euler angles from rotation matrix (in degrees)
+  // Using YXZ order (yaw, pitch, roll)
+  glm::vec3 euler;
+
+  // Extract from rotation matrix
+  float sy = -m_LocalRotation[2][0];
+
+  if (std::abs(sy) < 0.99999f) {
+    euler.x = std::atan2(m_LocalRotation[2][1], m_LocalRotation[2][2]); // pitch
+    euler.y = std::asin(sy);                                            // yaw
+    euler.z = std::atan2(m_LocalRotation[1][0], m_LocalRotation[0][0]); // roll
+  } else {
+    // Gimbal lock
+    euler.x = std::atan2(-m_LocalRotation[1][2], m_LocalRotation[1][1]);
+    euler.y = sy > 0 ? glm::half_pi<float>() : -glm::half_pi<float>();
+    euler.z = 0.0f;
+  }
+
+  // Convert to degrees
+  return glm::degrees(euler);
+}
+
+void GraphNode::SetRotationEuler(const glm::vec3 &eulerDegrees) {
+  // Convert degrees to radians
+  glm::vec3 rad = glm::radians(eulerDegrees);
+  SetLocalRotationEuler(rad.x, rad.y, rad.z);
 }
 
 void GraphNode::LookAt(const glm::vec3 &eye, const glm::vec3 &target,
@@ -262,4 +293,59 @@ void GraphNode::RemoveMesh(Mesh3D *mesh) {
 
 void GraphNode::ClearMeshes() { m_Meshes.clear(); }
 
+
+void GraphNode::Turn(glm::vec3 rot) {
+
+    float yaw = glm::radians(rot.y);
+    float pitch = glm::radians(rot.x);
+    float roll = glm::radians(rot.z);
+
+    glm::mat4 rotY =
+        glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 rotX =
+        glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::mat4 rotZ =
+        glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
+    
+    glm::mat4 rotm = rotY * rotX * rotZ;
+
+    m_LocalRotation = m_LocalRotation * rotm;
+    
+    m_WorldMatrixDirty = true;
+
+}
+
+void GraphNode::AddScript(std::shared_ptr<QClassInstance> cls) {
+
+  m_QClasses.push_back(cls);
+}
+
+
+
+void GraphNode::OnPlay() {
+
+  for (auto cls : m_QClasses) {
+
+    // QValue result = runner.CallMethod(node1, "Update", updateArgs);
+    QLangDomain::m_QLang->RunMethod(cls, "OnPlay");
+  }
+  int b = 5;
+}
+
+void GraphNode::OnStop() {}
+
+void GraphNode::OnUpdate()
+
+{
+
+    for (auto cls : m_QClasses) {
+
+        // QValue result = runner.CallMethod(node1, "Update", updateArgs);
+        QLangDomain::m_QLang->RunMethod(cls, "OnUpdate");
+    }
+
+}
+
 } // namespace Quantum
+
+// GraphNode::Add

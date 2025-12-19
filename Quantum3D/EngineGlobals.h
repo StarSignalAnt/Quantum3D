@@ -1,6 +1,7 @@
 // EngineGlobals.h
 #pragma once
 #include <memory>
+#include "QLangDomain.h"
 
 // Forward declarations
 namespace Quantum {
@@ -28,6 +29,8 @@ public:
   // === Selection State ===
   static std::weak_ptr<Quantum::GraphNode> SelectedNode;
 
+  static std::shared_ptr<QLangDomain> m_QDomain;
+
   // === UI Components ===
   static ViewportWidget *Viewport;
   static SceneGraphWidget *SceneGraphPanel;
@@ -49,4 +52,10 @@ public:
 
   static void SetGizmoMode(GizmoType type);
   static GizmoType GetGizmoMode();
+
+  static void OnPlay();
+  static void OnStop();
+  static void OnUpdate();
+
+  static bool m_Playing;
 };

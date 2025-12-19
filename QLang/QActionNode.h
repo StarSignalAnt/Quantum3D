@@ -8,9 +8,9 @@
 class QErrorCollector;
 
 // Base class for all action nodes
-class QAction {
+class QActionNode {
 public:
-  virtual ~QAction() = default;
+  virtual ~QActionNode() = default;
   virtual std::string GetName() const = 0;
   virtual void Print(int indent = 0) const = 0;
 

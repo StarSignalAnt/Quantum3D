@@ -141,6 +141,9 @@
     <ClInclude Include="IWindow.h">
       <Filter>Rendering</Filter>
     </ClInclude>
+    <ClInclude Include="GizmoBase.h" />
+    <ClInclude Include="TranslateGizmo.h" />
+    <ClInclude Include="QLangDomain.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core Sources -->
@@ -257,6 +260,10 @@
     <ClCompile Include="IWindow.cpp">
       <Filter>Rendering</Filter>
     </ClCompile>
+    <ClCompile Include="TranslateGizmo.cpp" />
+    <ClCompile Include="RotateGizmo.cpp" />
+    <ClCompile Include="GizmoBase.cpp" />
+    <ClCompile Include="QLangDomain.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

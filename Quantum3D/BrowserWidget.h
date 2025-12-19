@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QtCore/QMimeData>
+#include <QtGui/QDrag>
 #include <QtGui/QIcon>
 #include <QtGui/QPixmap>
 #include <QtWidgets/QListWidget>
@@ -35,10 +37,15 @@ public:
 
 protected:
   void paintEvent(QPaintEvent *event) override;
+  void mousePressEvent(QMouseEvent *event) override;
+  void mouseMoveEvent(QMouseEvent *event) override;
 
 private:
   void drawHoveredOverlay(QPainter *painter);
+  void startDrag(QListWidgetItem *item);
+
   int m_HoveredIndex = -1;
+  QPoint m_DragStartPosition;
 };
 
 // Simple thumbnail cache with memory limit

@@ -8,6 +8,11 @@
 #include "ViewportWidget.h"
 #include "stdafx.h"
 #include <QTimer>
+#include "QLangDomain.h"
+#include <iostream>
+#include <memory>
+#include <variant>
+#include <vector>
 
 Quantum3D::Quantum3D(QWidget *parent) : QMainWindow(parent) {
   setupMenu();
@@ -68,6 +73,8 @@ void Quantum3D::setupDockWidgets() {
   // Set the scene graph on the SceneGraphWidget (will be populated after scene
   // init) Use a timer to defer this until after the viewport has initialized
   // its scene
+  
+  EngineGlobals::m_QDomain = std::make_shared<QLangDomain>();
 
   // Set initial dock sizes (280 pixels) - resizable by user
   resizeDocks({m_sceneGraphDock}, {280}, Qt::Horizontal);

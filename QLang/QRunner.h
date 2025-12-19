@@ -146,6 +146,10 @@ public:
       std::cout << "[DEBUG] QRunner::CreateInstance() - calling constructor"
                 << std::endl;
       ExecuteMethod(constructor, instance, constructorArgs);
+    } else if (!constructorArgs.empty()) {
+      ReportRuntimeError("no constructor found for class '" + className +
+                         "' matching " +
+                         std::to_string(constructorArgs.size()) + " arguments");
     }
 
     std::cout << "[DEBUG] QRunner::CreateInstance() - instance created"
@@ -242,6 +246,27 @@ private:
         QValue result = m_Context->CallFunc(funcName, args);
         std::cout << "[DEBUG] QRunner::ExecuteStatement() - function returned: "
                   << ValueToString(result) << std::endl;
+      } else if (m_Context->HasVariable("__this__")) {
+        // Resolve method on this
+        QValue thisVal = m_Context->GetVariable("__this__");
+        if (std::holds_alternative<std::shared_ptr<QClassInstance>>(thisVal)) {
+          auto currentInstance =
+              std::get<std::shared_ptr<QClassInstance>>(thisVal);
+          auto classDef = currentInstance->GetClassDef();
+          auto targetMethod = FindMethod(classDef, funcName, args);
+
+          if (targetMethod) {
+            ExecuteMethod(targetMethod, currentInstance, args);
+            // Standalone calls ignore return value but we should clear it
+            if (m_HasReturn) {
+              m_HasReturn = false;
+            }
+          } else {
+            ReportRuntimeError("unknown function or method: " + funcName);
+          }
+        } else {
+          ReportRuntimeError("unknown function or statement: " + funcName);
+        }
       } else {
         // Since we don't track statement line/col easily yet, pass 0
         ReportRuntimeError("unknown function or statement: " + funcName);
@@ -374,16 +399,12 @@ private:
     m_Context->SetVariable(name, value);
   }
 
-  // Find the best matching method for a given name and arguments
-  std::shared_ptr<QMethod> FindMethod(
+  // Internal helper for FindMethod with strict control
+  std::shared_ptr<QMethod> FindMethodInternal(
       std::shared_ptr<QClass> classDef, const std::string &methodName,
       const std::vector<QValue> &args,
-      const std::unordered_map<std::string, std::string> &typeMapping = {}) {
-    std::cout << "[DEBUG] FindMethod() - looking for: " << methodName
-              << " with " << args.size() << " args" << std::endl;
-
-    std::shared_ptr<QMethod> bestMatch = nullptr;
-
+      const std::unordered_map<std::string, std::string> &typeMapping = {},
+      bool strict = false) {
     for (const auto &method : classDef->GetMethods()) {
       if (method->GetName() != methodName) {
         continue;
@@ -407,11 +428,6 @@ private:
         if (paramType == TokenType::T_IDENTIFIER && !typeMapping.empty()) {
           auto it = typeMapping.find(paramTypeName);
           if (it != typeMapping.end()) {
-            // Generic type parameter - accept any class instance for now
-            // Future: could check if arg matches the mapped type
-            std::cout << "[DEBUG] FindMethod() - param " << params[i].name
-                      << " is generic type " << paramTypeName << " -> "
-                      << it->second << std::endl;
             // For generic types, accept class instances
             if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(
                     argValue)) {
@@ -423,7 +439,7 @@ private:
         }
 
         // Non-generic type check
-        if (!CheckTypeMatch(argValue, paramType)) {
+        if (!CheckTypeMatch(argValue, paramType, paramTypeName, strict)) {
           typesMatch = false;
           break;
         }
@@ -439,23 +455,46 @@ private:
       std::string parentName = classDef->GetParentClassName();
       auto parentIt = m_Classes.find(parentName);
       if (parentIt != m_Classes.end()) {
-        std::cout << "[DEBUG] FindMethod() - searching parent class: "
-                  << parentName << std::endl;
-        return FindMethod(parentIt->second, methodName, args, typeMapping);
-      } else {
-        std::cerr << "[ERROR] FindMethod() - parent class not found: "
-                  << parentName << std::endl;
+        return FindMethodInternal(parentIt->second, methodName, args,
+                                  typeMapping, strict);
       }
     }
 
     return nullptr;
   }
 
-  // Find a method only in the specified class (no inheritance traversal)
-  // Used for calling parent constructors specifically
-  std::shared_ptr<QMethod> FindMethodInClass(std::shared_ptr<QClass> classDef,
-                                             const std::string &methodName,
-                                             const std::vector<QValue> &args) {
+  // Find the best matching method for a given name and arguments
+  // Uses a two-pass approach: exact matches first, then fuzzy matches
+  std::shared_ptr<QMethod> FindMethod(
+      std::shared_ptr<QClass> classDef, const std::string &methodName,
+      const std::vector<QValue> &args,
+      const std::unordered_map<std::string, std::string> &typeMapping = {}) {
+    std::cout << "[DEBUG] FindMethod() - looking for: " << methodName
+              << " with " << args.size() << " args" << std::endl;
+
+    // Pass 1: Strict match
+    auto match =
+        FindMethodInternal(classDef, methodName, args, typeMapping, true);
+    if (match) {
+      std::cout << "[DEBUG] FindMethod() - found exact match: " << methodName
+                << std::endl;
+      return match;
+    }
+
+    // Pass 2: Fuzzy match (with implicit conversions)
+    match = FindMethodInternal(classDef, methodName, args, typeMapping, false);
+    if (match) {
+      std::cout << "[DEBUG] FindMethod() - found fuzzy match: " << methodName
+                << std::endl;
+    }
+    return match;
+  }
+
+  // Internal helper for FindMethodInClass with strict control
+  std::shared_ptr<QMethod>
+  FindMethodInClassInternal(std::shared_ptr<QClass> classDef,
+                            const std::string &methodName,
+                            const std::vector<QValue> &args, bool strict) {
     for (const auto &method : classDef->GetMethods()) {
       if (method->GetName() != methodName) {
         continue;
@@ -469,7 +508,13 @@ private:
       // Check parameter types
       bool typesMatch = true;
       for (size_t i = 0; i < params.size(); i++) {
-        if (!CheckTypeMatch(args[i], params[i].type)) {
+        if (!CheckTypeMatch(args[i], params[i].type, params[i].typeName,
+                            strict)) {
+          std::cout << "[DEBUG] FindMethodInClassInternal() - param type "
+                       "mismatch at index "
+                    << i << ": expected " << params[i].typeName << " (type "
+                    << static_cast<int>(params[i].type) << "), got "
+                    << GetValueTypeName(args[i]) << std::endl;
           typesMatch = false;
           break;
         }
@@ -482,27 +527,108 @@ private:
     return nullptr;
   }
 
+  // Find a method only in the specified class (no inheritance traversal)
+  // Used for calling parent constructors specifically
+  // Uses two-pass approach: exact matches first, then fuzzy matches
+  std::shared_ptr<QMethod> FindMethodInClass(std::shared_ptr<QClass> classDef,
+                                             const std::string &methodName,
+                                             const std::vector<QValue> &args) {
+    // Pass 1: Strict match
+    auto match = FindMethodInClassInternal(classDef, methodName, args, true);
+    if (match)
+      return match;
+
+    // Pass 2: Fuzzy match
+    return FindMethodInClassInternal(classDef, methodName, args, false);
+  }
+
   // Check if a runtime value matches a target type
-  bool CheckTypeMatch(const QValue &value, TokenType type) {
+  bool CheckTypeMatch(const QValue &value, TokenType type,
+                      const std::string &paramTypeName = "",
+                      bool strict = false) {
+    if (strict) {
+      switch (type) {
+      case TokenType::T_INT32:
+        return std::holds_alternative<int32_t>(value);
+      case TokenType::T_INT64:
+        return std::holds_alternative<int64_t>(value);
+      case TokenType::T_SHORT:
+        return std::holds_alternative<int32_t>(value);
+      case TokenType::T_FLOAT32:
+        return std::holds_alternative<float>(value);
+      case TokenType::T_FLOAT64:
+        return std::holds_alternative<double>(value);
+      case TokenType::T_STRING_TYPE:
+        return std::holds_alternative<std::string>(value);
+      case TokenType::T_BOOL:
+        return std::holds_alternative<bool>(value);
+      case TokenType::T_CPTR:
+        return std::holds_alternative<void *>(value);
+      case TokenType::T_IDENTIFIER: {
+        if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(value)) {
+          return false;
+        }
+        if (paramTypeName.empty() || paramTypeName == "void") {
+          return true;
+        }
+        auto instance = std::get<std::shared_ptr<QClassInstance>>(value);
+        return instance->GetClassName() == paramTypeName;
+      }
+      default:
+        return true;
+      }
+    }
+
+    // Relaxed (fuzzy) matching
     switch (type) {
     case TokenType::T_INT32:
     case TokenType::T_INT64:
     case TokenType::T_SHORT:
       return std::holds_alternative<int32_t>(value) ||
-             std::holds_alternative<int64_t>(value);
+             std::holds_alternative<int64_t>(value) ||
+             std::holds_alternative<float>(value) ||
+             std::holds_alternative<double>(value);
     case TokenType::T_FLOAT32:
     case TokenType::T_FLOAT64:
       return std::holds_alternative<float>(value) ||
              std::holds_alternative<double>(value) ||
-             std::holds_alternative<int32_t>(
-                 value) || // Allow implicit int->float
+             std::holds_alternative<int32_t>(value) ||
              std::holds_alternative<int64_t>(value);
     case TokenType::T_STRING_TYPE:
-      return std::holds_alternative<std::string>(value);
+      return true; // Everything can be converted to string potentially
     case TokenType::T_BOOL:
-      return std::holds_alternative<bool>(value);
+      return true; // Everything has truthiness
+    case TokenType::T_CPTR:
+      return std::holds_alternative<void *>(value) ||
+             std::holds_alternative<std::monostate>(value);
+    case TokenType::T_IDENTIFIER: {
+      // For class instances, check if types match or inherit
+      if (!std::holds_alternative<std::shared_ptr<QClassInstance>>(value)) {
+        return false;
+      }
+      if (paramTypeName.empty() || paramTypeName == "void") {
+        return true;
+      }
+
+      auto instance = std::get<std::shared_ptr<QClassInstance>>(value);
+      auto instanceClass = instance->GetClassDef();
+
+      // Check for exact match or inheritance
+      auto current = instanceClass;
+      while (current) {
+        if (current->GetName() == paramTypeName) {
+          return true;
+        }
+        if (!current->HasParent())
+          break;
+        auto parentIt = m_Classes.find(current->GetParentClassName());
+        if (parentIt == m_Classes.end())
+          break;
+        current = parentIt->second;
+      }
+      return false;
+    }
     default:
-      // For now, be lenient with other types or void
       return true;
     }
   }
@@ -919,13 +1045,14 @@ private:
     // Push to call stack
     m_CallStack.Push(method->GetName(), instance->GetClassName());
 
-    // Bind arguments to parameters
+    // Bind arguments to parameters (with coercion)
     const auto &params = method->GetParameters();
     for (size_t i = 0; i < params.size() && i < args.size(); i++) {
-      methodContext->SetVariable(params[i].name, args[i]);
+      QValue coercedArg = CoerceToType(args[i], params[i].type);
+      methodContext->SetVariable(params[i].name, coercedArg);
       std::cout << "[DEBUG] QRunner::ExecuteMethod() - bound param "
-                << params[i].name << " = " << ValueToString(args[i])
-                << std::endl;
+                << params[i].name << " = " << ValueToString(coercedArg)
+                << " (from " << ValueToString(args[i]) << ")" << std::endl;
     }
 
     // Save current context and switch to method context
@@ -1268,23 +1395,42 @@ private:
     std::vector<Token> result;
 
     for (size_t i = 0; i < elements.size(); i++) {
+      // Check for 'new' keyword - skip it and combine the following
+      // call/identifier
+      bool hasNew = false;
+      if (elements[i].type == TokenType::T_NEW) {
+        hasNew = true;
+        i++;
+        if (i >= elements.size()) {
+          result.push_back(
+              elements[i - 1]); // Should be an error but avoid crash
+          break;
+        }
+      }
+
       // Check if this starts a potential chain (identifier or 'this' followed
-      // by dot)
+      // by dot OR identifier followed by '(' for standalone call)
       if ((elements[i].type == TokenType::T_IDENTIFIER ||
            elements[i].type == TokenType::T_THIS) &&
-          i + 1 < elements.size() && elements[i + 1].type == TokenType::T_DOT) {
-        // Build the full chain by consuming .identifier patterns
+          i + 1 < elements.size() &&
+          (elements[i + 1].type == TokenType::T_DOT ||
+           elements[i + 1].type == TokenType::T_LPAREN)) {
+
+        bool isStandaloneCall = (elements[i + 1].type == TokenType::T_LPAREN);
         std::string chain = elements[i].value;
         size_t j = i + 1;
 
-        while (j + 1 < elements.size() &&
-               elements[j].type == TokenType::T_DOT &&
-               elements[j + 1].type == TokenType::T_IDENTIFIER) {
-          chain += "." + elements[j + 1].value;
-          j += 2; // Skip dot and identifier
+        if (!isStandaloneCall) {
+          // Build the full chain by consuming .identifier patterns
+          while (j + 1 < elements.size() &&
+                 elements[j].type == TokenType::T_DOT &&
+                 elements[j + 1].type == TokenType::T_IDENTIFIER) {
+            chain += "." + elements[j + 1].value;
+            j += 2; // Skip dot and identifier
+          }
         }
 
-        // Check if this ends with ( - method call
+        // Check if this is/ends with ( - method call
         if (j < elements.size() && elements[j].type == TokenType::T_LPAREN) {
           // Method call with arguments
           // Consume until matching paren
@@ -1300,45 +1446,49 @@ private:
             }
 
             if (balance > 0) {
-              // Add space for separation in some cases, or just value
-              // Operator/Punctuation might need spacing?
-              // Ideally reconstructing source, but simple concat might work for
-              // simple args
               if (elements[k].type == TokenType::T_STRING) {
                 fullCall += "\"" + elements[k].value + "\"";
               } else {
                 fullCall += elements[k].value;
               }
-              // Add a comma separator helper? No, tokens are enough?
-              // If we have "a,b", tokens are "a", ",", "b". Concat is "a,b".
-              // If we have "a + b", tokens "a", "+", "b". Concat "a+b".
-              // Safe enough for tokenizer re-parsing.
             }
             k++;
           }
           fullCall += ")";
 
           Token methodCall;
-          methodCall.type = TokenType::T_IDENTIFIER;
+          methodCall.type = hasNew ? TokenType::T_NEW : TokenType::T_IDENTIFIER;
           methodCall.value = fullCall;
           methodCall.line = elements[i].line;
           result.push_back(methodCall);
           i = k - 1; // Position after call
-          std::cout << "[DEBUG] PreprocessMemberAccess() - method call: "
-                    << methodCall.value << std::endl;
+          std::cout << "[DEBUG] PreprocessMemberAccess() - "
+                    << (hasNew ? "new " : "")
+                    << "method call: " << methodCall.value << std::endl;
         } else {
           // Member access
           Token memberAccess;
-          memberAccess.type = TokenType::T_IDENTIFIER;
+          memberAccess.type =
+              hasNew ? TokenType::T_NEW : TokenType::T_IDENTIFIER;
           memberAccess.value = chain;
           memberAccess.line = elements[i].line;
           result.push_back(memberAccess);
           i = j - 1; // Position at last consumed token
-          std::cout << "[DEBUG] PreprocessMemberAccess() - combined: "
-                    << memberAccess.value << std::endl;
+          std::cout << "[DEBUG] PreprocessMemberAccess() - "
+                    << (hasNew ? "new " : "")
+                    << "combined: " << memberAccess.value << std::endl;
         }
       } else {
-        result.push_back(elements[i]);
+        if (hasNew) {
+          // new followed by just identifier (no call)
+          Token newIdent;
+          newIdent.type = TokenType::T_NEW;
+          newIdent.value = elements[i].value;
+          newIdent.line = elements[i].line;
+          result.push_back(newIdent);
+        } else {
+          result.push_back(elements[i]);
+        }
       }
     }
 
@@ -1711,34 +1861,9 @@ private:
   // Convert a token to a QValue
   QValue TokenToValue(const Token &token) {
     switch (token.type) {
-    case TokenType::T_INTEGER:
-      return static_cast<int32_t>(std::stoi(token.value));
-    case TokenType::T_FLOAT:
-      return static_cast<float>(std::stof(token.value));
-    case TokenType::T_STRING:
-      return token.value;
-    case TokenType::T_TRUE:
-      return true;
-    case TokenType::T_FALSE:
-      return false;
-    case TokenType::T_NULL:
-      return std::monostate{}; // null value
-    case TokenType::T_THIS: {
-      // 'this' refers to the current instance - look it up in context
-      // The current instance should be stored with a special name
-      QValue thisVal = m_Context->GetVariable("__this__");
-      if (std::holds_alternative<std::shared_ptr<QClassInstance>>(thisVal)) {
-        std::cout
-            << "[DEBUG] TokenToValue() - resolved 'this' to current instance"
-            << std::endl;
-        return thisVal;
-      }
-      std::cerr << "[ERROR] TokenToValue() - 'this' used outside of instance "
-                   "context"
-                << std::endl;
-      return std::monostate{};
-    }
+    case TokenType::T_NEW:
     case TokenType::T_IDENTIFIER: {
+      bool isNew = (token.type == TokenType::T_NEW);
       // Check for method call (e.g., "t1.GetValue()" or "t1.ot.GetValue()" or
       // "method(1,2)")
       // We look for trailing ')'
@@ -1796,6 +1921,11 @@ private:
           evaluateArg(currentArgTokens);
         }
 
+        if (isNew) {
+          // Case: new ClassName(args)
+          return CreateInstance(pathAndMethod, argValues);
+        }
+
         // Use rfind to find last dot - separates instance path from method
         // name
         size_t lastDotPos = pathAndMethod.rfind('.');
@@ -1830,7 +1960,7 @@ private:
           if (!m_Context->HasVariable(firstName)) {
             // Note: We don't have token for firstName here easily unless we
             // track it
-            ReportRuntimeError("unknown variable '" + firstName + "'");
+            ReportRuntimeError("unknown variable '" + token.value + "'");
             return std::monostate{};
           }
 
@@ -1880,7 +2010,70 @@ private:
           }
 
           return std::monostate{}; // void method
+        } else {
+          // Standalone call (no dot) - e.g. "GetPosition()"
+          std::string methodName = pathAndMethod;
+
+          std::cout << "[DEBUG] TokenToValue() - standalone call: "
+                    << methodName << "() with " << argValues.size() << " args"
+                    << std::endl;
+
+          // 1. Check for global native function
+          if (m_Context->HasFunc(methodName)) {
+            return m_Context->CallFunc(methodName, argValues);
+          }
+
+          // 2. Check if we are in an instance context (__this__)
+          if (m_Context->HasVariable("__this__")) {
+            QValue thisVal = m_Context->GetVariable("__this__");
+            if (std::holds_alternative<std::shared_ptr<QClassInstance>>(
+                    thisVal)) {
+              auto currentInstance =
+                  std::get<std::shared_ptr<QClassInstance>>(thisVal);
+              auto classDef = currentInstance->GetClassDef();
+              auto targetMethod = FindMethod(classDef, methodName, argValues);
+
+              if (targetMethod) {
+                // Execute the method
+                m_HasReturn = false;
+                ExecuteMethod(targetMethod, currentInstance, argValues);
+
+                // Get the return value
+                if (m_HasReturn) {
+                  QValue returnVal = m_ReturnValue;
+                  m_HasReturn = false;
+                  std::cout
+                      << "[DEBUG] TokenToValue() - standalone method returned: "
+                      << ValueToString(returnVal) << std::endl;
+                  return returnVal;
+                }
+                return std::monostate{}; // void method
+              }
+            }
+          }
+
+          // 3. Check if it's a constructor call (e.g. Vec3(1,2,3) without
+          // 'new')
+          if (m_Classes.find(methodName) != m_Classes.end()) {
+            std::cout << "[DEBUG] TokenToValue() - resolved as implicit "
+                         "constructor for class: "
+                      << methodName << std::endl;
+            return CreateInstance(methodName, argValues);
+          }
+
+          ReportRuntimeError("unknown function or method '" + methodName + "'");
+          return std::monostate{};
         }
+      }
+
+      if (isNew) {
+        // new ClassName without parens? (e.g. new Vec3)
+        // We support this as empty arg constructor call
+        if (m_Classes.find(token.value) != m_Classes.end()) {
+          return CreateInstance(token.value, {});
+        }
+        ReportRuntimeError("unknown class for 'new': " + token.value);
+        return std::monostate{};
       }
 
       // Check for member access (e.g., "t1.num" or "t1.ot.check")
@@ -1973,6 +2166,33 @@ private:
       }
     }
 
+    case TokenType::T_INTEGER:
+      try {
+        if (token.value.find("0x") == 0 || token.value.find("0X") == 0) {
+          return static_cast<int32_t>(std::stoll(token.value, nullptr, 16));
+        }
+        return std::stoi(token.value);
+      } catch (...) {
+        try {
+          return static_cast<int64_t>(std::stoll(token.value));
+        } catch (...) {
+          return 0;
+        }
+      }
+    case TokenType::T_FLOAT:
+      try {
+        return std::stof(token.value);
+      } catch (...) {
+        return 0.0f;
+      }
+    case TokenType::T_STRING:
+      return token.value;
+    case TokenType::T_TRUE:
+      return true;
+    case TokenType::T_FALSE:
+      return false;
+    case TokenType::T_NULL:
+      return std::monostate{};
     default:
       return token.value; // Return as string
     }

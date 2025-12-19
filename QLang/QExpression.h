@@ -1,13 +1,13 @@
 #pragma once
 
-#include "QAction.h"
+#include "QActionNode.h"
 #include "QError.h"
 #include "Tokenizer.h"
 #include <iostream>
 #include <vector>
 
 // QExpression - a list of expression elements (tokens)
-class QExpression : public QAction {
+class QExpression : public QActionNode {
 public:
   QExpression() { std::cout << "[DEBUG] QExpression created" << std::endl; }
 

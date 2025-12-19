@@ -1,13 +1,13 @@
 #pragma once
 
-#include "QAction.h"
+#include "QActionNode.h"
 #include "QNode.h"
 #include <iostream>
 #include <memory>
 #include <vector>
 
 // QCode - represents a block of code containing QNodes
-class QCode : public QAction {
+class QCode : public QActionNode {
 public:
   QCode() { std::cout << "[DEBUG] QCode created" << std::endl; }
 

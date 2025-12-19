@@ -2,6 +2,7 @@
 #include "EngineGlobals.h"
 #include "stdafx.h"
 
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QWheelEvent>
@@ -9,6 +10,7 @@
 
 // Include Quantum headers
 #include "../QuantumEngine/GraphNode.h"
+#include "../QuantumEngine/QLangDomain.h"
 #include "../QuantumEngine/SceneGraph.h"
 
 SceneGraphWidget::SceneGraphWidget(QWidget *parent) : QWidget(parent) {
@@ -26,6 +28,9 @@ SceneGraphWidget::SceneGraphWidget(QWidget *parent) : QWidget(parent) {
 
   // Enable mouse tracking for hover effects (future)
   setMouseTracking(true);
+
+  // Enable drop support for scripts
+  setAcceptDrops(true);
 }
 
 SceneGraphWidget::~SceneGraphWidget() {}
@@ -385,5 +390,69 @@ void SceneGraphWidget::wheelEvent(QWheelEvent *event) {
 
 void SceneGraphWidget::OnScrollBarValueChanged(int value) {
   m_ScrollOffset = value;
+  update();
+}
+
+void SceneGraphWidget::dragEnterEvent(QDragEnterEvent *event) {
+  // Accept drag if it contains QLang script data
+  if (event->mimeData()->hasFormat("application/x-qlang-script")) {
+    event->acceptProposedAction();
+  } else {
+    event->ignore();
+  }
+}
+
+void SceneGraphWidget::dragMoveEvent(QDragMoveEvent *event) {
+  // Check if we're over a valid node
+  int itemIndex = GetItemIndexAtY(event->position().toPoint().y());
+  if (itemIndex >= 0 && itemIndex < static_cast<int>(m_FlatList.size())) {
+    event->acceptProposedAction();
+  } else {
+    event->ignore();
+  }
+}
+
+void SceneGraphWidget::dropEvent(QDropEvent *event) {
+  if (!event->mimeData()->hasFormat("application/x-qlang-script")) {
+    event->ignore();
+    return;
+  }
+
+  // Get the target node from drop position
+  int itemIndex = GetItemIndexAtY(event->position().toPoint().y());
+  if (itemIndex < 0 || itemIndex >= static_cast<int>(m_FlatList.size())) {
+    event->ignore();
+    return;
+  }
+
+  Quantum::GraphNode *targetNode = m_FlatList[itemIndex].Node;
+  if (!targetNode) {
+    event->ignore();
+    return;
+  }
+
+  // Get the script path from the dropped data
+  QString scriptPath =
+      QString::fromUtf8(event->mimeData()->data("application/x-qlang-script"));
+
+  qDebug() << "Dropping script" << scriptPath << "onto node"
+           << QString::fromStdString(targetNode->GetName());
+
+  // Load the class instance from QLangDomain
+  if (EngineGlobals::m_QDomain) {
+    std::shared_ptr<QClassInstance> classInstance =
+        EngineGlobals::m_QDomain->LoadClass(scriptPath.toStdString(),targetNode);
+
+    if (classInstance) {
+      targetNode->AddScript(classInstance);
+      qDebug() << "Script attached successfully";
+    } else {
+      qDebug() << "Failed to load script class from:" << scriptPath;
+    }
+  } else {
+    qDebug() << "QLangDomain not initialized";
+  }
+
+  event->acceptProposedAction();
   update();
 }

@@ -5,5 +5,7 @@
         <file>icons/translate.png</file>
         <file>icons/rotate.png</file>
         <file>icons/scale.png</file>
+        <file>icons/play.png</file>
+        <file>icons/stop.png</file>
     </qresource>
 </RCC>

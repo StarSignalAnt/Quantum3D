@@ -3,9 +3,9 @@
 #include "../QuantumEngine/GraphNode.h"
 #include "SceneGraphWidget.h"
 #include "ViewportWidget.h"
+#include "SceneGraph.h"
 #include "stdafx.h"
 #include <iostream>
-
 
 // === Static Member Initialization ===
 
@@ -16,11 +16,16 @@ void *EngineGlobals::VulkanDevice = nullptr;
 // Selection State
 std::weak_ptr<Quantum::GraphNode> EngineGlobals::SelectedNode;
 
+// QLang Domain
+std::shared_ptr<QLangDomain> EngineGlobals::m_QDomain = nullptr;
+
 // UI Components
 ViewportWidget *EngineGlobals::Viewport = nullptr;
 SceneGraphWidget *EngineGlobals::SceneGraphPanel = nullptr;
 PropertiesWidget *EngineGlobals::PropertiesPanel = nullptr;
 BrowserWidget *EngineGlobals::BrowserPanel = nullptr;
+
+bool EngineGlobals::m_Playing = false;
 
 // Gizmo State
 CoordinateSpace EngineGlobals::CurrentSpace = CoordinateSpace::Local;
@@ -99,3 +104,30 @@ void EngineGlobals::SetGizmoMode(GizmoType type) {
 }
 
 GizmoType EngineGlobals::GetGizmoMode() { return CurrentGizmoType; }
+
+void EngineGlobals::OnPlay() {
+
+    if (m_Playing) return;
+
+    m_Playing = true;
+
+    EditorScene->OnPlay();
+
+}
+
+void EngineGlobals::OnStop() {
+
+    if (!m_Playing) return;
+
+    m_Playing = false;
+
+    EditorScene->OnStop();
+
+}
+
+void EngineGlobals::OnUpdate() {
+
+    if (!m_Playing) return;
+    EditorScene->OnUpdate();
+
+}

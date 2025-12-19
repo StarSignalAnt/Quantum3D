@@ -1,6 +1,6 @@
 #pragma once
 
-#include "QAction.h"
+#include "QActionNode.h"
 #include "QCode.h"
 #include "Tokenizer.h"
 #include <iostream>
@@ -19,7 +19,7 @@ struct QMethodParam {
 };
 
 // QMethod - represents a class method definition
-class QMethod : public QAction {
+class QMethod : public QActionNode {
 public:
   QMethod(const std::string &name) : m_Name(name) {
     std::cout << "[DEBUG] QMethod created: " << name << std::endl;
@@ -28,8 +28,12 @@ public:
 
   std::string GetName() const override { return m_Name; }
 
-  void SetReturnType(TokenType type) { m_ReturnType = type; }
+  void SetReturnType(TokenType type, const std::string &typeName = "") {
+    m_ReturnType = type;
+    m_ReturnTypeName = typeName;
+  }
   TokenType GetReturnType() const { return m_ReturnType; }
+  std::string GetReturnTypeName() const { return m_ReturnTypeName; }
 
   void AddParameter(TokenType type, const std::string &name,
                     const std::string &typeName = "") {
@@ -65,6 +69,7 @@ public:
 private:
   std::string m_Name;
   TokenType m_ReturnType = TokenType::T_EOF; // T_EOF = void/no return
+  std::string m_ReturnTypeName;
   std::vector<QMethodParam> m_Parameters;
   std::shared_ptr<QCode> m_Body;
 

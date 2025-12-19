@@ -1,6 +1,6 @@
 #pragma once
 
-#include "QAction.h"
+#include "QActionNode.h"
 #include "QMethod.h"
 #include "QVariableDecl.h"
 #include <iostream>
@@ -9,7 +9,7 @@
 #include <vector>
 
 // QClass - represents a class definition with instance variables and methods
-class QClass : public QAction {
+class QClass : public QActionNode {
 public:
   QClass(const std::string &name) : m_Name(name) {
     std::cout << "[DEBUG] QClass created: " << name << std::endl;

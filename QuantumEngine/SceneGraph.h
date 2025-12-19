@@ -1,6 +1,7 @@
 #pragma once
 #include "GraphNode.h"
 #include "glm/glm.hpp"
+#include <functional>
 
 namespace Quantum {
 
@@ -62,7 +63,17 @@ public:
   std::shared_ptr<GraphNode> SelectEntity(float mouseX, float mouseY, int width,
                                           int height);
 
+  void OnPlay();
+  void OnStop();
+  void OnUpdate();
+
+  // Iterate over every node in the scene graph
+  void ForEveryNode(const std::function<void(GraphNode *)> &callback);
+
 private:
+
+   bool m_Playing = false;
+
   std::shared_ptr<GraphNode> m_Root;
   std::shared_ptr<CameraNode> m_CurrentCamera;
   std::vector<std::shared_ptr<LightNode>> m_Lights;
@@ -77,6 +88,10 @@ private:
   bool RayTriangleIntersection(const Ray &ray, const glm::vec3 &v0,
                                const glm::vec3 &v1, const glm::vec3 &v2,
                                float &t);
+
+  // Helper for recursive node traversal
+  void ForEveryNodeRecursive(GraphNode *node,
+                             const std::function<void(GraphNode *)> &callback);
 };
 
 } // namespace Quantum

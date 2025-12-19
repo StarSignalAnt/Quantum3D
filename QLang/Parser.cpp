@@ -223,26 +223,12 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
         if (next.type == TokenType::T_IDENTIFIER ||
             next.type == TokenType::T_LESS) {
 
-          // Verify if it is a KNOWN type before committing to
-          // ParseVariableDecl. If 'i2f' is not a type, we don't want to report
-          // "Unknown Type 'i2f'". We want to report "Unexpected token 'i2f'"
-          // (Syntax Error).
-          bool isKnownType =
-              IsTypeToken(current.type) || IsClassName(current.value) ||
-              std::find(m_CurrentTypeParams.begin(), m_CurrentTypeParams.end(),
-                        current.value) != m_CurrentTypeParams.end();
-
-          if (isKnownType) {
-            auto varDecl = ParseVariableDecl();
-            if (varDecl) {
-              code->AddNode(varDecl);
-            }
-          } else {
-            // It looks like "Id Id" but first Id is NOT a known type.
-            // It's likely a typo (e.g. "i2f Val").
-            // Report Unexpected Token error and recover.
-            ReportError("Unexpected token '" + current.value + "'");
-            RecoverToNextStatement();
+          // Defer type validation to runtime - accept any identifier as a
+          // potential type (primitives, registered classes, or types that will
+          // be registered later)
+          auto varDecl = ParseVariableDecl();
+          if (varDecl) {
+            code->AddNode(varDecl);
           }
 
         } else {
@@ -466,19 +452,9 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
   std::cout << "[DEBUG] ParseVariableDecl() - type: " << typeToken.value
             << std::endl;
 
-  // STRICT TYPE CHECKING
-  // Ensure the type is valid: Primitive, Registered Class, or Generic Param
-  bool isValidType =
-      IsTypeToken(typeToken.type) || IsClassName(typeToken.value) ||
-      std::find(m_CurrentTypeParams.begin(), m_CurrentTypeParams.end(),
-                typeToken.value) != m_CurrentTypeParams.end();
-
-  if (!isValidType) {
-    ReportError("Unknown type '" + typeToken.value + "'");
-    // We return nullptr to stop parsing this statement, but we consume the
-    // token. ParseCode needs to handle this gracefully (it continues loop).
-    return nullptr;
-  }
+  // Type validation is deferred to runtime
+  // Accept any identifier as a potential type (primitives, classes, generics)
+  // Runtime will validate when the variable is used
 
   // Parse generic type parameters if present: Type<T, U> Name
   std::vector<std::string> typeParams;
@@ -579,15 +555,11 @@ std::shared_ptr<QClass> Parser::ParseClass() {
     } else {
       Token parentToken = Advance();
 
-      // Validate that the parent class exists
-      if (!IsClassName(parentToken.value)) {
-        ReportError("unknown parent class '" + parentToken.value +
-                    "' - parent class must be defined before child class");
-      } else {
-        cls->SetParentClass(parentToken.value);
-        std::cout << "[DEBUG] ParseClass() - parent class: "
-                  << parentToken.value << std::endl;
-      }
+      // Defer parent class validation to runtime (CreateInstance time)
+      // This allows child classes to be defined before parent classes
+      cls->SetParentClass(parentToken.value);
+      std::cout << "[DEBUG] ParseClass() - parent class: " << parentToken.value
+                << std::endl;
     }
 
     // Consume ')'
@@ -709,14 +681,24 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
   // Consume 'method' keyword
   Advance();
 
-  // Expect return type (void or type token)
+  // Expect return type (void, primitive type token, or class identifier)
   TokenType returnType = TokenType::T_VOID;
+  std::string returnTypeName = "void";
   Token typeToken = Peek();
 
-  if (typeToken.type == TokenType::T_VOID || IsTypeToken(typeToken.type)) {
+  if (Check(TokenType::T_VOID) || IsTypeToken(typeToken.type)) {
     returnType = typeToken.type;
+    returnTypeName = typeToken.value;
     Advance();
-    std::cout << "[DEBUG] ParseMethod() - return type: " << typeToken.value
+    std::cout << "[DEBUG] ParseMethod() - return type: " << returnTypeName
+              << std::endl;
+  } else if (typeToken.type == TokenType::T_IDENTIFIER &&
+             PeekNext().type == TokenType::T_IDENTIFIER) {
+    // Return type is a class name (identifier)
+    returnType = typeToken.type;
+    returnTypeName = typeToken.value;
+    Advance();
+    std::cout << "[DEBUG] ParseMethod() - class return type: " << returnTypeName
               << std::endl;
   }
 
@@ -731,7 +713,7 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
             << std::endl;
 
   auto method = std::make_shared<QMethod>(nameToken.value);
-  method->SetReturnType(returnType);
+  method->SetReturnType(returnType, returnTypeName);
 
   // Context Management
   std::string methodName = nameToken.value;

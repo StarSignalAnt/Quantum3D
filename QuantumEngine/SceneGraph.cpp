@@ -8,7 +8,6 @@
 #include <functional>
 #include <limits>
 
-
 namespace Quantum {
 
 SceneGraph::SceneGraph() { m_Root = std::make_shared<GraphNode>("Root"); }
@@ -221,6 +220,64 @@ bool SceneGraph::RayTriangleIntersection(const Ray &ray, const glm::vec3 &v0,
     return true;
   else
     return false;
+}
+
+void SceneGraph::OnPlay() {
+
+    if (m_Playing) return;
+    m_Playing = true;
+
+    ForEveryNode([](Quantum::GraphNode* node) {
+        node->OnPlay();
+        // std::cout << "Node: " << node->GetName() << std::endl;
+        // Do something with the node
+        });
+
+}
+
+void SceneGraph::OnStop()
+{
+    if (!m_Playing) return;
+    ForEveryNode([](Quantum::GraphNode* node) {
+    //    std::cout << "Node: " << node->GetName() << std::endl;
+        // Do something with the node
+        node->OnStop();
+        });
+    m_Playing = false;
+}
+
+void SceneGraph::OnUpdate() {
+
+    if (!m_Playing) return;
+
+    ForEveryNode([](Quantum::GraphNode* node) {
+       // std::cout << "Node: " << node->GetName() << std::endl;
+        // Do something with the node
+        node->OnUpdate();
+        });
+
+
+}
+
+void SceneGraph::ForEveryNode(
+    const std::function<void(GraphNode *)> &callback) {
+  if (m_Root) {
+    ForEveryNodeRecursive(m_Root.get(), callback);
+  }
+}
+
+void SceneGraph::ForEveryNodeRecursive(
+    GraphNode *node, const std::function<void(GraphNode *)> &callback) {
+  if (!node)
+    return;
+
+  // Call the callback on this node
+  callback(node);
+
+  // Recurse into children
+  for (const auto &child : node->GetChildren()) {
+    ForEveryNodeRecursive(child.get(), callback);
+  }
 }
 
 } // namespace Quantum

@@ -344,6 +344,9 @@ void ViewportWidget::renderFrame() {
         m_SceneRenderer->SetGizmoViewState(view, proj, width(), height());
       }
 
+
+      EngineGlobals::OnUpdate();
+
       m_SceneRenderer->RenderScene(m_Renderer->GetCommandBuffer(), m_Width,
                                    m_Height);
 

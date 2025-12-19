@@ -5,6 +5,9 @@
 #include <string>
 #include <vector>
 
+// Forward declaration for QLang (global namespace)
+class QClassInstance;
+
 namespace Quantum {
 
 // Forward declaration
@@ -39,6 +42,10 @@ public:
   // Convenience rotation setters
   void SetLocalRotationEuler(float pitch, float yaw, float roll);
   void SetLocalRotationAxisAngle(const glm::vec3 &axis, float angleRadians);
+
+  // Euler angle rotation (in degrees) - for scripting
+  glm::vec3 GetRotationEuler() const;
+  void SetRotationEuler(const glm::vec3 &eulerDegrees);
 
   // Orients the node to look at a target position from a specific world
   // position. Sets both LocalPosition and LocalRotation.
@@ -82,6 +89,14 @@ public:
   size_t GetMeshCount() const { return m_Meshes.size(); }
   bool HasMeshes() const { return !m_Meshes.empty(); }
 
+  void AddScript(std::shared_ptr<QClassInstance> cls);
+
+  void Turn(glm::vec3 value);
+
+  void OnPlay();
+  void OnStop();
+  void OnUpdate();
+
 protected:
   // Called when transform changes
   virtual void OnTransformChanged();
@@ -104,6 +119,10 @@ private:
 
   // Meshes attached to this node
   std::vector<std::shared_ptr<Mesh3D>> m_Meshes;
+
+  // scripts
+
+  std::vector<std::shared_ptr<QClassInstance>> m_QClasses;
 
   void SetParent(GraphNode *parent);
   void InvalidateChildTransforms();

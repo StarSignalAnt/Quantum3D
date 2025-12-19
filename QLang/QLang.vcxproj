@@ -142,7 +142,7 @@
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="Tokenizer.h" />
-    <ClInclude Include="QAction.h" />
+    <ClInclude Include="QActionNode.h" />
     <ClInclude Include="QNode.h" />
     <ClInclude Include="QExpression.h" />
     <ClInclude Include="QParameters.h" />

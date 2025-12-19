@@ -84,6 +84,29 @@ void QuantumToolBar::setupToolBar() {
 
   // Add separator after gizmo tools
   addSeparator();
+
+  // === Play Control Actions (Run/Stop) ===
+  // Play/Run action
+  m_playAction = new QAction(this);
+  m_playAction->setIcon(QIcon(":/Quantum3D/icons/play.png"));
+  m_playAction->setToolTip("Play (F5)");
+  m_playAction->setShortcut(QKeySequence(Qt::Key_F5));
+  addAction(m_playAction);
+  connect(m_playAction, &QAction::triggered, this,
+          &QuantumToolBar::onPlayClicked);
+
+  // Stop action
+  m_stopAction = new QAction(this);
+  m_stopAction->setIcon(QIcon(":/Quantum3D/icons/stop.png"));
+  m_stopAction->setToolTip("Stop (Shift+F5)");
+  m_stopAction->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
+  m_stopAction->setEnabled(false); // Disabled by default
+  addAction(m_stopAction);
+  connect(m_stopAction, &QAction::triggered, this,
+          &QuantumToolBar::onStopClicked);
+
+  // Add separator after play controls
+  addSeparator();
 }
 
 void QuantumToolBar::onLocalClicked() {
@@ -114,4 +137,22 @@ void QuantumToolBar::onScaleClicked() {
   m_currentGizmoMode = GizmoMode::Scale;
   EngineGlobals::SetGizmoMode(GizmoType::Scale);
   emit gizmoModeChanged(m_currentGizmoMode);
+}
+
+void QuantumToolBar::onPlayClicked() {
+  m_isPlaying = true;
+  m_playAction->setEnabled(false);
+  m_stopAction->setEnabled(true);
+  std::cout << "[QuantumToolBar] Play clicked - starting game" << std::endl;
+  EngineGlobals::OnPlay();
+  emit playStateChanged(true);
+}
+
+void QuantumToolBar::onStopClicked() {
+  m_isPlaying = false;
+  m_playAction->setEnabled(true);
+  m_stopAction->setEnabled(false);
+  std::cout << "[QuantumToolBar] Stop clicked - stopping game" << std::endl;
+  EngineGlobals::OnStop();
+  emit playStateChanged(false);
 }
