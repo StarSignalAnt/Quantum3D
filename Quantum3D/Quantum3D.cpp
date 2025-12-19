@@ -7,6 +7,7 @@
 #include "SceneGraphWidget.h"
 #include "ViewportWidget.h"
 #include "stdafx.h"
+#include <QTimer>
 
 Quantum3D::Quantum3D(QWidget *parent) : QMainWindow(parent) {
   setupMenu();
@@ -59,6 +60,14 @@ void Quantum3D::setupDockWidgets() {
   // Connect BrowserWidget model import signal to ViewportWidget slot
   connect(m_browserWidget, &BrowserWidget::ModelImported, m_viewportWidget,
           &ViewportWidget::OnModelImported);
+
+  // Connect BrowserWidget model import to refresh the scene graph widget
+  connect(m_browserWidget, &BrowserWidget::ModelImported, m_sceneGraphWidget,
+          &SceneGraphWidget::RefreshTree);
+
+  // Set the scene graph on the SceneGraphWidget (will be populated after scene
+  // init) Use a timer to defer this until after the viewport has initialized
+  // its scene
 
   // Set initial dock sizes (280 pixels) - resizable by user
   resizeDocks({m_sceneGraphDock}, {280}, Qt::Horizontal);

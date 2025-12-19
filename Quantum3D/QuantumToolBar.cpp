@@ -51,10 +51,10 @@ void QuantumToolBar::setupToolBar() {
   // Translate action
   m_translateAction = new QAction(this);
   m_translateAction->setIcon(QIcon(":/Quantum3D/icons/translate.png"));
-  m_translateAction->setToolTip("Translate (W)");
+  m_translateAction->setToolTip("Translate (F1)");
   m_translateAction->setCheckable(true);
   m_translateAction->setChecked(true); // Default selected
-  m_translateAction->setShortcut(QKeySequence("W"));
+  m_translateAction->setShortcut(QKeySequence(Qt::Key_F1));
   m_gizmoActionGroup->addAction(m_translateAction);
   addAction(m_translateAction);
   connect(m_translateAction, &QAction::triggered, this,
@@ -63,9 +63,9 @@ void QuantumToolBar::setupToolBar() {
   // Rotate action
   m_rotateAction = new QAction(this);
   m_rotateAction->setIcon(QIcon(":/Quantum3D/icons/rotate.png"));
-  m_rotateAction->setToolTip("Rotate (E)");
+  m_rotateAction->setToolTip("Rotate (F2)");
   m_rotateAction->setCheckable(true);
-  m_rotateAction->setShortcut(QKeySequence("E"));
+  m_rotateAction->setShortcut(QKeySequence(Qt::Key_F2));
   m_gizmoActionGroup->addAction(m_rotateAction);
   addAction(m_rotateAction);
   connect(m_rotateAction, &QAction::triggered, this,
@@ -74,9 +74,9 @@ void QuantumToolBar::setupToolBar() {
   // Scale action
   m_scaleAction = new QAction(this);
   m_scaleAction->setIcon(QIcon(":/Quantum3D/icons/scale.png"));
-  m_scaleAction->setToolTip("Scale (R)");
+  m_scaleAction->setToolTip("Scale (F3)");
   m_scaleAction->setCheckable(true);
-  m_scaleAction->setShortcut(QKeySequence("R"));
+  m_scaleAction->setShortcut(QKeySequence(Qt::Key_F3));
   m_gizmoActionGroup->addAction(m_scaleAction);
   addAction(m_scaleAction);
   connect(m_scaleAction, &QAction::triggered, this,

@@ -4,8 +4,10 @@
 #include <QMouseEvent>
 #include <QTimer>
 #include <QtWidgets/QWidget>
+#include <glm/glm.hpp>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -16,6 +18,7 @@ namespace Vivid {
 class VividDevice;
 class VividRenderer;
 class Draw2D;
+class Texture2D;
 } // namespace Vivid
 
 namespace Quantum {
@@ -75,6 +78,9 @@ private:
 
 public:
   void SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node);
+  void UpdateGizmoForSelection(
+      std::shared_ptr<Quantum::GraphNode>
+          node);           // Updates gizmo only, called by EngineGlobals
   void UpdateGizmoSpace(); // Called by EngineGlobals when space changes
   void UpdateGizmoType();  // Called by EngineGlobals when gizmo mode changes
 
@@ -94,4 +100,22 @@ private:
   std::unordered_map<int, bool> m_KeysDown;
 
   std::unique_ptr<EditorCamera> m_EditorCamera;
+
+  // Editor icons
+  std::unique_ptr<Vivid::Texture2D> m_LightIcon;
+  static constexpr float LIGHT_ICON_SIZE = 64.0f; // Base size in pixels
+
+  // Cached light icon screen positions for hit testing
+  struct LightIconHit {
+    std::shared_ptr<Quantum::LightNode> light;
+    glm::vec2 screenPos; // Center position
+    float size;          // Icon size (radius for hit test)
+  };
+  std::vector<LightIconHit> m_LightIconPositions;
+
+  // Helper: Render light icons as 2D overlays
+  void RenderLightIcons();
+
+  // Helper: Check if a click hits a light icon, returns the light if hit
+  std::shared_ptr<Quantum::LightNode> HitTestLightIcons(int mouseX, int mouseY);
 };

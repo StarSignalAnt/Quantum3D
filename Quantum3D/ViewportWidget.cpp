@@ -1,5 +1,6 @@
 #include "ViewportWidget.h"
 #include "EditorCamera.h"
+#include "SceneGraphWidget.h"
 #include "stdafx.h"
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -16,6 +17,7 @@
 #include "../QuantumEngine/RenderingPipelines.h"
 #include "../QuantumEngine/SceneGraph.h"
 #include "../QuantumEngine/SceneRenderer.h"
+#include "../QuantumEngine/Texture2D.h"
 #include "../QuantumEngine/VividDevice.h"
 #include "../QuantumEngine/VividRenderer.h"
 
@@ -81,6 +83,10 @@ void ViewportWidget::initVulkan() {
     // Create 2D renderer for debug overlay
     m_Draw2D =
         std::make_unique<Vivid::Draw2D>(m_Device, m_Renderer->GetRenderPass());
+
+    // Load editor icons
+    m_LightIcon = std::make_unique<Vivid::Texture2D>(
+        m_Device, "engine/icons/light_icon.png");
 
     // Setup render timer for continuous rendering (60 FPS target)
     m_RenderTimer = new QTimer(this);
@@ -176,6 +182,8 @@ void ViewportWidget::initScene() {
   } catch (const std::exception &e) {
     std::cerr << "Failed to initialize scene: " << e.what() << std::endl;
   }
+
+  EngineGlobals::SceneGraphPanel->SetGraph(EngineGlobals::EditorScene);
 }
 
 void ViewportWidget::cleanupVulkan() {
@@ -345,11 +353,11 @@ void ViewportWidget::renderFrame() {
         //                                    m_SelectedNode);
       }
 
-      // Phase 3.5: Debug overlay (Draw2D)
+      // Phase 3.5: Editor overlays (Draw2D) - light icons, etc.
       if (m_Draw2D) {
-        // m_Draw2D->Begin(m_Renderer);
-        // m_SceneRenderer->RenderShadowDebug(m_Draw2D.get());
-        // m_Draw2D->End();
+        m_Draw2D->Begin(m_Renderer);
+        RenderLightIcons();
+        m_Draw2D->End();
       }
     }
 
@@ -419,9 +427,16 @@ void ViewportWidget::mousePressEvent(QMouseEvent *event) {
     int mouseX = static_cast<int>(event->position().x());
     int mouseY = static_cast<int>(event->position().y());
 
-    // First, check if gizmo wants to handle this click
-    if (m_SceneRenderer && m_SceneRenderer->OnGizmoMouseClicked(
-                               mouseX, mouseY, true, width(), height())) {
+    // First, check if clicking on a light icon
+    auto hitLight = HitTestLightIcons(mouseX, mouseY);
+    if (hitLight) {
+      // Select the light
+      EngineGlobals::SetSelectedNode(hitLight);
+      std::cout << "Selected Light: " << hitLight->GetName() << std::endl;
+    }
+    // Second, check if gizmo wants to handle this click
+    else if (m_SceneRenderer && m_SceneRenderer->OnGizmoMouseClicked(
+                                    mouseX, mouseY, true, width(), height())) {
       // Gizmo consumed the click, don't do node selection
     } else if (m_SceneGraph) {
       // Gizmo didn't consume, do normal node selection
@@ -509,8 +524,16 @@ void ViewportWidget::OnModelImported() {
 }
 
 void ViewportWidget::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
+  // Delegate to EngineGlobals which handles all selection-related updates
+  EngineGlobals::SetSelectedNode(node);
+}
+
+void ViewportWidget::UpdateGizmoForSelection(
+    std::shared_ptr<Quantum::GraphNode> node) {
+  // This is called by EngineGlobals::SetSelectedNode to update the gizmo
+  // without creating a circular call
   m_SelectedNode = node;
-  // Update gizmo position and target node
+
   if (m_SceneRenderer) {
     if (node) {
       m_SceneRenderer->SetGizmoPosition(node->GetWorldPosition());
@@ -552,4 +575,105 @@ void ViewportWidget::UpdateGizmoType() {
     }
     m_SceneRenderer->SetGizmoType(gizmoType);
   }
+}
+
+void ViewportWidget::RenderLightIcons() {
+  if (!m_SceneGraph || !m_LightIcon || !m_Draw2D || !m_EditorCamera) {
+    return;
+  }
+
+  const auto &lights = m_SceneGraph->GetLights();
+  if (lights.empty()) {
+    m_LightIconPositions.clear();
+    return;
+  }
+
+  // Clear cached positions for this frame
+  m_LightIconPositions.clear();
+
+  // Get view and projection matrices
+  glm::mat4 view = m_EditorCamera->GetViewMatrix();
+  glm::mat4 proj =
+      glm::perspective(glm::radians(45.0f),
+                       static_cast<float>(m_Width) / m_Height, 0.01f, 1000.0f);
+  proj[1][1] *= -1; // Flip Y for Vulkan
+
+  glm::mat4 viewProj = proj * view;
+
+  // Icon size in pixels (DPI-aware)
+  float iconSize = LIGHT_ICON_SIZE * devicePixelRatio();
+
+  for (const auto &light : lights) {
+    if (!light) {
+      continue;
+    }
+
+    glm::vec3 worldPos = light->GetWorldPosition();
+
+    // Transform to clip space
+    glm::vec4 clipPos = viewProj * glm::vec4(worldPos, 1.0f);
+
+    // Check if behind camera (w <= 0 means behind or at camera plane)
+    if (clipPos.w <= 0.01f) {
+      continue;
+    }
+
+    // Perform perspective divide to get NDC
+    glm::vec3 ndc = glm::vec3(clipPos) / clipPos.w;
+
+    // Check if outside NDC range (clip to frustum)
+    if (ndc.x < -1.0f || ndc.x > 1.0f || ndc.y < -1.0f || ndc.y > 1.0f) {
+      continue;
+    }
+
+    // Convert NDC to screen coordinates
+    // NDC range is [-1, 1], screen range is [0, width/height]
+    float screenX = (ndc.x + 1.0f) * 0.5f * m_Width;
+    float screenY = (ndc.y + 1.0f) * 0.5f * m_Height; // Already flipped by proj
+
+    // Cache position for hit testing (store center position)
+    LightIconHit hitInfo;
+    hitInfo.light = light;
+    hitInfo.screenPos = glm::vec2(screenX, screenY);
+    hitInfo.size = iconSize;
+    m_LightIconPositions.push_back(hitInfo);
+
+    // Center the icon on the position
+    glm::vec2 iconPos(screenX - iconSize * 0.5f, screenY - iconSize * 0.5f);
+    glm::vec2 iconSizeVec(iconSize, iconSize);
+
+    // Draw the light icon with the light's color tint
+    glm::vec3 lightColor = light->GetColor();
+    // Normalize if HDR values
+    float maxComponent =
+        glm::max(lightColor.r, glm::max(lightColor.g, lightColor.b));
+    if (maxComponent > 1.0f) {
+      lightColor /= maxComponent;
+    }
+    glm::vec4 tint(lightColor, 1.0f);
+
+    m_Draw2D->DrawTexture(iconPos, iconSizeVec, m_LightIcon.get(), tint,
+                          Vivid::BlendMode::Alpha);
+  }
+}
+
+std::shared_ptr<Quantum::LightNode>
+ViewportWidget::HitTestLightIcons(int mouseX, int mouseY) {
+  // Convert logical mouse coordinates to physical pixels
+  float physicalX = mouseX * devicePixelRatio();
+  float physicalY = mouseY * devicePixelRatio();
+
+  // Check each cached light icon position
+  for (const auto &hit : m_LightIconPositions) {
+    float halfSize = hit.size * 0.5f;
+    float dx = physicalX - hit.screenPos.x;
+    float dy = physicalY - hit.screenPos.y;
+
+    // Check if within icon bounds (simple box test)
+    if (std::abs(dx) <= halfSize && std::abs(dy) <= halfSize) {
+      return hit.light;
+    }
+  }
+
+  return nullptr;
 }

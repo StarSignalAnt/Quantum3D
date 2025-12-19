@@ -1,8 +1,11 @@
 // EngineGlobals.cpp
 #include "EngineGlobals.h"
+#include "../QuantumEngine/GraphNode.h"
+#include "SceneGraphWidget.h"
 #include "ViewportWidget.h"
 #include "stdafx.h"
 #include <iostream>
+
 
 // === Static Member Initialization ===
 
@@ -29,9 +32,22 @@ void EngineGlobals::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
   SelectedNode = node;
 
   if (node) {
-    std::cout << "[EngineGlobals] Selected node set" << std::endl;
+    std::cout << "[EngineGlobals] Selected node set: " << node->GetName()
+              << std::endl;
   } else {
     std::cout << "[EngineGlobals] Selection cleared" << std::endl;
+  }
+
+  // Update the viewport's gizmo for the selection
+  // We call UpdateGizmoForSelection (not SetSelectedNode) to avoid infinite
+  // loop
+  if (Viewport) {
+    Viewport->UpdateGizmoForSelection(node);
+  }
+
+  // Notify the scene graph panel to update its selection display
+  if (SceneGraphPanel) {
+    SceneGraphPanel->OnExternalSelectionChanged(node.get());
   }
 }
 

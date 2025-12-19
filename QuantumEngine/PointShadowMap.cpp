@@ -336,8 +336,8 @@ glm::mat4 PointShadowMap::GetFaceViewMatrix(const glm::vec3 &lightPos,
   static const glm::vec3 ups[6] = {
       glm::vec3(0.0f, 1.0f, 0.0f), // +X
       glm::vec3(0.0f, 1.0f, 0.0f), // -X
-      glm::vec3(0.0f, 0.0f, 1.0f),  // +Y
-      glm::vec3(0.0f, 0.0f, -1.0f), // -Y
+      glm::vec3(0.0f, 0.0f, -1.0f),  // +Y
+      glm::vec3(0.0f, 0.0f, 1.0f), // -Y
       glm::vec3(0.0f, 1.0f, 0.0f), // +Z
       glm::vec3(0.0f, 1.0f, 0.0f)  // -Z
   };
