@@ -3,6 +3,7 @@
 #include "QExpression.h"
 #include "QNode.h"
 #include "Tokenizer.h"
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>

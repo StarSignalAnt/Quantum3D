@@ -41,10 +41,22 @@ public:
     return m_ErrorCollector && m_ErrorCollector->HasErrors();
   }
 
+  // Register external class names (e.g., from engine classes)
+  void RegisterKnownClasses(const std::set<std::string> &classNames) {
+    m_ClassNames.insert(classNames.begin(), classNames.end());
+  }
+  void RegisterKnownClass(const std::string &className) {
+    m_ClassNames.insert(className);
+  }
+
 private:
   std::vector<Token> m_Tokens;
   int m_Current = 0;
   std::set<std::string> m_ClassNames; // Track known class names
+  std::set<std::string>
+      m_DeclaredVariables; // Track declared variables in current scope
+  std::set<std::string>
+      m_ClassMemberVariables; // Track class member variables (fields)
   std::vector<std::string>
       m_CurrentTypeParams; // Track current generic parameters (T, K, V)
   std::shared_ptr<QErrorCollector> m_ErrorCollector;

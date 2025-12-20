@@ -146,4 +146,11 @@ glm::mat4 GizmoBase::GetGizmoRotation() const {
   return glm::mat4(1.0f);
 }
 
+void GizmoBase::SyncWithTarget() {
+  auto target = GetTargetNode();
+  if (target && !m_IsDragging) {
+    m_Position = target->GetWorldPosition();
+  }
+}
+
 } // namespace Quantum

@@ -243,9 +243,16 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
         if (next.type == TokenType::T_IDENTIFIER ||
             next.type == TokenType::T_LESS) {
 
-          // Defer type validation to runtime - accept any identifier as a
-          // potential type (primitives, registered classes, or types that will
-          // be registered later)
+          // Check if this is a known class type - if not, report a warning
+          Token typeToken = Peek();
+          if (!IsClassName(typeToken.value)) {
+            ReportError("Unknown type '" + typeToken.value +
+                            "' - did you misspell a type name?",
+                        QErrorSeverity::Warning);
+          }
+
+          // Parse the variable declaration anyway (defer full validation to
+          // runtime)
           auto varDecl = ParseVariableDecl();
           if (varDecl) {
             code->AddNode(varDecl);
@@ -404,6 +411,30 @@ std::shared_ptr<QExpression> Parser::ParseExpression() {
       // Comma at top level - stop (next parameter)
       break;
     } else {
+      // Check for undeclared identifiers in expressions
+      if (current.type == TokenType::T_IDENTIFIER) {
+        const std::string &name = current.value;
+        // Skip if it's a known class name, method call (followed by '('),
+        // or member access (preceded by '.')
+        bool isClassName = m_ClassNames.find(name) != m_ClassNames.end();
+        bool isMethodCall = PeekNext().type == TokenType::T_LPAREN;
+        bool isMemberAccess =
+            !expr->GetElements().empty() &&
+            expr->GetElements().back().type == TokenType::T_DOT;
+
+        if (!isClassName && !isMethodCall && !isMemberAccess) {
+          // This is a variable reference - check if it's declared
+          bool isDeclared =
+              m_DeclaredVariables.find(name) != m_DeclaredVariables.end() ||
+              m_ClassMemberVariables.find(name) != m_ClassMemberVariables.end();
+
+          if (!isDeclared) {
+            ReportError("Undeclared variable '" + name + "'",
+                        QErrorSeverity::Warning);
+          }
+        }
+      }
+
       expr->AddElement(current);
       Advance();
     }
@@ -541,6 +572,9 @@ std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
       typeToken.type, nameToken.value, typeToken.value);
   varDecl->SetTypeParameters(typeParams);
 
+  // Register this variable as declared
+  m_DeclaredVariables.insert(nameToken.value);
+
   // Check for initializer (= expression)
   if (Check(TokenType::T_OPERATOR) && Peek().value == "=") {
     Advance(); // consume '='
@@ -598,6 +632,9 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   // Set current context header (Class Name)
   std::string previousContext = m_CurrentContext;
   m_CurrentContext = nameToken.value;
+
+  // Clear class member tracking for this class
+  m_ClassMemberVariables.clear();
 
   auto cls = std::make_shared<QClass>(nameToken.value);
 
@@ -691,6 +728,8 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       auto member = ParseVariableDecl();
       if (member) {
         cls->AddMember(member);
+        // Register as class member variable
+        m_ClassMemberVariables.insert(member->GetName());
       }
       // Parse generic type parameter members (T, K, V, etc.)
     } else if (current.type == TokenType::T_IDENTIFIER &&
@@ -704,10 +743,15 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       auto member = ParseVariableDecl();
       if (member) {
         cls->AddMember(member);
+        // Register as class member variable
+        m_ClassMemberVariables.insert(member->GetName());
       }
       // Parse class-type member variables (ClassName varName = new ...)
+      // Parse class-type member variables (ClassName varName = new ...)
     } else if (current.type == TokenType::T_IDENTIFIER &&
-               IsClassName(current.value)) {
+               (IsClassName(current.value) ||
+                PeekNext().type == TokenType::T_IDENTIFIER ||
+                PeekNext().type == TokenType::T_LESS)) {
       // This is a class-type member declaration
 #if QLANG_DEBUG
       std::cout << "[DEBUG] ParseClass() - parsing class-type member: "
@@ -716,6 +760,8 @@ std::shared_ptr<QClass> Parser::ParseClass() {
       auto member = ParseClassTypeMember();
       if (member) {
         cls->AddMember(member);
+        // Register as class member variable
+        m_ClassMemberVariables.insert(member->GetName());
       }
     } else if (current.type == TokenType::T_END_OF_LINE) {
       Advance(); // Skip newlines in class body
@@ -809,6 +855,9 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
   if (Check(TokenType::T_LPAREN)) {
     Advance(); // consume '('
 
+    // Clear declared variables for this method scope
+    m_DeclaredVariables.clear();
+
     // Parse parameter list: type name, type name, ...
     while (!IsAtEnd() && !Check(TokenType::T_RPAREN)) {
       // Expect type token (primitive type OR identifier for generics/class
@@ -824,6 +873,9 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
           Advance(); // consume name
 
           method->AddParameter(paramType, paramName, paramTypeName);
+
+          // Register parameter as a declared variable
+          m_DeclaredVariables.insert(paramName);
 #if QLANG_DEBUG
           std::cout << "[DEBUG] ParseMethod() - parsed param: " << paramName
                     << " (type: " << paramTypeName << ")" << std::endl;
@@ -938,14 +990,28 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
   auto instanceDecl = std::make_shared<QInstanceDecl>(classNameToken.value,
                                                       instanceNameToken.value);
 
+  // Register this instance as a declared variable
+  m_DeclaredVariables.insert(instanceNameToken.value);
+
   // Set type arguments if any
   if (!typeArgs.empty()) {
     instanceDecl->SetTypeArguments(typeArgs);
   }
 
-  // Expect '='
+  // Check for optional initialization '= new ClassName()'
+  // If just a semicolon, this is an uninitialized declaration (null reference)
+  if (Check(TokenType::T_END_OF_LINE)) {
+    Advance();
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseInstanceDecl() - uninitialized declaration"
+              << std::endl;
+#endif
+    return instanceDecl;
+  }
+
+  // Expect '=' for initialization
   if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
-    ReportError("expected '='");
+    ReportError("expected '=' or ';'");
     return nullptr;
   }
   Advance(); // consume '='
@@ -1292,6 +1358,17 @@ std::shared_ptr<QAssign> Parser::ParseAssign() {
   }
   Advance(); // consume '='
 
+  // Check if variable is declared (local variables or class members)
+  bool isDeclared =
+      m_DeclaredVariables.find(nameToken.value) != m_DeclaredVariables.end() ||
+      m_ClassMemberVariables.find(nameToken.value) !=
+          m_ClassMemberVariables.end();
+
+  if (!isDeclared) {
+    ReportError("Undeclared variable '" + nameToken.value + "'",
+                QErrorSeverity::Warning);
+  }
+
   auto assign = std::make_shared<QAssign>(nameToken.value);
 
   // Parse expression
@@ -1395,6 +1472,9 @@ std::shared_ptr<QFor> Parser::ParseFor() {
 
   Token varToken = Advance();
   auto forNode = std::make_shared<QFor>(varToken.value);
+
+  // Register the for loop variable as declared
+  m_DeclaredVariables.insert(varToken.value);
 
   // Set the type if one was declared
   if (hasType) {

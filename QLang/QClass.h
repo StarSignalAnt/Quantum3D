@@ -3,10 +3,12 @@
 #include "QActionNode.h"
 #include "QMethod.h"
 #include "QVariableDecl.h"
+#include "Tokenizer.h"
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
+
 
 // QClass - represents a class definition with instance variables and methods
 class QClass : public QActionNode {

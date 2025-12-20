@@ -117,6 +117,9 @@
     <QtMoc Include="ViewportWidget.h" />
     <QtMoc Include="QuantumMenu.h" />
     <QtMoc Include="QuantumToolBar.h" />
+    <QtMoc Include="ScriptEditorWindow.h" />
+    <QtMoc Include="CodeEditor.h" />
+    <QtMoc Include="QLangHighlighter.h" />
     <ClCompile Include="Quantum3D.cpp" />
     <ClCompile Include="SceneGraphWidget.cpp" />
     <ClCompile Include="PropertiesWidget.cpp" />
@@ -127,6 +130,10 @@
     <ClCompile Include="EditorCamera.cpp" />
     <ClCompile Include="EngineGlobals.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="ScriptEditorWindow.cpp" />
+    <ClCompile Include="CodeEditor.cpp" />
+    <ClCompile Include="QLangHighlighter.cpp" />
+    <ClCompile Include="QLangSymbols.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\QuantumEngine\QuantumEngine.vcxproj">
@@ -137,6 +144,8 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="EngineGlobals.h" />
     <ClInclude Include="EditorCamera.h" />
+    <ClInclude Include="QLangSymbols.h" />
+    <ClInclude Include="CodeEditorTheme.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

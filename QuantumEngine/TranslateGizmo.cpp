@@ -100,13 +100,15 @@ void TranslateGizmo::OnMouseMoved(int x, int y) {
     glm::vec3 newPos = m_DragStartNodePos + m_DragAxisDirection * deltaT;
     target->SetLocalPosition(newPos);
 
-    // Update gizmo position to follow
-    m_Position = newPos;
+    // Explicitly update gizmo position during drag so it remains snappy
+    m_Position = target->GetWorldPosition();
   }
 }
 
 GizmoAxis TranslateGizmo::HitTest(int mouseX, int mouseY, int width,
                                   int height) {
+  SyncWithTarget();
+
   // Update viewport dimensions
   m_ViewportWidth = width;
   m_ViewportHeight = height;
@@ -272,6 +274,8 @@ void TranslateGizmo::Render(SceneRenderer *renderer, VkCommandBuffer cmd,
                             const glm::mat4 &view, const glm::mat4 &proj) {
   if (!renderer)
     return;
+
+  SyncWithTarget();
 
   // Use base class scale calculation
   m_CurrentScale = CalculateScreenConstantScale();

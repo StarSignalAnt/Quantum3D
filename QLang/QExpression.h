@@ -3,6 +3,7 @@
 #include "QActionNode.h"
 #include "QError.h"
 #include "Tokenizer.h"
+#include <cstdint>
 #include <iostream>
 #include <vector>
 

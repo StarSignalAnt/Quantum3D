@@ -982,8 +982,13 @@ private:
     }
 
     // Update the member
-    currentInstance->SetMember(finalMemberName,
-                               ConvertQValueToInstanceValue(newValue));
+    if (std::holds_alternative<std::shared_ptr<QClassInstance>>(newValue)) {
+      currentInstance->SetNestedInstance(
+          finalMemberName, std::get<std::shared_ptr<QClassInstance>>(newValue));
+    } else {
+      currentInstance->SetMember(finalMemberName,
+                                 ConvertQValueToInstanceValue(newValue));
+    }
 
 #if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::ExecuteMemberAssign() - set "
@@ -1153,14 +1158,32 @@ private:
     ExecuteCode(method->GetBody());
 
     // Copy modified values back to the instance
-    for (const auto &[memberName, memberValue] : instance->GetMembers()) {
-      if (methodContext->HasLocalVariable(memberName)) {
-        QValue newValue = methodContext->GetVariable(memberName);
-        QInstanceValue instVal = ConvertQValueToInstanceValue(newValue);
-        instance->SetMember(memberName, instVal);
+    // Copy modified values back to the instance
+    auto contextVars = methodContext->GetAllVariables();
+    for (auto const &pair : contextVars) {
+      const std::string &varName = pair.first;
+      const QValue &varValue = pair.second;
+
+      // We only care about variables that actually exist as members on the
+      // instance
+      if (instance->HasMember(varName)) {
+        // Case 1: Value is a class instance (shared_ptr<QClassInstance>)
+        if (std::holds_alternative<std::shared_ptr<QClassInstance>>(varValue)) {
+          instance->SetNestedInstance(
+              varName, std::get<std::shared_ptr<QClassInstance>>(varValue));
+          // Optional: We could remove it from m_Members if it was there,
+          // but HasMember checks both, so this is safe.
+        }
+        // Case 2: Value is a primitive (convertible to QInstanceValue)
+        else {
+          QInstanceValue instVal = ConvertQValueToInstanceValue(varValue);
+          if (!std::holds_alternative<std::monostate>(instVal)) {
+            instance->SetMember(varName, instVal);
+          }
+        }
 #if QLANG_DEBUG
-        std::cout << "[DEBUG] QRunner::ExecuteMethod() - updated member: "
-                  << memberName << std::endl;
+        std::cout << "[DEBUG] QRunner::ExecuteMethod() - synced: " << varName
+                  << std::endl;
 #endif
       }
     }

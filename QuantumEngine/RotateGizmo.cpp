@@ -143,6 +143,8 @@ void RotateGizmo::OnMouseMoved(int x, int y) {
 }
 
 GizmoAxis RotateGizmo::HitTest(int mouseX, int mouseY, int width, int height) {
+  SyncWithTarget();
+
   // Calculate gizmo model matrix
   float scale = m_CurrentScale;
   if (scale < 0.001f) {
@@ -278,6 +280,8 @@ void RotateGizmo::Render(SceneRenderer *renderer, VkCommandBuffer cmd,
                          const glm::mat4 &view, const glm::mat4 &proj) {
   if (!m_RingX || !m_RingY || !m_RingZ)
     return;
+
+  SyncWithTarget();
 
   // Update scale for screen-constant size
   m_CurrentScale = CalculateScreenConstantScale();

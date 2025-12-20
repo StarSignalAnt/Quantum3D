@@ -109,6 +109,11 @@ public:
 
   const std::string &GetName() const { return m_Name; }
 
+  // Get all variables in this context only
+  const std::unordered_map<std::string, QValue> &GetAllVariables() const {
+    return m_Variables;
+  }
+
   // Set a variable in this context
   void SetVariable(const std::string &name, const QValue &value) {
     m_Variables[name] = value;

@@ -3,10 +3,12 @@
 #include "QActionNode.h"
 #include "QCode.h"
 #include "Tokenizer.h"
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <vector>
+
 
 // Forward declaration
 class QExpression;

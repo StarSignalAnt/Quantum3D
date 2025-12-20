@@ -15,5 +15,8 @@ private:
   QMenu *m_fileMenu;
   QMenu *m_editMenu;
   QMenu *m_viewMenu;
+  QMenu *m_toolsMenu;
   QMenu *m_helpMenu;
+
+  QAction *m_scriptEditorAction;
 };

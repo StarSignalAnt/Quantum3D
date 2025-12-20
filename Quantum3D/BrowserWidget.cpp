@@ -1,5 +1,7 @@
 #include "BrowserWidget.h"
+#include "ScriptEditorWindow.h"
 #include "stdafx.h"
+
 
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
@@ -412,6 +414,10 @@ void BrowserWidget::OnItemDoubleClicked(QListWidgetItem *item) {
           qDebug() << "Imported model to scene: " << path.c_str();
           emit ModelImported();
         }
+      }
+    } else if (extension == ".q") {
+      if (EngineGlobals::ScriptEditor) {
+        EngineGlobals::ScriptEditor->OpenFile(path);
       }
     }
   }

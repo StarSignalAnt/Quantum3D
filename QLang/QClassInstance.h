@@ -1,12 +1,15 @@
 #pragma once
 
 #include "QClass.h"
+#include "Tokenizer.h"
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
 
 // QValue type for instance member storage (separate from QValue in QContext)
 using QInstanceValue = std::variant<std::monostate, bool, int32_t, int64_t,
@@ -65,6 +68,13 @@ public:
   void SetNestedInstance(const std::string &name,
                          std::shared_ptr<QClassInstance> instance) {
     m_NestedInstances[name] = instance;
+
+    // Remove from primitive members if it was shadowing/occupying the name
+    auto it = m_Members.find(name);
+    if (it != m_Members.end()) {
+      m_Members.erase(it);
+    }
+
 #if QLANG_DEBUG
     std::cout << "[DEBUG] QClassInstance(" << m_ClassName
               << ") - set nested instance: " << name << std::endl;

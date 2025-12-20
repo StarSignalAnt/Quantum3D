@@ -31,7 +31,7 @@ Texture2D::Texture2D(VividDevice *device, VkImageView view, VkSampler sampler,
 Texture2D::~Texture2D() {
   // Check if device pointer is still valid before cleanup
   if (m_DevicePtr && m_DevicePtr->GetDevice() != VK_NULL_HANDLE &&
-      m_OwnsResources) {
+      m_OwnsResources) { 
     if (m_TextureSampler != VK_NULL_HANDLE) {
       vkDestroySampler(m_DevicePtr->GetDevice(), m_TextureSampler, nullptr);
     }

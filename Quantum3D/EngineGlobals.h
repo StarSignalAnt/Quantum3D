@@ -1,7 +1,7 @@
 // EngineGlobals.h
 #pragma once
-#include <memory>
 #include "QLangDomain.h"
+#include <memory>
 
 // Forward declarations
 namespace Quantum {
@@ -13,6 +13,10 @@ class ViewportWidget;
 class SceneGraphWidget;
 class PropertiesWidget;
 class BrowserWidget;
+
+namespace Quantum {
+class ScriptEditorWindow;
+}
 
 // Coordinate space for gizmo transformations
 enum class CoordinateSpace { Local, Global };
@@ -36,6 +40,7 @@ public:
   static SceneGraphWidget *SceneGraphPanel;
   static PropertiesWidget *PropertiesPanel;
   static BrowserWidget *BrowserPanel;
+  static Quantum::ScriptEditorWindow *ScriptEditor;
 
   // === Gizmo State ===
   static CoordinateSpace CurrentSpace;

@@ -6,6 +6,7 @@
 #include "QuantumMenu.h"
 #include "QuantumToolBar.h"
 #include "SceneGraphWidget.h"
+#include "ScriptEditorWindow.h"
 #include "ViewportWidget.h"
 #include "stdafx.h"
 #include <QTimer>
@@ -62,6 +63,9 @@ void Quantum3D::setupDockWidgets() {
   m_browserDock->setAllowedAreas(Qt::AllDockWidgetAreas);
   addDockWidget(Qt::BottomDockWidgetArea, m_browserDock);
   EngineGlobals::BrowserPanel = m_browserWidget;
+
+  // Create Script Editor (a separate main window)
+  EngineGlobals::ScriptEditor = new Quantum::ScriptEditorWindow(this);
 
   // Connect BrowserWidget model import signal to ViewportWidget slot
   connect(m_browserWidget, &BrowserWidget::ModelImported, m_viewportWidget,

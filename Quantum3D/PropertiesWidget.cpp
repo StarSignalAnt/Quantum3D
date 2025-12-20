@@ -116,7 +116,14 @@ void PropertiesWidget::RefreshProperties() {
       if (std::holds_alternative<float>(value)) {
         field.Type = PropertyType::Float;
         field.GetFloat = [script, fieldName]() {
-          return std::get<float>(script->GetMember(fieldName));
+          return std::visit(
+              [](auto &&arg) -> float {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_arithmetic_v<T>)
+                  return (float)arg;
+                return 0.0f;
+              },
+              script->GetMember(fieldName));
         };
         field.SetFloat = [script, fieldName](float val) {
           script->SetMember(fieldName, val);
@@ -124,7 +131,14 @@ void PropertiesWidget::RefreshProperties() {
       } else if (std::holds_alternative<int32_t>(value)) {
         field.Type = PropertyType::Int;
         field.GetInt = [script, fieldName]() {
-          return std::get<int32_t>(script->GetMember(fieldName));
+          return std::visit(
+              [](auto &&arg) -> int {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_arithmetic_v<T>)
+                  return (int)arg;
+                return 0;
+              },
+              script->GetMember(fieldName));
         };
         field.SetInt = [script, fieldName](int val) {
           script->SetMember(fieldName, val);
@@ -140,7 +154,14 @@ void PropertiesWidget::RefreshProperties() {
       } else if (std::holds_alternative<bool>(value)) {
         field.Type = PropertyType::Bool;
         field.GetBool = [script, fieldName]() {
-          return std::get<bool>(script->GetMember(fieldName));
+          return std::visit(
+              [](auto &&arg) -> bool {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_arithmetic_v<T>)
+                  return (bool)arg;
+                return false;
+              },
+              script->GetMember(fieldName));
         };
         field.SetBool = [script, fieldName](bool val) {
           script->SetMember(fieldName, val);
@@ -158,15 +179,37 @@ void PropertiesWidget::RefreshProperties() {
         field.Name = nestedName;
         field.Type = PropertyType::Vec3;
         field.GetVec3 = [nested]() {
-          float x = std::get<float>(nested->GetMember("x"));
-          float y = std::get<float>(nested->GetMember("y"));
-          float z = std::get<float>(nested->GetMember("z"));
-          return glm::vec3(x, y, z);
+          auto getComp = [&](const char *c1, const char *c2) {
+            auto extractFloat = [](const QInstanceValue &val) -> float {
+              return std::visit(
+                  [](auto &&arg) -> float {
+                    using T = std::decay_t<decltype(arg)>;
+                    if constexpr (std::is_arithmetic_v<T>)
+                      return (float)arg;
+                    return 0.0f;
+                  },
+                  val);
+            };
+
+            if (nested->HasMember(c1))
+              return extractFloat(nested->GetMember(c1));
+            if (nested->HasMember(c2))
+              return extractFloat(nested->GetMember(c2));
+            return 0.0f;
+          };
+          return glm::vec3(getComp("x", "X"), getComp("y", "Y"),
+                           getComp("z", "Z"));
         };
         field.SetVec3 = [nested](glm::vec3 val) {
-          nested->SetMember("x", val.x);
-          nested->SetMember("y", val.y);
-          nested->SetMember("z", val.z);
+          auto setComp = [&](const char *c1, const char *c2, float v) {
+            if (nested->HasMember(c1))
+              nested->SetMember(c1, v);
+            else if (nested->HasMember(c2))
+              nested->SetMember(c2, v);
+          };
+          setComp("x", "X", val.x);
+          setComp("y", "Y", val.y);
+          setComp("z", "Z", val.z);
         };
         m_Fields.push_back(field);
       }

@@ -69,6 +69,9 @@ public:
   void SetSpace(GizmoSpace space) { m_Space = space; }
   GizmoSpace GetSpace() const { return m_Space; }
 
+  // Sync gizmo position with target node world position
+  void SyncWithTarget();
+
 protected:
   // Get gizmo rotation based on current space (identity for global, node
   // rotation for local)
