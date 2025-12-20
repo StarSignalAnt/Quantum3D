@@ -11,16 +11,17 @@ A comprehensive guide to the QLang scripting language for the Quantum Engine.
 3. [Data Types](#data-types)
 4. [Variables](#variables)
 5. [Operators](#operators)
-6. [Operator Overloading](#operator-overloading) *(New in v0.2)*
+6. [Operator Overloading](#operator-overloading)
 7. [Control Flow](#control-flow)
 8. [Functions](#functions)
 9. [Classes](#classes)
 10. [Inheritance](#inheritance)
 11. [Generics](#generics)
-12. [Built-In Classes](#built-in-classes) *(New in v0.2)*
-13. [Engine Integration](#engine-integration)
-14. [Error Handling](#error-handling)
-15. [Changelog](#changelog)
+12. [Built-In Classes](#built-in-classes)
+13. [IDE Support](#ide-support) *(New in v0.3)*
+14. [Engine Integration](#engine-integration)
+15. [Error Handling](#error-handling)
+16. [Changelog](#changelog)
 
 ---
 
@@ -30,10 +31,11 @@ QLang is a statically-typed scripting language designed for game development and
 
 - **Clean, readable syntax** inspired by modern languages
 - **Class-based OOP** with single inheritance
-- **Operator overloading** for custom types *(New in v0.2)*
+- **Operator overloading** for custom types
 - **Generic types** for reusable components
 - **C++ interoperability** for native function calls and engine integration
 - **Strong typing** with explicit type declarations
+- **IntelliSense code completion** in the Script Editor *(New in v0.3)*
 
 ---
 
@@ -688,6 +690,64 @@ end
 
 ---
 
+## IDE Support
+
+*New in v0.3*
+
+The Quantum 3D Script Editor provides intelligent code assistance for QLang development.
+
+### IntelliSense Dot-Completion
+
+When you type `.` after a variable, the editor automatically shows available members and methods:
+
+```
+Vec3 pos = new Vec3(1, 2, 3)
+pos.  // Popup shows: X, Y, Z, Plus(), Cross(), etc.
+```
+
+### Visual Indicators
+
+Completion items are visually distinguished by icon:
+
+| Icon | Type | Example |
+|------|------|---------|
+| Blue circle (●) | Member variable | `X`, `Y`, `Z`, `NodePtr` |
+| Purple circle (●) | Method | `Plus()`, `Cross()`, `OnUpdate()` |
+
+### Sorted Completions
+
+Completions are automatically sorted:
+1. **Member variables first** — For quick access to data
+2. **Methods second** — Functions you can call
+
+### Engine Class Support
+
+Built-in engine classes (`Vec3`, `Matrix`, `GameNode`) are automatically loaded and available for IntelliSense without any imports.
+
+### User-Defined Classes
+
+Classes defined in your current file are also available for dot-completion after successful compilation:
+
+```
+class Enemy
+    int32 health
+    float32 speed
+    
+    method void Attack()
+        // ...
+    end
+end
+
+Enemy e = new Enemy()
+e.  // Shows: health, speed, Attack()
+```
+
+### Console Debug Output
+
+The Script Editor console shows IntelliSense debug information when using dot-completion, helpful for troubleshooting type resolution.
+
+---
+
 ## Error Handling
 
 ### Parse Errors
@@ -723,6 +783,24 @@ this    to      true    void    wend    while
 
 ## Changelog
 
+### v0.3 (20.12.2025)
+
+**New Features:**
+- **IntelliSense Dot-Completion**: Script Editor now shows available members and methods when typing `.` after a variable
+- **Typed Completion Icons**: Blue circles for member variables, purple circles for methods
+- **Sorted Completions**: Member variables are shown first, followed by methods
+- **Engine Class Auto-Loading**: Vec3, Matrix, and other engine classes are automatically registered for completion
+- **User-Defined Class Support**: Classes in your script are available for IntelliSense after compilation
+
+**Improvements:**
+- Improved class context detection for accurate member lookup
+- Debug output in console for troubleshooting IntelliSense issues
+- Wider completion popup to accommodate icons
+
+**Bug Fixes:**
+- Fixed class context clearing incorrectly on method `end` keywords
+- Fixed engine class path resolution when running from different directories
+
 ### v0.2 (19.12.2025)
 
 **New Features:**
@@ -751,4 +829,4 @@ this    to      true    void    wend    while
 
 ---
 
-*QLang v0.2 - Quantum Engine Scripting Language*
+*QLang v0.3 - Quantum Engine Scripting Language*

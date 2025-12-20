@@ -1,7 +1,8 @@
 #pragma once
 
-#include <QRect>
-#include <QString>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMouseEvent>
 #include <QTimer>
 #include <QWidget>
 #include <functional>
@@ -14,7 +15,7 @@ class GraphNode;
 }
 using GraphNode = Quantum::GraphNode;
 
-enum class PropertyType { String, Float, Int, Vec3, Bool, Header };
+enum class PropertyType { String, Float, Int, Vec3, Bool, Header, Node };
 
 struct PropertyField {
   std::string Name;
@@ -33,6 +34,10 @@ struct PropertyField {
   std::function<void(glm::vec3)> SetVec3;
   std::function<bool()> GetBool;
   std::function<void(bool)> SetBool;
+  std::function<std::string()> GetNodeName;
+  std::function<void()> ClearNode;
+  std::function<void(GraphNode *)> SetNode;
+  std::string TargetClass;
 
   // UI State for editing
   bool IsEditing = false;
@@ -70,6 +75,9 @@ protected:
   void wheelEvent(QWheelEvent *event) override;
   void contextMenuEvent(QContextMenuEvent *event) override;
   void leaveEvent(QEvent *event) override;
+  void dragEnterEvent(QDragEnterEvent *event) override;
+  void dragMoveEvent(QDragMoveEvent *event) override;
+  void dropEvent(QDropEvent *event) override;
 
 private slots:
   void OnCursorTimer();

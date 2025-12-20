@@ -159,16 +159,84 @@ QValue node_setPosition(QContext *ctx, const std::vector<QValue> &args) {
   else if (std::holds_alternative<double>(zVal))
     z = static_cast<float>(std::get<double>(zVal));
 
-  // Apply rotation (Euler angles in degrees)
+  // Apply position
   // glm::vec3 currentRotation = node->GetRotationEuler();
   node->SetLocalPosition(glm::vec3(x, y, z));
 
 #if QLANG_DEBUG
-  std::cout << "[DEBUG] node_turn: rotated node by (" << x << ", " << y << ", "
-            << z << ")" << std::endl;
+  std::cout << "[DEBUG] node_setPosition: set node position to (" << x << ", "
+            << y << ", " << z << ")" << std::endl;
 #endif
 
   return std::monostate{};
+}
+
+QValue node_getPosition(QContext *ctx, const std::vector<QValue> &args) {
+  // Validate arguments
+  if (args.empty()) {
+    std::cerr << "[ERROR] node_getPosition requires 1 argument: cptr node"
+              << std::endl;
+    return std::monostate{};
+  }
+
+  // Extract node pointer from arg 0 (cptr)
+  if (!std::holds_alternative<void *>(args[0])) {
+    std::cerr << "[ERROR] node_getPosition: arg 0 must be a cptr (node pointer)"
+              << std::endl;
+    return std::monostate{};
+  }
+  void *nodePtr = std::get<void *>(args[0]);
+  Quantum::GraphNode *node = static_cast<Quantum::GraphNode *>(nodePtr);
+
+  if (!node) {
+    std::cerr << "[ERROR] node_getPosition: node pointer is null" << std::endl;
+    return std::monostate{};
+  }
+
+  // Get current position
+  glm::vec3 pos = node->GetLocalPosition();
+
+  // Create Vec3 instance
+  auto runner = QLangDomain::m_QLang->GetRunner();
+  auto vec3Instance = runner->CreateInstance("Vec3");
+
+  if (!vec3Instance) {
+    std::cerr << "[ERROR] node_getPosition: failed to create Vec3 instance"
+              << std::endl;
+    return std::monostate{};
+  }
+
+  // Set members
+  vec3Instance->SetMember("X", pos.x);
+  vec3Instance->SetMember("Y", pos.y);
+  vec3Instance->SetMember("Z", pos.z);
+
+  return vec3Instance;
+}
+
+QValue node_getName(QContext *ctx, const std::vector<QValue> &args) {
+  // Validate arguments
+  if (args.empty()) {
+    std::cerr << "[ERROR] node_getName requires 1 argument: cptr node"
+              << std::endl;
+    return std::monostate{};
+  }
+
+  // Extract node pointer from arg 0 (cptr)
+  if (!std::holds_alternative<void *>(args[0])) {
+    std::cerr << "[ERROR] node_getName: arg 0 must be a cptr (node pointer)"
+              << std::endl;
+    return std::monostate{};
+  }
+  void *nodePtr = std::get<void *>(args[0]);
+  Quantum::GraphNode *node = static_cast<Quantum::GraphNode *>(nodePtr);
+
+  if (!node) {
+    std::cerr << "[ERROR] node_getName: node pointer is null" << std::endl;
+    return std::monostate{};
+  }
+
+  return node->GetName();
 }
 
 // Native print function - prints values with their types
@@ -198,8 +266,7 @@ QValue func_print(QContext *ctx, const std::vector<QValue> &args) {
 
 QLangDomain *QLangDomain::m_QLang = nullptr;
 
-QLangDomain::QLangDomain() {
-
+QLangDomain::QLangDomain(const std::string &projectPath) {
   m_QLang = this;
   std::cout << "Creating QLang domain" << std::endl;
 
@@ -210,9 +277,17 @@ QLangDomain::QLangDomain() {
   m_Context->AddFunc("print", func_print);
   m_Context->AddFunc("NodeTurn", node_turn);
   m_Context->AddFunc("NodeSetPosition", node_setPosition);
+  m_Context->AddFunc("NodeGetPosition", node_getPosition);
+  m_Context->AddFunc("NodeGetName", node_getName);
   m_Runner = make_shared<QRunner>(m_Context, errorCollector);
 
   LoadAndRegisterFolder("engine/qlang/classes");
+
+  if (!projectPath.empty()) {
+    LoadAndRegisterFolder(projectPath);
+  } else {
+    LoadAndRegisterFolder("c:\\qcontent");
+  }
 
   // exit(1);
 }
@@ -296,11 +371,19 @@ QLangDomain::LoadClass(std::string path, Quantum::GraphNode *node) {
   std::cout << "[QLangDomain] LoadClass: path=" << path
             << " className=" << className << std::endl;
 #endif
-  LoadAndRegister(path);
+
+  // If class is already registered, just use it.
+  // This allows dragging scripts that refer to other classes scanned at
+  // startup.
+  if (!m_Runner->FindClass(className)) {
+    LoadAndRegister(path);
+  }
 
   auto cls = m_Runner->CreateInstance(className);
 
-  cls->SetMember("NodePtr", static_cast<void *>(node));
+  if (cls) {
+    cls->SetMember("NodePtr", static_cast<void *>(node));
+  }
 
   return cls;
 }

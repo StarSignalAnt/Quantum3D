@@ -1,6 +1,8 @@
 #define NOMINMAX
 #include "PropertiesWidget.h"
 #include "../QLang/QClassInstance.h"
+#include "../QLang/QRunner.h"
+#include "../QLang/Tokenizer.h"
 #include "../QuantumEngine/GraphNode.h"
 #include "../QuantumEngine/QLangDomain.h"
 #include "../QuantumEngine/SceneGraph.h"
@@ -8,10 +10,14 @@
 #include "SceneGraphWidget.h"
 #include "ViewportWidget.h"
 #include <QClipboard>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QEvent>
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMenu>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QResizeEvent>
@@ -32,6 +38,7 @@ const int NameWidth = 120;
 PropertiesWidget::PropertiesWidget(QWidget *parent) : QWidget(parent) {
   setFocusPolicy(Qt::StrongFocus);
   setMouseTracking(true);
+  setAcceptDrops(true);
   m_CursorTimer = new QTimer(this);
   connect(m_CursorTimer, &QTimer::timeout, this,
           &PropertiesWidget::OnCursorTimer);
@@ -104,101 +111,119 @@ void PropertiesWidget::RefreshProperties() {
   // Scripts
   for (auto script : m_CurrentNode->GetScripts()) {
     AddHeader(script->GetQClassName());
+    auto classDef = script->GetClassDef();
+    if (!classDef)
+      continue;
 
-    auto members = script->GetMembers();
-    for (auto const &pair : members) {
-      std::string fieldName = pair.first;
-      QInstanceValue value = pair.second;
+    // Helper to check for GameNode inheritance
+    auto isGameNodeClass = [](const std::string &className) {
+      if (className == "GameNode")
+        return true;
+      auto cls = QLangDomain::m_QLang->GetRunner()->FindClass(className);
+      while (cls) {
+        if (cls->GetName() == "GameNode")
+          return true;
+        if (!cls->HasParent())
+          break;
+        cls = QLangDomain::m_QLang->GetRunner()->FindClass(
+            cls->GetParentClassName());
+      }
+      return false;
+    };
+
+    for (auto const &memberDecl : classDef->GetMembers()) {
+      std::string fieldName = memberDecl->GetName();
+      auto qVarType = memberDecl->GetVarType();
+      std::string typeName = memberDecl->GetTypeName();
 
       PropertyField field;
       field.Name = fieldName;
 
-      if (std::holds_alternative<float>(value)) {
+      if (qVarType == TokenType::T_FLOAT32) {
         field.Type = PropertyType::Float;
         field.GetFloat = [script, fieldName]() {
-          return std::visit(
-              [](auto &&arg) -> float {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_arithmetic_v<T>)
-                  return (float)arg;
-                return 0.0f;
-              },
-              script->GetMember(fieldName));
+          auto val = script->GetMember(fieldName);
+          if (std::holds_alternative<float>(val))
+            return std::get<float>(val);
+          if (std::holds_alternative<int32_t>(val))
+            return (float)std::get<int32_t>(val);
+          if (std::holds_alternative<double>(val))
+            return (float)std::get<double>(val);
+          return 0.0f;
         };
         field.SetFloat = [script, fieldName](float val) {
           script->SetMember(fieldName, val);
         };
-      } else if (std::holds_alternative<int32_t>(value)) {
+      } else if (qVarType == TokenType::T_INT32) {
         field.Type = PropertyType::Int;
         field.GetInt = [script, fieldName]() {
-          return std::visit(
-              [](auto &&arg) -> int {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_arithmetic_v<T>)
-                  return (int)arg;
-                return 0;
-              },
-              script->GetMember(fieldName));
+          auto val = script->GetMember(fieldName);
+          if (std::holds_alternative<int32_t>(val))
+            return (int)std::get<int32_t>(val);
+          if (std::holds_alternative<float>(val))
+            return (int)std::get<float>(val);
+          if (std::holds_alternative<double>(val))
+            return (int)std::get<double>(val);
+          return 0;
         };
         field.SetInt = [script, fieldName](int val) {
           script->SetMember(fieldName, val);
         };
-      } else if (std::holds_alternative<std::string>(value)) {
+      } else if (qVarType == TokenType::T_STRING_TYPE) {
         field.Type = PropertyType::String;
         field.GetString = [script, fieldName]() {
-          return std::get<std::string>(script->GetMember(fieldName));
+          auto val = script->GetMember(fieldName);
+          if (std::holds_alternative<std::string>(val))
+            return std::get<std::string>(val);
+          return std::string("");
         };
         field.SetString = [script, fieldName](const std::string &val) {
           script->SetMember(fieldName, val);
         };
-      } else if (std::holds_alternative<bool>(value)) {
+      } else if (qVarType == TokenType::T_BOOL) {
         field.Type = PropertyType::Bool;
         field.GetBool = [script, fieldName]() {
-          return std::visit(
-              [](auto &&arg) -> bool {
-                using T = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_arithmetic_v<T>)
-                  return (bool)arg;
-                return false;
-              },
-              script->GetMember(fieldName));
+          auto val = script->GetMember(fieldName);
+          if (std::holds_alternative<bool>(val))
+            return std::get<bool>(val);
+          if (std::holds_alternative<int32_t>(val))
+            return (bool)std::get<int32_t>(val);
+          return false;
         };
         field.SetBool = [script, fieldName](bool val) {
           script->SetMember(fieldName, val);
         };
-      } else {
-        continue;
-      }
-      m_Fields.push_back(field);
-    }
-
-    for (auto const &nestedName : script->GetNestedInstanceNames()) {
-      auto nested = script->GetNestedInstance(nestedName);
-      if (nested && nested->GetQClassName() == "Vec3") {
-        PropertyField field;
-        field.Name = nestedName;
+      } else if (typeName == "Vec3") {
+        auto nested = script->GetNestedInstance(fieldName);
+        if (!nested)
+          continue;
         field.Type = PropertyType::Vec3;
         field.GetVec3 = [nested]() {
-          auto getComp = [&](const char *c1, const char *c2) {
-            auto extractFloat = [](const QInstanceValue &val) -> float {
-              return std::visit(
-                  [](auto &&arg) -> float {
-                    using T = std::decay_t<decltype(arg)>;
-                    if constexpr (std::is_arithmetic_v<T>)
-                      return (float)arg;
-                    return 0.0f;
-                  },
-                  val);
-            };
-
-            if (nested->HasMember(c1))
-              return extractFloat(nested->GetMember(c1));
-            if (nested->HasMember(c2))
-              return extractFloat(nested->GetMember(c2));
+          auto extractFloat = [](const QInstanceValue &v) -> float {
+            if (std::holds_alternative<float>(v))
+              return std::get<float>(v);
+            if (std::holds_alternative<int32_t>(v))
+              return (float)std::get<int32_t>(v);
+            if (std::holds_alternative<double>(v))
+              return (float)std::get<double>(v);
             return 0.0f;
           };
-          return glm::vec3(getComp("x", "X"), getComp("y", "Y"),
-                           getComp("z", "Z"));
+          float x = nested->HasMember("X")
+                        ? extractFloat(nested->GetMember("X"))
+                        : (nested->HasMember("x")
+                               ? extractFloat(nested->GetMember("x"))
+                               : 0.0f);
+          float y = nested->HasMember("Y")
+                        ? extractFloat(nested->GetMember("Y"))
+                        : (nested->HasMember("y")
+                               ? extractFloat(nested->GetMember("y"))
+                               : 0.0f);
+          float z = nested->HasMember("Z")
+                        ? extractFloat(nested->GetMember("Z"))
+                        : (nested->HasMember("z")
+                               ? extractFloat(nested->GetMember("z"))
+                               : 0.0f);
+          return glm::vec3(x, y, z);
         };
         field.SetVec3 = [nested](glm::vec3 val) {
           auto setComp = [&](const char *c1, const char *c2, float v) {
@@ -207,12 +232,63 @@ void PropertiesWidget::RefreshProperties() {
             else if (nested->HasMember(c2))
               nested->SetMember(c2, v);
           };
-          setComp("x", "X", val.x);
-          setComp("y", "Y", val.y);
-          setComp("z", "Z", val.z);
+          setComp("X", "x", val.x);
+          setComp("Y", "y", val.y);
+          setComp("Z", "z", val.z);
         };
-        m_Fields.push_back(field);
+      } else if (isGameNodeClass(typeName)) {
+        field.Type = PropertyType::Node;
+        field.TargetClass = typeName;
+        field.GetNodeName = [script, fieldName]() {
+          auto nested = script->GetNestedInstance(fieldName);
+          if (!nested)
+            return std::string("null");
+          auto nodePtrVal = nested->GetMember("NodePtr");
+          if (std::holds_alternative<void *>(nodePtrVal)) {
+            void *ptr = std::get<void *>(nodePtrVal);
+            if (ptr) {
+              return static_cast<GraphNode *>(ptr)->GetFullName();
+            }
+          }
+          return std::string("null");
+        };
+        field.ClearNode = [script, fieldName]() {
+          script->SetNestedInstance(fieldName, nullptr);
+        };
+        field.SetNode = [script, fieldName, typeName](GraphNode *newNode) {
+          if (!newNode) {
+            script->SetNestedInstance(fieldName, nullptr);
+            return;
+          }
+
+          std::shared_ptr<QClassInstance> targetInst = nullptr;
+
+          // 1. Try to find an existing script of the matching type on the node
+          for (auto &nodeScript : newNode->GetScripts()) {
+            if (nodeScript->GetQClassName() == typeName) {
+              targetInst = nodeScript;
+              break;
+            }
+          }
+
+          // 2. If no matching script found, and property is a base GameNode,
+          // create a new base instance
+          if (!targetInst && typeName == "GameNode") {
+            auto runner = QLangDomain::m_QLang->GetRunner();
+            targetInst = runner->CreateInstance("GameNode");
+            if (targetInst) {
+              targetInst->SetMember("NodePtr", (void *)newNode);
+            }
+          }
+
+          if (targetInst) {
+            script->SetNestedInstance(fieldName, targetInst);
+          }
+        };
+      } else {
+        continue;
       }
+      m_Fields.push_back(field);
     }
   }
 
@@ -320,6 +396,8 @@ void PropertiesWidget::paintEvent(QPaintEvent *event) {
           displayVal = std::to_string(field.GetInt());
         else if (field.Type == PropertyType::Bool)
           displayVal = field.GetBool() ? "true" : "false";
+        else if (field.Type == PropertyType::Node)
+          displayVal = field.GetNodeName();
       }
 
       painter.save();
@@ -340,7 +418,11 @@ void PropertiesWidget::paintEvent(QPaintEvent *event) {
         painter.fillRect(selRect, QColor(0, 120, 215, 150));
       }
 
-      painter.setPen(Qt::white);
+      if (field.Type == PropertyType::Node) {
+        painter.setPen(QColor(100, 180, 255)); // Light blue for nodes
+      } else {
+        painter.setPen(Qt::white);
+      }
       painter.drawText(
           field.ValueRect.adjusted(Padding - field.ScrollX, 0, -Padding, 0),
           Qt::AlignLeft | Qt::AlignVCenter, QString::fromStdString(displayVal));
@@ -466,6 +548,11 @@ void PropertiesWidget::mousePressEvent(QMouseEvent *event) {
         std::stringstream ss;
         ss << std::fixed << std::setprecision(2) << val;
         field.EditBuffer = ss.str();
+      } else if (field.Type == PropertyType::Node) {
+        // Don't clear on click, only on drag-drop or explicit action
+        // field.ClearNode();
+        // RefreshProperties();
+        // return;
       }
 
       if (field.IsEditing && event->button() != Qt::RightButton) {
@@ -532,6 +619,85 @@ void PropertiesWidget::mouseMoveEvent(QMouseEvent *event) {
       break;
     }
   }
+}
+
+void PropertiesWidget::dragEnterEvent(QDragEnterEvent *event) {
+  if (event->mimeData()->hasFormat("application/x-quantum-node-ptr")) {
+    event->acceptProposedAction();
+  } else {
+    event->ignore();
+  }
+}
+
+void PropertiesWidget::dragMoveEvent(QDragMoveEvent *event) {
+  int hoveredIdx = -1;
+  for (int i = 0; i < (int)m_Fields.size(); ++i) {
+    if (m_Fields[i].NameRect.contains(event->position().toPoint()) ||
+        m_Fields[i].ValueRect.contains(event->position().toPoint())) {
+      hoveredIdx = i;
+      break;
+    }
+  }
+
+  if (hoveredIdx != -1) {
+    PropertyField &field = m_Fields[hoveredIdx];
+    if (field.Type == PropertyType::Node) {
+      // Validate node type
+      QByteArray data =
+          event->mimeData()->data("application/x-quantum-node-ptr");
+      if (data.size() == sizeof(GraphNode *)) {
+        GraphNode *draggedNode = nullptr;
+        memcpy(&draggedNode, data.constData(), sizeof(GraphNode *));
+
+        if (draggedNode) {
+          bool valid = false;
+          if (field.TargetClass == "GameNode") {
+            valid = true; // Any node for base GameNode
+          } else {
+            // Must have the specific script
+            valid = draggedNode->HasScript(field.TargetClass);
+          }
+
+          if (valid) {
+            event->acceptProposedAction();
+            return;
+          }
+        }
+      }
+    }
+  }
+  event->ignore();
+}
+
+void PropertiesWidget::dropEvent(QDropEvent *event) {
+  int hoveredIdx = -1;
+  for (int i = 0; i < (int)m_Fields.size(); ++i) {
+    if (m_Fields[i].NameRect.contains(event->position().toPoint()) ||
+        m_Fields[i].ValueRect.contains(event->position().toPoint())) {
+      hoveredIdx = i;
+      break;
+    }
+  }
+
+  if (hoveredIdx != -1) {
+    PropertyField &field = m_Fields[hoveredIdx];
+    if (field.Type == PropertyType::Node) {
+      QByteArray data =
+          event->mimeData()->data("application/x-quantum-node-ptr");
+      if (data.size() == sizeof(GraphNode *)) {
+        GraphNode *draggedNode = nullptr;
+        memcpy(&draggedNode, data.constData(), sizeof(GraphNode *));
+
+        if (draggedNode && field.SetNode) {
+          field.SetNode(draggedNode);
+          RefreshProperties();
+          event->acceptProposedAction();
+          return;
+        }
+      }
+    }
+  }
+  event->ignore();
 }
 
 void PropertiesWidget::leaveEvent(QEvent *event) {

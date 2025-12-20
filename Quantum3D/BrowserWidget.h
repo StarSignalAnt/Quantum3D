@@ -85,6 +85,7 @@ public:
   ~BrowserWidget();
 
   void BrowsePath(const std::string &path);
+  std::string GetCurrentPath() const { return m_CurrentPath; }
 
   QSize sizeHint() const override { return QSize(800, 280); }
 

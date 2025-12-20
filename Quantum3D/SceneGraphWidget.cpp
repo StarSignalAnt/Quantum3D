@@ -2,11 +2,13 @@
 #include "EngineGlobals.h"
 #include "stdafx.h"
 
+#include <QApplication>
+#include <QDrag>
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QScrollBar>
 #include <QWheelEvent>
-#include <QtWidgets/QScrollBar>
 
 // Include Quantum headers
 #include "../QuantumEngine/GraphNode.h"
@@ -331,9 +333,8 @@ void SceneGraphWidget::resizeEvent(QResizeEvent *event) {
 void SceneGraphWidget::mousePressEvent(QMouseEvent *event) {
   if (event->button() == Qt::LeftButton) {
     int itemIndex = GetItemIndexAtY(event->pos().y());
-
     if (itemIndex >= 0 && itemIndex < static_cast<int>(m_FlatList.size())) {
-      TreeViewItem &item = m_FlatList[itemIndex];
+      const TreeViewItem &item = m_FlatList[itemIndex];
 
       // Check if clicked on expand/collapse icon area
       int indent = item.Depth * m_IndentWidth + 5;
@@ -350,29 +351,14 @@ void SceneGraphWidget::mousePressEvent(QMouseEvent *event) {
         UpdateScrollBar();
         update();
       } else {
-        // Select the node
+        // Internal selection only (for visual feedback)
         m_SelectedNode = item.Node;
+        m_PotentialSelection = item.Node;
         update();
-
-        // Update EngineGlobals (with guard to prevent recursion)
-        if (m_SelectedNode) {
-          emit NodeSelected(m_SelectedNode);
-
-          // Set flag to prevent OnExternalSelectionChanged from being triggered
-          m_UpdatingSelection = true;
-
-          // Find the shared_ptr for this node in the scene graph
-          if (m_SceneGraph) {
-            auto sharedNode = m_SceneGraph->FindNode(m_SelectedNode->GetName());
-            if (sharedNode) {
-              EngineGlobals::SetSelectedNode(sharedNode);
-            }
-          }
-
-          m_UpdatingSelection = false;
-        }
       }
     }
+    m_DragStartPosition = event->pos();
+    m_Dragging = false;
   }
 
   QWidget::mousePressEvent(event);
@@ -441,7 +427,8 @@ void SceneGraphWidget::dropEvent(QDropEvent *event) {
   // Load the class instance from QLangDomain
   if (EngineGlobals::m_QDomain) {
     std::shared_ptr<QClassInstance> classInstance =
-        EngineGlobals::m_QDomain->LoadClass(scriptPath.toStdString(),targetNode);
+        EngineGlobals::m_QDomain->LoadClass(scriptPath.toStdString(),
+                                            targetNode);
 
     if (classInstance) {
       targetNode->AddScript(classInstance);
@@ -455,4 +442,68 @@ void SceneGraphWidget::dropEvent(QDropEvent *event) {
 
   event->acceptProposedAction();
   update();
+}
+
+void SceneGraphWidget::mouseMoveEvent(QMouseEvent *event) {
+  if (!(event->buttons() & Qt::LeftButton))
+    return;
+
+  if (!m_Dragging && (event->pos() - m_DragStartPosition).manhattanLength() <
+                         QApplication::startDragDistance())
+    return;
+
+  if (!m_Dragging) {
+    m_Dragging = true;
+    m_PotentialSelection = nullptr; // Cancel selection on drag
+  }
+
+  int itemIndex = GetItemIndexAtY(m_DragStartPosition.y());
+  if (itemIndex < 0 || itemIndex >= static_cast<int>(m_FlatList.size()))
+    return;
+
+  Quantum::GraphNode *node = m_FlatList[itemIndex].Node;
+  if (!node)
+    return;
+
+  QDrag *drag = new QDrag(this);
+  QMimeData *mimeData = new QMimeData;
+
+  // Store the node pointer and the full name
+  mimeData->setData("application/x-quantum-node-ptr",
+                    QByteArray((const char *)&node, sizeof(node)));
+  mimeData->setText(QString::fromStdString(node->GetFullName()));
+
+  drag->setMimeData(mimeData);
+  drag->exec(Qt::CopyAction | Qt::MoveAction);
+
+  // After drag exec, reset state
+  m_Dragging = false;
+}
+
+void SceneGraphWidget::mouseReleaseEvent(QMouseEvent *event) {
+  if (event->button() == Qt::LeftButton) {
+    if (m_PotentialSelection) {
+      // Finalize the selection change
+      m_SelectedNode = m_PotentialSelection;
+
+      if (m_SelectedNode) {
+        emit NodeSelected(m_SelectedNode);
+
+        m_UpdatingSelection = true;
+
+        if (m_SceneGraph) {
+          auto sharedNode = m_SceneGraph->FindNode(m_SelectedNode->GetName());
+          if (sharedNode) {
+            EngineGlobals::SetSelectedNode(sharedNode);
+          }
+        }
+
+        m_UpdatingSelection = false;
+      }
+      m_PotentialSelection = nullptr;
+      update();
+    }
+    m_Dragging = false;
+  }
+  QWidget::mouseReleaseEvent(event);
 }

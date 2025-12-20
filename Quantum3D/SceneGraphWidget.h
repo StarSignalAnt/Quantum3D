@@ -11,7 +11,6 @@
 #include <unordered_set>
 #include <vector>
 
-
 // Forward declarations
 namespace Quantum {
 class SceneGraph;
@@ -57,6 +56,8 @@ protected:
   void dragEnterEvent(QDragEnterEvent *event) override;
   void dragMoveEvent(QDragMoveEvent *event) override;
   void dropEvent(QDropEvent *event) override;
+  void mouseMoveEvent(QMouseEvent *event) override;
+  void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
   // Rebuild the flat list from the scene graph
@@ -114,6 +115,9 @@ private:
 
   // Flag to prevent recursive selection updates
   bool m_UpdatingSelection = false;
+  Quantum::GraphNode *m_PotentialSelection = nullptr;
+  QPoint m_DragStartPosition;
+  bool m_Dragging = false;
 
   // Scrollbar
   QScrollBar *m_VerticalScrollBar = nullptr;

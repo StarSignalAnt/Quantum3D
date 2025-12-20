@@ -15,11 +15,12 @@
 5. [Transform Gizmos](#transform-gizmos)
 6. [Importing 3D Models](#importing-3d-models)
 7. [Lighting](#lighting)
-8. [QLang Scripting](#qlang-scripting) *(New in v0.2)*
-9. [Play Mode](#play-mode) *(New in v0.2)*
-10. [Keyboard Shortcuts Reference](#keyboard-shortcuts-reference)
-11. [Troubleshooting](#troubleshooting)
-12. [Changelog](#changelog)
+8. [QLang Scripting](#qlang-scripting)
+9. [Script Editor](#script-editor) *(New in v0.3)*
+10. [Play Mode](#play-mode)
+11. [Keyboard Shortcuts Reference](#keyboard-shortcuts-reference)
+12. [Troubleshooting](#troubleshooting)
+13. [Changelog](#changelog)
 
 ---
 
@@ -31,8 +32,9 @@ Quantum 3D is a 3D scene editor built on the Quantum Engine. It provides a viewp
 - Real-time Vulkan-based 3D rendering
 - Transform gizmos (translate, rotate, scale)
 - Model importing (FBX, OBJ, glTF, GLB)
-- QLang scripting for game logic *(New in v0.2)*
-- Play mode for testing scripts *(New in v0.2)*
+- QLang scripting for game logic
+- **IntelliSense-style code completion** *(New in v0.3)*
+- Play mode for testing scripts
 
 ---
 
@@ -57,13 +59,11 @@ Located below the menu bar, the toolbar provides quick access to common tools:
 | ![Translate](icons/translate.png) | **Translate** | `F1` | Move selected objects |
 | ![Rotate](icons/rotate.png) | **Rotate** | `F2` | Rotate selected objects |
 | ![Scale](icons/scale.png) | **Scale** | `F3` | Scale selected objects |
-| ![Play](icons/play.png) | **Play** | — | Start play mode *(New in v0.2)* |
-| ![Stop](icons/stop.png) | **Stop** | — | Stop play mode *(New in v0.2)* |
+| ![Play](icons/play.png) | **Play** | — | Start play mode |
+| ![Stop](icons/stop.png) | **Stop** | — | Stop play mode |
 
 ### Viewport
 The central 3D viewport where you view and interact with your scene. This is a fully rendered 3D view powered by the Vulkan graphics API.
-
-**New in v0.2:** The viewport now uses accurate delta time for smooth, frame-rate independent camera movement.
 
 ### Browser Panel
 Located at the bottom of the window. This panel lets you browse files on your system (defaults to `c:\qcontent\`). Use it to navigate folders and import 3D models into your scene.
@@ -99,8 +99,6 @@ Hold **Right Mouse Button** to enable camera look mode. While holding:
 
 > [!TIP]
 > The cursor becomes hidden and allows infinite movement while in look mode. Release the right mouse button to restore normal cursor behavior.
-
-**New in v0.2:** Camera movement now uses accurate delta time, ensuring consistent speed regardless of frame rate.
 
 ### Special Keys
 
@@ -183,8 +181,6 @@ Use the `Space` and `T` keys to reposition lights to the camera location for eas
 
 ## QLang Scripting
 
-*New in v0.2*
-
 Quantum 3D supports QLang scripting for adding custom game logic to scene nodes.
 
 ### Overview
@@ -196,6 +192,7 @@ QLang is a statically-typed scripting language designed for the Quantum Engine. 
 | Class | Description |
 |-------|-------------|
 | `Vec3` | 3D vector with operator overloading (+, -, *, /) and utility methods |
+| `Matrix` | 4x4 transformation matrix with identity, scale, rotate, translate |
 | `GameNode` | Base class for game objects with lifecycle hooks |
 
 ### GameNode Lifecycle
@@ -236,9 +233,53 @@ end
 
 ---
 
-## Play Mode
+## Script Editor
 
-*New in v0.2*
+*New in v0.3*
+
+Quantum 3D includes a built-in Script Editor for writing and editing QLang scripts with IDE-like features.
+
+### Opening the Script Editor
+
+Double-click on a `.q` file in the Browser panel to open it in the Script Editor.
+
+### IntelliSense Features
+
+The Script Editor provides intelligent code completion:
+
+#### Dot Completion
+
+When you type `.` after a variable, the editor shows available members and methods:
+
+```
+Vec3 pos = new Vec3(1, 2, 3)
+pos.  // Shows: X, Y, Z, Plus(), Minus(), Cross(), etc.
+```
+
+#### Icon Indicators
+
+Completion items show icons to indicate their type:
+- **Blue circle (●)** — Member variables (e.g., X, Y, Z)
+- **Purple circle (●)** — Methods (e.g., Plus(), Minus())
+
+#### Auto-Complete
+
+The editor automatically loads engine classes (`Vec3`, `Matrix`, `GameNode`) and shows their members in dot-completion.
+
+### Live Compilation
+
+The Script Editor compiles your code as you type (after a brief delay) and shows errors in the console panel below the editor.
+
+### Console Output
+
+The bottom panel shows:
+- Compilation status ("Compiled OK" or error messages)
+- Line numbers for any errors
+- Debug output when using dot-completion
+
+---
+
+## Play Mode
 
 Play mode allows you to test your QLang scripts in real-time.
 
@@ -305,9 +346,33 @@ Vec3 move = new Vec3(speed * dt, 0, 0)
 - Check console output for QLang parsing errors
 - Verify your script extends `GameNode`
 
+### Dot-Completion Not Working
+- Ensure the file has been compiled successfully (check for "Compiled OK")
+- The variable must have a known type (Vec3, Matrix, or user-defined class)
+- You must be inside a class and method for context detection
+
 ---
 
 ## Changelog
+
+### v0.3 (20.12.25)
+
+**New Features:**
+- **IntelliSense Dot-Completion**: Type `.` after a variable to see available members and methods
+- **Typed Completion Icons**: Blue circles for member variables, purple circles for methods
+- **Engine Class Auto-Loading**: Vec3, Matrix, and other engine classes are automatically registered for IntelliSense
+- **Live Symbol Collection**: Classes defined in your script are available for completion after compilation
+- **Debug Console Output**: Script Editor console shows IntelliSense debugging information
+
+**Improvements:**
+- Script Editor now connects compilation to IntelliSense for real-time code assistance
+- Improved class context detection for accurate member lookup
+- Completion popup properly sorted: member variables first, then methods
+- Wider completion popup to accommodate icon display
+
+**Bug Fixes:**
+- Fixed `getCurrentClassName()` incorrectly clearing class context on method `end` keywords
+- Fixed engine class path resolution when app runs from different directories
 
 ### v0.2 (19.12.25)
 
@@ -344,3 +409,4 @@ Vec3 move = new Vec3(speed * dt, 0, 0)
 > [!IMPORTANT]
 > **Feedback Welcome**
 > As pre-alpha software, your feedback helps improve Quantum 3D. Please report any bugs or feature requests to the development team.
+

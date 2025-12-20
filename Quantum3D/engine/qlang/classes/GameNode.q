@@ -11,8 +11,7 @@ class GameNode
 
     method Vec3 GetPosition()
 
-        printf("GetPosition");
-        return new Vec3(1,2,3);
+        return NodeGetPosition(NodePtr);
 
     end 
 

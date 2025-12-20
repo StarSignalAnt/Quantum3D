@@ -15,7 +15,6 @@
 #include <variant>
 #include <vector>
 
-
 Quantum3D::Quantum3D(QWidget *parent) : QMainWindow(parent) {
   setupMenu();
   setupToolBar();
@@ -79,7 +78,8 @@ void Quantum3D::setupDockWidgets() {
   // init) Use a timer to defer this until after the viewport has initialized
   // its scene
 
-  EngineGlobals::m_QDomain = std::make_shared<QLangDomain>();
+  EngineGlobals::m_QDomain =
+      std::make_shared<QLangDomain>(m_browserWidget->GetCurrentPath());
 
   // Set initial dock sizes (280 pixels) - resizable by user
   resizeDocks({m_sceneGraphDock}, {280}, Qt::Horizontal);

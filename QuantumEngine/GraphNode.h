@@ -101,6 +101,11 @@ public:
   void OnStop();
   void OnUpdate(float dt);
 
+  // Full hierarchical name (e.g., scene.node.Suzanne)
+  std::string GetFullName() const;
+  // Check if node has a script of a certain class name
+  bool HasScript(const std::string &className) const;
+
 protected:
   // Called when transform changes
   virtual void OnTransformChanged();

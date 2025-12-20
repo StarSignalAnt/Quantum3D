@@ -1,5 +1,6 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "GraphNode.h"
+#include "../QLang/QClassInstance.h"
 #include "Mesh3D.h"
 #include "QLangDomain.h"
 #include <algorithm>
@@ -339,6 +340,22 @@ void GraphNode::OnUpdate(float dt)
     // QValue result = runner.CallMethod(node1, "Update", updateArgs);
     QLangDomain::m_QLang->RunMethod(cls, "OnUpdate", updateArgs);
   }
+}
+
+std::string GraphNode::GetFullName() const {
+  if (m_Parent) {
+    return m_Parent->GetFullName() + "." + m_Name;
+  }
+  return m_Name;
+}
+
+bool GraphNode::HasScript(const std::string &className) const {
+  for (const auto &cls : m_QClasses) {
+    if (cls->GetQClassName() == className) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace Quantum
