@@ -25,7 +25,7 @@ public:
   }
 
   // Get the class name
-  const std::string &GetClassName() const { return m_ClassName; }
+  const std::string &GetQClassName() const { return m_ClassName; }
 
   // Get the class definition
   std::shared_ptr<QClass> GetClassDef() const { return m_ClassDef; }

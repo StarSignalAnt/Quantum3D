@@ -66,6 +66,14 @@ class Vec3
         return new Vec3(X / scalar, Y / scalar, Z / scalar);
     end
 
+    // Multiplication: Vec3 * Matrix
+    method Vec3 Multiply(Matrix m)
+        float32 rx = X * m.m11 + Y * m.m21 + Z * m.m31 + m.m41;
+        float32 ry = X * m.m12 + Y * m.m22 + Z * m.m32 + m.m42;
+        float32 rz = X * m.m13 + Y * m.m23 + Z * m.m33 + m.m43;
+        return new Vec3(rx, ry, rz);
+    end
+
     // ==================== Utility Methods ====================
 
     // Dot product

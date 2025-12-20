@@ -23,7 +23,7 @@ public:
   }
 
   std::string GetName() const override { return m_InstanceName; }
-  std::string GetClassName() const { return m_ClassName; }
+  std::string GetQClassName() const { return m_ClassName; }
   std::string GetInstanceName() const { return m_InstanceName; }
 
   void SetConstructorArgs(std::shared_ptr<QParameters> args) {

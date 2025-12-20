@@ -3,13 +3,14 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QScrollBar>
 #include <QWheelEvent>
-#include <QtGui/QPainter>
-#include <QtWidgets/QScrollBar>
-#include <QtWidgets/QWidget>
+#include <QWidget>
 #include <memory>
 #include <unordered_set>
 #include <vector>
+
 
 // Forward declarations
 namespace Quantum {
@@ -37,6 +38,7 @@ public:
   // Set the scene graph to display
   void SetGraph(std::shared_ptr<Quantum::SceneGraph> graph);
 
+public:
   // Refresh the tree view from the scene graph
   void RefreshTree();
 

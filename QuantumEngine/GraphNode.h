@@ -89,6 +89,10 @@ public:
   size_t GetMeshCount() const { return m_Meshes.size(); }
   bool HasMeshes() const { return !m_Meshes.empty(); }
 
+  const std::vector<std::shared_ptr<QClassInstance>> &GetScripts() const {
+    return m_QClasses;
+  }
+
   void AddScript(std::shared_ptr<QClassInstance> cls);
 
   void Turn(glm::vec3 value);

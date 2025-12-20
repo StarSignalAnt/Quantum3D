@@ -1,10 +1,11 @@
-// EngineGlobals.cpp
+#define NOMINMAX
 #include "EngineGlobals.h"
 #include "../QuantumEngine/GraphNode.h"
+#include "../QuantumEngine/QLangDomain.h"
+#include "../QuantumEngine/SceneGraph.h"
+#include "PropertiesWidget.h"
 #include "SceneGraphWidget.h"
 #include "ViewportWidget.h"
-#include "SceneGraph.h"
-#include "stdafx.h"
 #include <iostream>
 
 // === Static Member Initialization ===
@@ -53,6 +54,11 @@ void EngineGlobals::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
   // Notify the scene graph panel to update its selection display
   if (SceneGraphPanel) {
     SceneGraphPanel->OnExternalSelectionChanged(node.get());
+  }
+
+  // Notify the properties panel
+  if (PropertiesPanel) {
+    PropertiesPanel->SetNode(node.get());
   }
 }
 
@@ -107,27 +113,27 @@ GizmoType EngineGlobals::GetGizmoMode() { return CurrentGizmoType; }
 
 void EngineGlobals::OnPlay() {
 
-    if (m_Playing) return;
+  if (m_Playing)
+    return;
 
-    m_Playing = true;
+  m_Playing = true;
 
-    EditorScene->OnPlay();
-
+  EditorScene->OnPlay();
 }
 
 void EngineGlobals::OnStop() {
 
-    if (!m_Playing) return;
+  if (!m_Playing)
+    return;
 
-    m_Playing = false;
+  m_Playing = false;
 
-    EditorScene->OnStop();
-
+  EditorScene->OnStop();
 }
 
 void EngineGlobals::OnUpdate(float dt) {
 
-    if (!m_Playing) return;
-    EditorScene->OnUpdate(dt);
-
+  if (!m_Playing)
+    return;
+  EditorScene->OnUpdate(dt);
 }

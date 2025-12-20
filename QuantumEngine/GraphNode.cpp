@@ -74,24 +74,22 @@ void GraphNode::SetLocalRotationAxisAngle(const glm::vec3 &axis,
 
 glm::vec3 GraphNode::GetRotationEuler() const {
   // Extract Euler angles from rotation matrix (in degrees)
-  // Using YXZ order (yaw, pitch, roll)
+  // Using YXZ order: Yaw(Y) -> Pitch(X) -> Roll(Z)
+  // Matrix M = Ry * Rx * Rz
   glm::vec3 euler;
 
-  // Extract from rotation matrix
-  float sy = -m_LocalRotation[2][0];
-
-  if (std::abs(sy) < 0.99999f) {
-    euler.x = std::atan2(m_LocalRotation[2][1], m_LocalRotation[2][2]); // pitch
-    euler.y = std::asin(sy);                                            // yaw
-    euler.z = std::atan2(m_LocalRotation[1][0], m_LocalRotation[0][0]); // roll
+  float m21 = m_LocalRotation[2][1];
+  if (std::abs(m21) < 0.99999f) {
+    euler.x = -std::asin(m21);                                          // pitch
+    euler.y = std::atan2(m_LocalRotation[2][0], m_LocalRotation[2][2]); // yaw
+    euler.z = std::atan2(m_LocalRotation[0][1], m_LocalRotation[1][1]); // roll
   } else {
     // Gimbal lock
-    euler.x = std::atan2(-m_LocalRotation[1][2], m_LocalRotation[1][1]);
-    euler.y = sy > 0 ? glm::half_pi<float>() : -glm::half_pi<float>();
+    euler.x = m21 < 0 ? glm::half_pi<float>() : -glm::half_pi<float>();
+    euler.y = std::atan2(-m_LocalRotation[0][2], m_LocalRotation[0][0]);
     euler.z = 0.0f;
   }
 
-  // Convert to degrees
   return glm::degrees(euler);
 }
 
@@ -293,34 +291,30 @@ void GraphNode::RemoveMesh(Mesh3D *mesh) {
 
 void GraphNode::ClearMeshes() { m_Meshes.clear(); }
 
-
 void GraphNode::Turn(glm::vec3 rot) {
 
-    float yaw = glm::radians(rot.y);
-    float pitch = glm::radians(rot.x);
-    float roll = glm::radians(rot.z);
+  float yaw = glm::radians(rot.y);
+  float pitch = glm::radians(rot.x);
+  float roll = glm::radians(rot.z);
 
-    glm::mat4 rotY =
-        glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f));
-    glm::mat4 rotX =
-        glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
-    glm::mat4 rotZ =
-        glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
-    
-    glm::mat4 rotm = rotY * rotX * rotZ;
+  glm::mat4 rotY =
+      glm::rotate(glm::mat4(1.0f), yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+  glm::mat4 rotX =
+      glm::rotate(glm::mat4(1.0f), pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+  glm::mat4 rotZ =
+      glm::rotate(glm::mat4(1.0f), roll, glm::vec3(0.0f, 0.0f, 1.0f));
 
-    m_LocalRotation = m_LocalRotation * rotm;
-    
-    m_WorldMatrixDirty = true;
+  glm::mat4 rotm = rotY * rotX * rotZ;
 
+  m_LocalRotation = m_LocalRotation * rotm;
+
+  m_WorldMatrixDirty = true;
 }
 
 void GraphNode::AddScript(std::shared_ptr<QClassInstance> cls) {
 
   m_QClasses.push_back(cls);
 }
-
-
 
 void GraphNode::OnPlay() {
 
@@ -338,17 +332,13 @@ void GraphNode::OnUpdate(float dt)
 
 {
 
-    std::vector<QValue> updateArgs = { dt };
+  std::vector<QValue> updateArgs = {dt};
 
+  for (auto cls : m_QClasses) {
 
-    for (auto cls : m_QClasses) {
-
-
-
-        // QValue result = runner.CallMethod(node1, "Update", updateArgs);
-        QLangDomain::m_QLang->RunMethod(cls, "OnUpdate",updateArgs);
-    }
-
+    // QValue result = runner.CallMethod(node1, "Update", updateArgs);
+    QLangDomain::m_QLang->RunMethod(cls, "OnUpdate", updateArgs);
+  }
 }
 
 } // namespace Quantum

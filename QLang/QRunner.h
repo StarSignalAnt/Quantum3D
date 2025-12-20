@@ -189,7 +189,7 @@ public:
 
 #if QLANG_DEBUG
     std::cout << "[DEBUG] QRunner::CallMethod() - calling " << methodName
-              << " on " << instance->GetClassName() << std::endl;
+              << " on " << instance->GetQClassName() << std::endl;
 #endif
 
     auto classDef = instance->GetClassDef();
@@ -614,7 +614,7 @@ private:
           return true;
         }
         auto instance = std::get<std::shared_ptr<QClassInstance>>(value);
-        return instance->GetClassName() == paramTypeName;
+        return instance->GetQClassName() == paramTypeName;
       }
       default:
         return true;
@@ -677,7 +677,7 @@ private:
 
   // Execute an instance declaration (e.g., Test t1 = new Test();)
   void ExecuteInstanceDecl(std::shared_ptr<QInstanceDecl> instanceDecl) {
-    std::string className = instanceDecl->GetClassName();
+    std::string className = instanceDecl->GetQClassName();
     std::string instanceName = instanceDecl->GetInstanceName();
 
 #if QLANG_DEBUG
@@ -1131,7 +1131,7 @@ private:
 #endif
 
     // Push to call stack
-    m_CallStack.Push(method->GetName(), instance->GetClassName());
+    m_CallStack.Push(method->GetName(), instance->GetQClassName());
 
     // Bind arguments to parameters (with coercion)
     const auto &params = method->GetParameters();
