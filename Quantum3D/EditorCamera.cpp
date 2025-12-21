@@ -12,6 +12,15 @@ void EditorCamera::SetCamera(std::shared_ptr<Quantum::CameraNode> camera) {
 void EditorCamera::SetRotation(float yaw, float pitch) {
   m_Yaw = yaw;
   m_Pitch = pitch;
+
+  // Immediately update the camera's rotation to match
+  if (m_Camera) {
+    glm::mat4 rotY =
+        glm::rotate(glm::mat4(1.0f), m_Yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 rotX =
+        glm::rotate(glm::mat4(1.0f), m_Pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+    m_Camera->SetLocalRotation(rotY * rotX);
+  }
 }
 
 void EditorCamera::Rotate(float deltaX, float deltaY) {
@@ -82,4 +91,17 @@ glm::mat4 EditorCamera::GetViewMatrix() const {
     return m_Camera->GetWorldMatrix();
   }
   return glm::mat4(1.0f);
+}
+
+void EditorCamera::SetPosition(const glm::vec3 &pos) {
+  if (m_Camera) {
+    m_Camera->SetLocalPosition(pos);
+  }
+}
+
+glm::vec3 EditorCamera::GetPosition() const {
+  if (m_Camera) {
+    return m_Camera->GetLocalPosition();
+  }
+  return glm::vec3(0.0f);
 }

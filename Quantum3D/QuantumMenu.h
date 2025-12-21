@@ -18,5 +18,12 @@ private:
   QMenu *m_toolsMenu;
   QMenu *m_helpMenu;
 
+  QAction *m_openSceneAction;
+  QAction *m_newSceneAction; // Added
+  QAction *m_saveSceneAction;
+  QAction *m_copyAction;           // Added
+  QAction *m_pasteAction;          // Added
+  QAction *m_alignNodeToCamAction; // Added
+  QAction *m_alignCamToNodeAction; // Added
   QAction *m_scriptEditorAction;
 };

@@ -84,6 +84,15 @@ public:
           node);           // Updates gizmo only, called by EngineGlobals
   void UpdateGizmoSpace(); // Called by EngineGlobals when space changes
   void UpdateGizmoType();  // Called by EngineGlobals when gizmo mode changes
+  Vivid::VividDevice *GetDevice() const { return m_Device; }
+  void RefreshMaterials(); // Recreate material descriptor sets after scene load
+  void SetEditorCameraRotation(float pitch,
+                               float yaw); // Sync editor camera rotation
+  void GetEditorCameraRotation(float &pitch,
+                               float &yaw) const; // Get editor camera yaw/pitch
+  void SetEditorCameraPosition(const glm::vec3 &pos);
+  glm::vec3 GetEditorCameraPosition() const;
+  glm::mat4 GetEditorCameraViewMatrix() const;
 
 private:
   std::shared_ptr<Quantum::LightNode> m_MainLight; // Test light

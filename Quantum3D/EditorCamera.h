@@ -26,8 +26,16 @@ public:
   // Get view matrix from underlying camera
   glm::mat4 GetViewMatrix() const;
 
+  // Position accessors
+  void SetPosition(const glm::vec3& pos);
+  glm::vec3 GetPosition() const;
+
   // Set initial rotation state if needed
   void SetRotation(float yaw, float pitch);
+
+  // Get current rotation state
+  float GetYaw() const { return m_Yaw; }
+  float GetPitch() const { return m_Pitch; }
 
 private:
   std::shared_ptr<Quantum::CameraNode> m_Camera;

@@ -23,6 +23,13 @@ public:
   /// (GetWorldMatrix returns view matrix, so we must use base class method)
   /// </summary>
   glm::vec3 GetWorldPosition() const override;
+
+  // Clone support
+  std::shared_ptr<GraphNode> Clone() override {
+    auto newNode = std::make_shared<CameraNode>(GetName());
+    CopyTo(newNode.get());
+    return newNode;
+  }
 };
 
 } // namespace Quantum

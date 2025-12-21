@@ -106,9 +106,19 @@ public:
   // Check if node has a script of a certain class name
   bool HasScript(const std::string &className) const;
 
+  // Clone this node (deep copy)
+  virtual std::shared_ptr<GraphNode> Clone();
+
+  // Source file path (for imported models, used in serialization)
+  const std::string &GetSourcePath() const { return m_SourcePath; }
+  void SetSourcePath(const std::string &path) { m_SourcePath = path; }
+
 protected:
   // Called when transform changes
   virtual void OnTransformChanged();
+
+  // Helper for cloning
+  virtual void CopyTo(GraphNode *other);
 
 private:
   std::string m_Name;
@@ -129,8 +139,10 @@ private:
   // Meshes attached to this node
   std::vector<std::shared_ptr<Mesh3D>> m_Meshes;
 
-  // scripts
+  // Source file path (e.g., "models/suzanne.glb")
+  std::string m_SourcePath;
 
+  // scripts
   std::vector<std::shared_ptr<QClassInstance>> m_QClasses;
 
   void SetParent(GraphNode *parent);

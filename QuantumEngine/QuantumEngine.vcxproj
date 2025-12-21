@@ -117,7 +117,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Quantum\Quantum3D\QLang;C:\Quantum\Assimp\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Quantum\Quantum3D\include;C:\Quantum\Quantum3D\QLang;C:\Quantum\Assimp\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -166,6 +166,7 @@
     <ClInclude Include="IWindow.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="QLangDomain.h" />
+    <ClInclude Include="SceneSerializer.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="stb_truetype.h" />
     <ClInclude Include="Texture2D.h" />
@@ -221,6 +222,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="SceneSerializer.cpp" />
     <ClCompile Include="stb_image_impl.cpp" />
     <ClCompile Include="stb_truetype_impl.cpp" />
     <ClCompile Include="Texture2D.cpp" />

@@ -86,6 +86,7 @@ public:
 
   void BrowsePath(const std::string &path);
   std::string GetCurrentPath() const { return m_CurrentPath; }
+  std::string GetContentRoot() const { return m_ContentRoot; }
 
   QSize sizeHint() const override { return QSize(800, 280); }
 
@@ -104,6 +105,7 @@ private:
   BrowserListWidget *m_ListWidget;
   BrowserItemDelegate *m_ItemDelegate;
   std::string m_CurrentPath;
+  std::string m_ContentRoot = "c:\\qcontent\\";
   std::stack<std::string> m_History;
 
   // Custom icons

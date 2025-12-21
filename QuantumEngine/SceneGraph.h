@@ -29,6 +29,9 @@ public:
   // Find a node by name (searches entire tree)
   std::shared_ptr<GraphNode> FindNode(const std::string &name) const;
 
+  // Find a node by pointer (searches entire tree)
+  GraphNode *FindNodeByPointer(void *ptr) const;
+
   // Clear all nodes except root
   void Clear();
 
@@ -71,8 +74,7 @@ public:
   void ForEveryNode(const std::function<void(GraphNode *)> &callback);
 
 private:
-
-   bool m_Playing = false;
+  bool m_Playing = false;
 
   std::shared_ptr<GraphNode> m_Root;
   std::shared_ptr<CameraNode> m_CurrentCamera;

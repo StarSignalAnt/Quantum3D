@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <functional>
 #include <limits>
+#include <sstream>
+#include <vector>
 
 namespace Quantum {
 
@@ -29,10 +31,61 @@ std::shared_ptr<GraphNode> SceneGraph::CreateNode(const std::string &name,
 }
 
 std::shared_ptr<GraphNode> SceneGraph::FindNode(const std::string &name) const {
+  // Check if it's a hierarchical path (contains '.')
+  if (name.find('.') != std::string::npos) {
+    std::stringstream ss(name);
+    std::string segment;
+    std::vector<std::string> path;
+    while (std::getline(ss, segment, '.')) {
+      path.push_back(segment);
+    }
+
+    if (path.empty())
+      return nullptr;
+
+    std::shared_ptr<GraphNode> current = m_Root;
+
+    // Check root match (path must start with root name)
+    if (current->GetName() != path[0]) {
+      return nullptr;
+    }
+
+    // Traverse
+    for (size_t i = 1; i < path.size(); ++i) {
+      current =
+          current->FindChild(path[i], false); // Non-recursive (immediate child)
+      if (!current) {
+        return nullptr;
+      }
+    }
+
+    return current;
+  }
+
+  // Fallback: recursive search by local name
   if (m_Root->GetName() == name) {
     return m_Root;
   }
   return m_Root->FindChild(name, true);
+}
+
+GraphNode *SceneGraph::FindNodeByPointer(void *ptr) const {
+  if (!ptr)
+    return nullptr;
+  GraphNode *target = static_cast<GraphNode *>(ptr);
+  if (m_Root.get() == target)
+    return m_Root.get();
+
+  // Search entire tree for this pointer
+  GraphNode *found = nullptr;
+  // Use const_cast because ForEveryNode takes non-const callback but we are
+  // const
+  const_cast<SceneGraph *>(this)->ForEveryNode([&](GraphNode *node) {
+    if (node == target) {
+      found = node;
+    }
+  });
+  return found;
 }
 
 void SceneGraph::Clear() {
@@ -224,39 +277,38 @@ bool SceneGraph::RayTriangleIntersection(const Ray &ray, const glm::vec3 &v0,
 
 void SceneGraph::OnPlay() {
 
-    if (m_Playing) return;
-    m_Playing = true;
+  if (m_Playing)
+    return;
+  m_Playing = true;
 
-    ForEveryNode([](Quantum::GraphNode* node) {
-        node->OnPlay();
-        // std::cout << "Node: " << node->GetName() << std::endl;
-        // Do something with the node
-        });
-
+  ForEveryNode([](Quantum::GraphNode *node) {
+    node->OnPlay();
+    // std::cout << "Node: " << node->GetName() << std::endl;
+    // Do something with the node
+  });
 }
 
-void SceneGraph::OnStop()
-{
-    if (!m_Playing) return;
-    ForEveryNode([](Quantum::GraphNode* node) {
+void SceneGraph::OnStop() {
+  if (!m_Playing)
+    return;
+  ForEveryNode([](Quantum::GraphNode *node) {
     //    std::cout << "Node: " << node->GetName() << std::endl;
-        // Do something with the node
-        node->OnStop();
-        });
-    m_Playing = false;
+    // Do something with the node
+    node->OnStop();
+  });
+  m_Playing = false;
 }
 
 void SceneGraph::OnUpdate(float dt) {
 
-    if (!m_Playing) return;
+  if (!m_Playing)
+    return;
 
-    ForEveryNode([dt](Quantum::GraphNode* node) {
-       // std::cout << "Node: " << node->GetName() << std::endl;
-        // Do something with the node
-        node->OnUpdate(dt);
-        });
-
-
+  ForEveryNode([dt](Quantum::GraphNode *node) {
+    // std::cout << "Node: " << node->GetName() << std::endl;
+    // Do something with the node
+    node->OnUpdate(dt);
+  });
 }
 
 void SceneGraph::ForEveryNode(

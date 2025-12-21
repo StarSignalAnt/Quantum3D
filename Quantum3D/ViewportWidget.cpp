@@ -529,6 +529,53 @@ void ViewportWidget::OnModelImported() {
   }
 }
 
+void ViewportWidget::RefreshMaterials() {
+  if (m_SceneRenderer) {
+    std::cout << "[ViewportWidget] RefreshMaterials: Recreating material "
+                 "descriptor sets..."
+              << std::endl;
+    m_SceneRenderer->RefreshMaterialTextures();
+  }
+}
+
+void ViewportWidget::SetEditorCameraRotation(float pitch, float yaw) {
+  if (m_EditorCamera) {
+    m_EditorCamera->SetRotation(yaw, pitch);
+    std::cout << "[ViewportWidget] Set editor camera rotation: yaw=" << yaw
+              << " pitch=" << pitch << std::endl;
+  }
+}
+
+void ViewportWidget::GetEditorCameraRotation(float &pitch, float &yaw) const {
+  if (m_EditorCamera) {
+    pitch = m_EditorCamera->GetPitch();
+    yaw = m_EditorCamera->GetYaw();
+  } else {
+    pitch = 0.0f;
+    yaw = 0.0f;
+  }
+}
+
+void ViewportWidget::SetEditorCameraPosition(const glm::vec3 &pos) {
+  if (m_EditorCamera) {
+    m_EditorCamera->SetPosition(pos);
+  }
+}
+
+glm::vec3 ViewportWidget::GetEditorCameraPosition() const {
+  if (m_EditorCamera) {
+    return m_EditorCamera->GetPosition();
+  }
+  return glm::vec3(0.0f);
+}
+
+glm::mat4 ViewportWidget::GetEditorCameraViewMatrix() const {
+  if (m_EditorCamera) {
+    return m_EditorCamera->GetViewMatrix();
+  }
+  return glm::mat4(1.0f);
+}
+
 void ViewportWidget::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
   // Delegate to EngineGlobals which handles all selection-related updates
   EngineGlobals::SetSelectedNode(node);

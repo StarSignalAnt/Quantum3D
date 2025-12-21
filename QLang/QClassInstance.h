@@ -1,6 +1,7 @@
 #pragma once
 
 #include "QClass.h"
+#include "QVariableDecl.h"
 #include "Tokenizer.h"
 #include <cstdint>
 #include <iostream>
@@ -9,7 +10,6 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
-
 
 // QValue type for instance member storage (separate from QValue in QContext)
 using QInstanceValue = std::variant<std::monostate, bool, int32_t, int64_t,
@@ -103,6 +103,25 @@ public:
       names.push_back(name);
     }
     return names;
+  }
+
+  // Clone this instance (deep copy of members)
+  std::shared_ptr<QClassInstance> Clone() const {
+    auto newInst = std::make_shared<QClassInstance>(m_ClassDef);
+
+    // Copy members
+    for (const auto &[name, val] : m_Members) {
+      newInst->SetMember(name, val);
+    }
+
+    // Copy nested instances (recursive clone)
+    for (const auto &[name, inst] : m_NestedInstances) {
+      if (inst) {
+        newInst->SetNestedInstance(name, inst->Clone());
+      }
+    }
+
+    return newInst;
   }
 
   // Print the instance (for debugging)

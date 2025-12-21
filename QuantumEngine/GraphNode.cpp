@@ -1,6 +1,6 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "GraphNode.h"
-#include "../QLang/QClassInstance.h"
+
 #include "Mesh3D.h"
 #include "QLangDomain.h"
 #include <algorithm>
@@ -351,13 +351,43 @@ std::string GraphNode::GetFullName() const {
 
 bool GraphNode::HasScript(const std::string &className) const {
   for (const auto &cls : m_QClasses) {
-    if (cls->GetQClassName() == className) {
+    if (QLangDomain::GetScriptClassName(cls) == className) {
       return true;
     }
   }
   return false;
 }
 
-} // namespace Quantum
-
 // GraphNode::Add
+
+std::shared_ptr<GraphNode> GraphNode::Clone() {
+  auto newNode = std::make_shared<GraphNode>(m_Name + "_Copy");
+  CopyTo(newNode.get());
+  return newNode;
+}
+
+void GraphNode::CopyTo(GraphNode *newNode) {
+  if (!newNode)
+    return;
+
+  newNode->SetLocalPosition(m_LocalPosition);
+  newNode->SetLocalRotation(m_LocalRotation);
+  newNode->SetLocalScale(m_LocalScale);
+  newNode->SetSourcePath(m_SourcePath);
+
+  // Copy Meshes
+  for (auto &m : m_Meshes)
+    newNode->AddMesh(m);
+
+  // Copy Scripts
+  for (auto &s : m_QClasses) {
+    auto newS = QLangDomain::CloneScript(s, this, newNode);
+    newNode->AddScript(newS);
+  }
+
+  // Copy Children
+  for (auto &child : m_Children) {
+    newNode->AddChild(child->Clone());
+  }
+}
+} // namespace Quantum

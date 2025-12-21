@@ -2,7 +2,6 @@
 #include "ScriptEditorWindow.h"
 #include "stdafx.h"
 
-
 #include <QtGui/QMouseEvent>
 #include <QtGui/QPainter>
 #include <QtWidgets/QApplication>
@@ -410,6 +409,8 @@ void BrowserWidget::OnItemDoubleClicked(QListWidgetItem *item) {
             path,
             static_cast<Vivid::VividDevice *>(EngineGlobals::VulkanDevice));
         if (model) {
+          // Store source path for scene serialization
+          model->SetSourcePath(path);
           EngineGlobals::EditorScene->GetRoot()->AddChild(model);
           qDebug() << "Imported model to scene: " << path.c_str();
           emit ModelImported();

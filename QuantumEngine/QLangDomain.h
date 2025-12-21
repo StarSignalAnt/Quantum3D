@@ -1,11 +1,12 @@
 #pragma once
+#include "../QLang/QContext.h"
 #include "GraphNode.h"
-#include "QContext.h"
 #include <iostream>
 #include <memory>
 #include <string>
 #include <variant>
 #include <vector>
+
 
 class QContext;
 class QClassInstance;
@@ -22,6 +23,10 @@ public:
   void RunMethod(std::shared_ptr<QClassInstance> inst, const std::string &meth,
                  const std::vector<QValue> &args = {});
   std::shared_ptr<QRunner> GetRunner() { return m_Runner; }
+  static std::shared_ptr<QClassInstance>
+  CloneScript(std::shared_ptr<QClassInstance> script, void *oldNode,
+              void *newNode);
+  static std::string GetScriptClassName(std::shared_ptr<QClassInstance> script);
 
   static QLangDomain *m_QLang;
 

@@ -394,3 +394,43 @@ void QLangDomain::RunMethod(std::shared_ptr<QClassInstance> inst,
 
   m_Runner->CallMethod(inst, meth, args);
 }
+
+std::shared_ptr<QClassInstance>
+QLangDomain::CloneScript(std::shared_ptr<QClassInstance> script, void *oldNode,
+                         void *newNode) {
+  if (!script)
+    return nullptr;
+
+  auto newS = script->Clone();
+
+  // Fix up NodePtr (self-ref)
+  auto val = newS->GetMember("NodePtr");
+  if (std::holds_alternative<void *>(val)) {
+    void *ptr = std::get<void *>(val);
+    if (ptr == oldNode) {
+      newS->SetMember("NodePtr", newNode);
+    }
+  }
+
+  for (const auto &name : newS->GetNestedInstanceNames()) {
+    auto nested = newS->GetNestedInstance(name);
+    if (nested) {
+      auto nVal = nested->GetMember("NodePtr");
+      if (std::holds_alternative<void *>(nVal)) {
+        void *ptr = std::get<void *>(nVal);
+        if (ptr == oldNode) {
+          nested->SetMember("NodePtr", newNode);
+        }
+      }
+    }
+  }
+
+  return newS;
+}
+
+std::string
+QLangDomain::GetScriptClassName(std::shared_ptr<QClassInstance> script) {
+  if (!script)
+    return "";
+  return script->GetQClassName();
+}

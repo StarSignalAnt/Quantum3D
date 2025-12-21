@@ -19,6 +19,23 @@ public:
   void SetRange(float range) { m_Range = range; }
   float GetRange() const { return m_Range; }
 
+  // Clone support
+  std::shared_ptr<GraphNode> Clone() override {
+    auto newNode = std::make_shared<LightNode>(GetName(), m_Type);
+    CopyTo(newNode.get());
+    return newNode;
+  }
+
+protected:
+  void CopyTo(GraphNode *other) override {
+    GraphNode::CopyTo(other);
+    auto light = dynamic_cast<LightNode *>(other);
+    if (light) {
+      light->SetColor(m_LightColor);
+      light->SetRange(m_Range);
+    }
+  }
+
 private:
   LightType m_Type;
   glm::vec3 m_LightColor;

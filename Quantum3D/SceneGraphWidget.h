@@ -48,6 +48,9 @@ public:
 signals:
   void NodeSelected(Quantum::GraphNode *node);
 
+public:
+  Quantum::GraphNode *GetSelectedNode() const { return m_SelectedNode; }
+
 protected:
   void paintEvent(QPaintEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
