@@ -350,8 +350,10 @@ void ViewportWidget::renderFrame() {
 
       EngineGlobals::OnUpdate(m_DeltaTime);
 
+      m_TotalTime += m_DeltaTime;
+
       m_SceneRenderer->RenderScene(m_Renderer->GetCommandBuffer(), m_Width,
-                                   m_Height);
+                                   m_Height, m_TotalTime);
 
       // Render Selection
       if (m_SelectedNode) {

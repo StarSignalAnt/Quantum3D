@@ -50,5 +50,10 @@ private:
   VividDevice *m_DevicePtr;
   VkPipeline m_Pipeline;
   VkPipelineLayout m_PipelineLayout;
+  std::string m_Name;
+
+public:
+  void SetName(const std::string &name) { m_Name = name; }
+  const std::string &GetName() const { return m_Name; }
 };
 } // namespace Vivid

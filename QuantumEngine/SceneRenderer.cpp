@@ -26,7 +26,7 @@ struct UniformBufferObject {
   glm::mat4 view;
   glm::mat4 proj;
   glm::vec3 viewPos;
-  float padding;
+  float time; // Changed from padding
   glm::vec3 lightPos;
   float padding2;
   glm::vec3 lightColor;
@@ -176,6 +176,18 @@ void SceneRenderer::Initialize() {
               << std::endl;
   }
 
+  // Register PLWater pipeline
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLWater", "engine/shaders/PLWater.vert.spv",
+      "engine/shaders/PLWater.frag.spv", opaqueConfig,
+      Vivid::PipelineType::Mesh3D); // Water is opaque for now (or use blend if
+                                    // desired)
+
+  if (RenderingPipelines::Get().HasPipeline("PLWater")) {
+    std::cout << "[SceneRenderer] PLWater pipeline registered successfully"
+              << std::endl;
+  }
+
   // Register additive pipeline for additional lights
   Vivid::BlendConfig additiveConfig;
   additiveConfig.blendEnable = VK_TRUE;
@@ -204,6 +216,14 @@ void SceneRenderer::Initialize() {
 
   std::cout << "[SceneRenderer] PLPBR_Additive pipeline registered for "
                "multi-light"
+            << std::endl;
+
+  // Register Water Additive Pipeline (Vertex Displacement + Additive Blend)
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLWater_Additive", "engine/shaders/PLWater.vert.spv",
+      "engine/shaders/PLWater.frag.spv", additiveConfig,
+      Vivid::PipelineType::Mesh3D);
+  std::cout << "[SceneRenderer] PLWater_Additive pipeline registered"
             << std::endl;
 
   // Register debugging wireframe pipeline
@@ -627,15 +647,15 @@ void SceneRenderer::ResizeUniformBuffers(size_t requiredDraws) {
       << std::endl;
 }
 
-void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height) {
-
-  // TODO: Implement per-frame descriptor updates to use multiple UBO buffers
+void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
+                                float time) {
   // For now, force buffer 0 since descriptors are created with buffer 0
   m_CurrentFrameIndex = 0;
   m_CurrentDrawIndex = 0;      // Reset draw index for the new frame
   m_CurrentPipeline = nullptr; // Reset pipeline tracking to force rebind
   m_CurrentTexture = nullptr;  // Reset texture tracking
   m_GizmoDrawIndex = 0;        // Reset gizmo draw index
+  m_AnimationAngle = time;     // Update animation time
 
   // Only log once per second to avoid spam
   static int frameCount = 0;
@@ -911,7 +931,7 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     } else {
       ubo.viewPos = glm::vec3(0.0f, 0.0f, 0.0f);
     }
-    ubo.padding = 0.0f;
+    ubo.time = m_AnimationAngle;
 
     // Use current light based on m_CurrentLightIndex (set by RenderScene
     // loop)
@@ -992,14 +1012,29 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
           // CRITICAL: This must happen AFTER fallback, so ALL meshes get
           // additive
           if (m_CurrentLightIndex > 0 && meshPipeline) {
-            // Switch to additive pipeline for additional lights
-            meshPipeline = Quantum::RenderingPipelines::Get().GetPipeline(
-                "PLPBR_Additive");
+            // Check if this is a Water material (heuristic based on pipeline
+            // name)
+            bool isWater = false;
+            // Best way is to check the *original* pipeline we got from material
+            if (material && material->GetPipeline() &&
+                material->GetPipeline()->GetName() == "PLWater") {
+              isWater = true;
+            }
+
+            if (isWater) {
+              meshPipeline = Quantum::RenderingPipelines::Get().GetPipeline(
+                  "PLWater_Additive");
+            } else {
+              // Standard PBR Additive
+              meshPipeline = Quantum::RenderingPipelines::Get().GetPipeline(
+                  "PLPBR_Additive");
+            }
 
             if (!meshPipeline) {
-              std::cerr << "[SceneRenderer] ERROR: Failed to get "
-                           "PLPBR_Additive pipeline! Fallback to Opaque."
-                        << std::endl;
+              std::cerr
+                  << "[SceneRenderer] ERROR: Failed to get Additive pipeline! "
+                     "Fallback to Opaque."
+                  << std::endl;
               if (material) {
                 meshPipeline = material->GetPipeline();
               } else {

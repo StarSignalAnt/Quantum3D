@@ -1,6 +1,8 @@
 #include "Quantum3D.h"
 #include "stdafx.h"
 
+#include <QApplication>
+#include <QIcon>
 #include <QLoggingCategory>
 
 int main(int argc, char *argv[]) {
@@ -17,6 +19,7 @@ int main(int argc, char *argv[]) {
       Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
   QApplication app(argc, argv);
+  app.setWindowIcon(QIcon(":/Quantum3D/icons/Q3Icon.png"));
 
   Quantum3D window;
   window.showMaximized();

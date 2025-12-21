@@ -26,4 +26,7 @@ private:
   QAction *m_alignNodeToCamAction; // Added
   QAction *m_alignCamToNodeAction; // Added
   QAction *m_scriptEditorAction;
+
+  QMenu *m_createMenu;
+  QAction *m_createWaterAction;
 };

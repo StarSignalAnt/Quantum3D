@@ -7,5 +7,6 @@
         <file>icons/scale.png</file>
         <file>icons/play.png</file>
         <file>icons/stop.png</file>
+        <file>icons/Q3Icon.png</file>
     </qresource>
 </RCC>

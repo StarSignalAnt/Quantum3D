@@ -13,14 +13,13 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 view;
     mat4 proj;
     vec3 viewPos;
-    float time;      // Changed from padding
+    float time;      // Changed
     vec3 lightPos;
     float padding2;
     vec3 lightColor;
     float lightRange; 
 } ubo;
 
-// Textures (all in set 0)
 // Textures (Set 1 - Material Specific)
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;
 layout(set = 1, binding = 1) uniform sampler2D normalMap;
@@ -37,46 +36,17 @@ const float PI = 3.14159265359;
 
 // Calculate shadow factor (0 = fully shadowed, 1 = fully lit)
 float calculateShadow(vec3 fragToLight, float currentDepth) {
-    // Sample the cube map using the direction from light to fragment
     float closestDepth = texture(shadowMap, fragToLight).r;
-    
-    // Get the far plane used for shadow rendering
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
-    
-    // Normalize current depth to match shadow map range (0-1)
     float normalizedCurrent = currentDepth / shadowFarPlane;
-    
-    // Simple fixed bias
     float bias = 0.01;
     
-    // If we're past the far plane, no shadow
     if (normalizedCurrent > 1.0) {
         return 1.0;
     }
     
-    // Shadow: if current fragment is further than stored closest, we're in shadow
-    // closestDepth stores the distance to the nearest occluder
-    // If normalizedCurrent > closestDepth, something is between us and the light
     float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
-    
     return shadow;
-}
-
-// Calculate Normal from Normal Map using TBN matrix
-vec3 getNormalFromMap() {
-    // Sample normal map and convert from [0,1] to [-1,1]
-    vec3 tangentNormal = texture(normalMap, fragUV).xyz * 2.0 - 1.0;
-
-    // Use interpolated TBN vectors directly (already in world space from vertex shader)
-    vec3 N = normalize(fragNormal);
-    vec3 T = normalize(fragTangent);
-    vec3 B = normalize(fragBitangent);
-    
-    // Build TBN matrix (transforms from tangent space to world space)
-    mat3 TBN = mat3(T, B, N);
-    
-    // Transform tangent-space normal to world space
-    return normalize(TBN * tangentNormal);
 }
 
 // Fresnel Schlick
@@ -112,7 +82,7 @@ float GeometrySchlickGGX(float NdotV, float roughness) {
 // Geometry Smith
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
+    float NdotL = max(dot(N, L), 0.0); // Reverted to max
     float ggx2  = GeometrySchlickGGX(NdotV, roughness);
     float ggx1  = GeometrySchlickGGX(NdotL, roughness);
 	
@@ -120,45 +90,49 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
 }
 
 void main() {
-    vec3 albedo     = pow(texture(albedoMap, fragUV).rgb, vec3(2.2)); // Linearize
-    float metallic  = texture(metallicMap, fragUV).r;
-    float roughness = texture(roughnessMap, fragUV).r;
+    // Water Base Properties
+    vec3 baseColor = texture(albedoMap, fragUV).rgb; // Uses the blue texture we set
+    float metallic  = 0.1;
+    float roughness = 0.2; // Shiny
 
-    // Use normal map for per-pixel lighting
-    vec3 N = normalize(fragNormal);
+    // Animated Normal Mapping
+    // Scrolling UVs
+    float speed = 0.05;
+    vec2 uv1 = fragUV + vec2(ubo.time * speed, ubo.time * speed * 0.5);
+    vec2 uv2 = fragUV + vec2(-ubo.time * speed * 0.7, ubo.time * speed * 0.3);
+
+    // Sample normal map twice
+    vec3 n1 = texture(normalMap, uv1).xyz * 2.0 - 1.0;
+    vec3 n2 = texture(normalMap, uv2).xyz * 2.0 - 1.0;
     
+    // Blend normals
+    vec3 tangentNormal = normalize(n1 + n2);
+    
+    // TBN Matrix
+    vec3 N_geom = normalize(fragNormal);
     vec3 T = normalize(fragTangent);
     vec3 B = normalize(fragBitangent);
     
-    // Gram-Schmidt re-orthogonalization
-    T = normalize(T - dot(T, N) * N);
+    // Gram-Schmidt
+    T = normalize(T - dot(T, N_geom) * N_geom);
+    mat3 TBN = mat3(T, B, N_geom);
     
-    mat3 TBN = mat3(T, B, N);
-    vec3 tangentNormal = texture(normalMap, fragUV).xyz * 2.0 - 1.0;
-    vec3 N_pixel = normalize(TBN * tangentNormal);
-    N = N_pixel;
+    // Final World Normal
+    vec3 N = normalize(TBN * tangentNormal);
     
+    // View Vector
     vec3 V = normalize(ubo.viewPos - fragWorldPos);
 
-    // F0 for dielectrics is 0.04, for metals it matches albedo
+    // F0 for water (dielectric)
     vec3 F0 = vec3(0.04); 
-    F0 = mix(F0, albedo, metallic);
+    F0 = mix(F0, baseColor, metallic);
 
-    // Reflectance equation
+    // Lighting
     vec3 Lo = vec3(0.0);
-
-    // Single point light
     vec3 L = normalize(ubo.lightPos - fragWorldPos);
-    
-    // Safe half-vector calculation
-    vec3 H_raw = V + L;
-    float H_len = length(H_raw);
-    vec3 H = H_len > 0.0001 ? H_raw / H_len : N;
-    
-    // Calculate distance from pixel to light
+    vec3 H = normalize(V + L);
     float distance = length(ubo.lightPos - fragWorldPos);
     
-    // Range-based linear falloff
     float rangeFactor = 1.0;
     if (ubo.lightRange > 0.0) {
         rangeFactor = max(0.0, 1.0 - distance / ubo.lightRange);
@@ -166,40 +140,53 @@ void main() {
     
     float attenuation = 1.0 / (distance * distance + 0.001);
     vec3 radiance = ubo.lightColor * attenuation * rangeFactor;
-
-    // Calculate shadow
+    
+    // Shadow
     vec3 fragToLight = fragWorldPos - ubo.lightPos;
-     fragToLight.x = - fragToLight.x; // Unflip X check if needed
-    float shadow = calculateShadow(fragToLight, distance);
-    // float shadow = 1.0; // Fully lit (no shadows)
+    // Fix incorrect negative X flip which was likely a hack
+    // fragToLight.x = -fragToLight.x; 
+
+    // Calculate shadow with increased bias for wave displacement
+    float closestDepth = texture(shadowMap, fragToLight).r;
+    float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
+    float normalizedCurrent = distance / shadowFarPlane;
+    
+    // Much larger bias for water to prevent self-shadowing from flat-plane shadow map
+    float bias = 0.05; 
+    
+    float shadow = 0.0;
+    if (normalizedCurrent > 1.0) {
+        shadow = 1.0;
+    } else {
+        shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
+    }
 
     // Cook-Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);   
     float G   = GeometrySmith(N, V, L, roughness);      
     vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
-    F = clamp(F, vec3(0.0), vec3(1.0));
-       
+        
     vec3 numerator    = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular     = numerator / denominator;
-    specular = clamp(specular, vec3(0.0), vec3(10.0));
         
-    // Diffuse
-    float NdotL = max(dot(N, L), 0.0);        
-    vec3 diffuse = albedo / PI;
-    diffuse *= (1.0 - metallic);
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= (1.0 - metallic);	  
     
-    // Combine with shadow
-    Lo += (diffuse + specular) * radiance * NdotL * shadow; 
+    // Reverted to single-sided lighting
+    float NdotL = max(dot(N, L), 0.0);
     
-    // Ambient (small amount so fully shadowed areas aren't completely black)
-    vec3 ambient = vec3(0.03) * albedo;
+    Lo += (kD * baseColor / PI + specular) * radiance * NdotL * shadow; 
     
-    vec3 color = Lo;
+    // Ambient
+    vec3 ambient = vec3(0.05) * baseColor;
+    
+    vec3 color = ambient + Lo;
 
-    outColor = vec4(color, 1.0);
+    // HDR / Gamma correction (if needed, usually done in post-process but doing consistent with PLPBR)
+    // color = color / (color + vec3(1.0));
+    // color = pow(color, vec3(1.0/2.2)); 
 
-   
-    // Normal lighting proceeds if no errors
-
+    outColor = vec4(color, 0.8); // Slight transparency? For now opaque as blend is disabled in PBR pipeline by default
 }

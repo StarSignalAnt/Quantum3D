@@ -2,6 +2,7 @@
 #include "../QuantumEngine/CameraNode.h"
 #include "../QuantumEngine/GraphNode.h"
 #include "../QuantumEngine/SceneSerializer.h"
+#include "../QuantumEngine/WaterNode.h"
 #include "BrowserWidget.h"
 #include "EngineGlobals.h"
 #include "SceneGraphWidget.h"
@@ -300,6 +301,41 @@ void QuantumMenu::setupMenus() {
 
   // View Menu
   m_viewMenu = addMenu(tr("&View"));
+
+  // Create Menu
+  m_createMenu = addMenu(tr("&Create"));
+
+  m_createWaterAction = m_createMenu->addAction(tr("Water Surface"));
+  connect(m_createWaterAction, &QAction::triggered, []() {
+    if (EngineGlobals::EditorScene) {
+      auto water = std::make_shared<Quantum::WaterNode>("Water Surface");
+
+      if (EngineGlobals::Viewport) {
+        water->Initialize(EngineGlobals::Viewport->GetDevice());
+      }
+
+      Quantum::GraphNode *parent = EngineGlobals::EditorScene->GetRoot();
+      if (EngineGlobals::SceneGraphPanel) {
+        auto selected = EngineGlobals::SceneGraphPanel->GetSelectedNode();
+        if (selected) {
+          parent = selected;
+        }
+      }
+
+      if (parent) {
+        parent->AddChild(water);
+        if (EngineGlobals::SceneGraphPanel) {
+          EngineGlobals::SceneGraphPanel->RefreshTree();
+          // Select the new node
+          EngineGlobals::SceneGraphPanel->OnExternalSelectionChanged(
+              water.get());
+        }
+        if (EngineGlobals::Viewport) {
+          EngineGlobals::Viewport->RefreshMaterials();
+        }
+      }
+    }
+  });
 
   // Tools Menu
   m_toolsMenu = addMenu(tr("&Tools"));

@@ -130,5 +130,6 @@ private:
   std::shared_ptr<Quantum::LightNode> HitTestLightIcons(int mouseX, int mouseY);
 
   float m_DeltaTime = 0.0f;
+  float m_TotalTime = 0.0f;
   QElapsedTimer m_FrameTimer;
 };

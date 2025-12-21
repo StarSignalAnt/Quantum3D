@@ -44,7 +44,8 @@ public:
   std::shared_ptr<SceneGraph> GetSceneGraph() const { return m_SceneGraph; }
 
   // Render the scene graph (includes shadow pass if enabled)
-  void RenderScene(VkCommandBuffer cmd, int width, int height);
+  void RenderScene(VkCommandBuffer cmd, int width, int height,
+                   float time); // Added time
 
   // Get the descriptor set layout (needed for pipeline creation)
   // Get the descriptor set layout (returns Material layout for Materials)

@@ -145,6 +145,8 @@ Vivid::VividPipeline *RenderingPipelines::GetPipeline(const std::string &name) {
           m_Device, it->second.vertShaderPath, it->second.fragShaderPath,
           m_DescriptorSetLayouts, m_RenderPass, it->second.blendConfig,
           it->second.pipelineType);
+      it->second.pipeline->SetName(name);
+
       std::cout << "[RenderingPipelines] Pipeline '" << name
                 << "' created successfully" << std::endl;
     } catch (const std::exception &e) {
