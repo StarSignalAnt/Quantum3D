@@ -243,16 +243,9 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
         if (next.type == TokenType::T_IDENTIFIER ||
             next.type == TokenType::T_LESS) {
 
-          // Check if this is a known class type - if not, report a warning
-          Token typeToken = Peek();
-          if (!IsClassName(typeToken.value)) {
-            ReportError("Unknown type '" + typeToken.value +
-                            "' - did you misspell a type name?",
-                        QErrorSeverity::Warning);
-          }
-
-          // Parse the variable declaration anyway (defer full validation to
-          // runtime)
+          // Name validation is deferred to QRunner::EnsureNames()
+          // Parse the variable declaration - validation happens after all
+          // classes are registered
           auto varDecl = ParseVariableDecl();
           if (varDecl) {
             code->AddNode(varDecl);
@@ -411,29 +404,8 @@ std::shared_ptr<QExpression> Parser::ParseExpression() {
       // Comma at top level - stop (next parameter)
       break;
     } else {
-      // Check for undeclared identifiers in expressions
-      if (current.type == TokenType::T_IDENTIFIER) {
-        const std::string &name = current.value;
-        // Skip if it's a known class name, method call (followed by '('),
-        // or member access (preceded by '.')
-        bool isClassName = m_ClassNames.find(name) != m_ClassNames.end();
-        bool isMethodCall = PeekNext().type == TokenType::T_LPAREN;
-        bool isMemberAccess =
-            !expr->GetElements().empty() &&
-            expr->GetElements().back().type == TokenType::T_DOT;
-
-        if (!isClassName && !isMethodCall && !isMemberAccess) {
-          // This is a variable reference - check if it's declared
-          bool isDeclared =
-              m_DeclaredVariables.find(name) != m_DeclaredVariables.end() ||
-              m_ClassMemberVariables.find(name) != m_ClassMemberVariables.end();
-
-          if (!isDeclared) {
-            ReportError("Undeclared variable '" + name + "'",
-                        QErrorSeverity::Warning);
-          }
-        }
-      }
+      // Name validation (undeclared variables) is deferred to
+      // QRunner::EnsureNames()
 
       expr->AddElement(current);
       Advance();
@@ -1016,42 +988,52 @@ std::shared_ptr<QInstanceDecl> Parser::ParseInstanceDecl() {
   }
   Advance(); // consume '='
 
-  // Expect 'new'
-  if (!Check(TokenType::T_NEW)) {
-    ReportError("expected 'new'");
-    return nullptr;
-  }
-  Advance(); // consume 'new'
+  // Check if this is a 'new' expression or a general expression (like method
+  // call)
+  if (Check(TokenType::T_NEW)) {
+    // Standard 'new ClassName()' initialization
+    Advance(); // consume 'new'
 
-  // Expect constructor class name (should match)
-  if (!Check(TokenType::T_IDENTIFIER) || Peek().value != classNameToken.value) {
-    ReportError("constructor class name doesn't match");
-    // Still continue for flexibility
-  }
-  if (Check(TokenType::T_IDENTIFIER)) {
-    Advance(); // consume constructor class name
-  }
+    // Expect constructor class name (should match)
+    if (!Check(TokenType::T_IDENTIFIER) ||
+        Peek().value != classNameToken.value) {
+      ReportError("constructor class name doesn't match");
+      // Still continue for flexibility
+    }
+    if (Check(TokenType::T_IDENTIFIER)) {
+      Advance(); // consume constructor class name
+    }
 
-  // Skip type arguments on constructor side (List<int32> myList = new
-  // List<int32>())
-  if (Check(TokenType::T_LESS)) {
-    Advance(); // consume '<'
-    while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
-      Advance(); // skip type args
-      if (Check(TokenType::T_COMMA)) {
-        Advance();
+    // Skip type arguments on constructor side (List<int32> myList = new
+    // List<int32>())
+    if (Check(TokenType::T_LESS)) {
+      Advance(); // consume '<'
+      while (!IsAtEnd() && !Check(TokenType::T_GREATER)) {
+        Advance(); // skip type args
+        if (Check(TokenType::T_COMMA)) {
+          Advance();
+        }
+      }
+      if (Check(TokenType::T_GREATER)) {
+        Advance(); // consume '>'
       }
     }
-    if (Check(TokenType::T_GREATER)) {
-      Advance(); // consume '>'
-    }
-  }
 
-  // Expect '(' for constructor args
-  if (Check(TokenType::T_LPAREN)) {
-    // ParseParameters handles the opening and closing parens: ( arg1, arg2 )
-    auto args = ParseParameters();
-    instanceDecl->SetConstructorArgs(args);
+    // Expect '(' for constructor args
+    if (Check(TokenType::T_LPAREN)) {
+      // ParseParameters handles the opening and closing parens: ( arg1, arg2 )
+      auto args = ParseParameters();
+      instanceDecl->SetConstructorArgs(args);
+    }
+  } else {
+    // Expression assignment (e.g., Vec3 pos = obj.GetPosition())
+    // Parse the initializer expression and store it
+    auto initExpr = ParseExpression();
+    instanceDecl->SetInitializerExpression(initExpr);
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseInstanceDecl() - parsed expression initializer"
+              << std::endl;
+#endif
   }
 
   // Consume semicolon

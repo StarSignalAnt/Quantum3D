@@ -85,6 +85,10 @@ public:
   // Get typed completions for a type (members first, then methods)
   QList<CompletionItem> getTypedMembersForType(const QString &typeName) const;
 
+  // Get the type of a specific member in a class (for chained member access)
+  QString getMemberType(const QString &className,
+                        const QString &memberName) const;
+
   // Check if a type is known
   bool isKnownType(const QString &typeName) const;
 

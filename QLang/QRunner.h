@@ -15,6 +15,7 @@
 #include "QWhile.h"
 #include <iostream>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <variant>
 
@@ -114,6 +115,80 @@ public:
         std::cerr << m_CallStack.GetStackTrace() << std::endl;
       }
     }
+  }
+
+  // ========== Class Registration API ==========
+
+  // Register all classes from a program
+  // Call this for each program BEFORE calling EnsureNames()
+  void RegisterClasses(std::shared_ptr<QProgram> program) {
+    for (const auto &cls : program->GetClasses()) {
+      m_Classes[cls->GetName()] = cls;
+#if QLANG_DEBUG
+      std::cout << "[DEBUG] QRunner::RegisterClasses() - registered: "
+                << cls->GetName() << std::endl;
+#endif
+    }
+  }
+
+  // Register all classes from multiple programs at once
+  void RegisterClasses(const std::vector<std::shared_ptr<QProgram>> &programs) {
+    for (const auto &program : programs) {
+      RegisterClasses(program);
+    }
+  }
+
+  // Get all registered class names (for Parser preregistration)
+  std::set<std::string> GetRegisteredClassNames() const {
+    std::set<std::string> names;
+    for (const auto &pair : m_Classes) {
+      names.insert(pair.first);
+    }
+    return names;
+  }
+
+  // Validate all name references in a program
+  // Call this AFTER all classes have been registered
+  // Returns true if all names are valid, false if errors were found
+  bool EnsureNames(std::shared_ptr<QProgram> program) {
+    bool allValid = true;
+
+    // Validate all class definitions
+    for (const auto &cls : program->GetClasses()) {
+      // Check parent class exists
+      if (cls->HasParent()) {
+        const std::string &parentName = cls->GetParentClassName();
+        if (m_Classes.find(parentName) == m_Classes.end()) {
+          ReportRuntimeError("Unknown parent class '" + parentName +
+                             "' for class '" + cls->GetName() + "'");
+          allValid = false;
+        }
+      }
+
+      // Check member types
+      for (const auto &member : cls->GetMembers()) {
+        if (!ValidateTypeName(member->GetTypeName())) {
+          ReportRuntimeError("Unknown type '" + member->GetTypeName() +
+                             "' for member '" + member->GetName() +
+                             "' in class '" + cls->GetName() + "'");
+          allValid = false;
+        }
+      }
+
+      // Check method body references
+      for (const auto &method : cls->GetMethods()) {
+        if (!ValidateCodeBlock(method->GetBody(), cls)) {
+          allValid = false;
+        }
+      }
+    }
+
+    // Validate program-level code
+    if (!ValidateCodeBlock(program->GetCode(), nullptr)) {
+      allValid = false;
+    }
+
+    return allValid;
   }
 
   // ========== Engine Integration API ==========
@@ -222,6 +297,343 @@ private:
   // Error handling
   std::shared_ptr<QErrorCollector> m_ErrorCollector;
   QCallStack m_CallStack;
+
+  // ========== Name Validation Helpers ==========
+
+  // Check if a type name is valid (primitive or registered class)
+  bool ValidateTypeName(const std::string &typeName) {
+    // Primitive types are always valid
+    if (typeName == "int32" || typeName == "int64" || typeName == "float32" ||
+        typeName == "float64" || typeName == "string" || typeName == "bool" ||
+        typeName == "short" || typeName == "cptr" || typeName == "void") {
+      return true;
+    }
+    // Check if it's a registered class
+    return m_Classes.find(typeName) != m_Classes.end();
+  }
+
+  // Validate all name references in a code block
+  // Returns true if all valid, false if any errors found
+  bool ValidateCodeBlock(std::shared_ptr<QCode> code,
+                         std::shared_ptr<QClass> currentClass) {
+    if (!code)
+      return true;
+
+    bool allValid = true;
+
+    // Track declared variables and their types for this block
+    // This includes class members + local declarations
+    std::unordered_map<std::string, std::string> declaredVars;
+
+    // Add class members to declared vars
+    if (currentClass) {
+      for (const auto &member : currentClass->GetMembers()) {
+        declaredVars[member->GetName()] = member->GetTypeName();
+      }
+    }
+
+    for (const auto &node : code->GetNodes()) {
+      // Variable declarations - check type
+      if (auto varDecl = std::dynamic_pointer_cast<QVariableDecl>(node)) {
+        const std::string &typeName = varDecl->GetTypeName();
+        if (!typeName.empty() && !ValidateTypeName(typeName)) {
+          ReportRuntimeError("Unknown type '" + typeName + "' for variable '" +
+                             varDecl->GetName() + "'");
+          allValid = false;
+        }
+        // Register the variable
+        declaredVars[varDecl->GetName()] = typeName;
+
+        // Validate the value expression if present
+        if (auto valExpr = varDecl->GetInitializer()) {
+          if (!ValidateExpression(valExpr, declaredVars, currentClass)) {
+            allValid = false;
+          }
+        }
+      }
+
+      // Instance declarations - check class type and expression initializer
+      if (auto instanceDecl = std::dynamic_pointer_cast<QInstanceDecl>(node)) {
+        const std::string &className = instanceDecl->GetQClassName();
+        if (m_Classes.find(className) == m_Classes.end()) {
+          ReportRuntimeError("Unknown class '" + className +
+                             "' for instance '" +
+                             instanceDecl->GetInstanceName() + "'");
+          allValid = false;
+        }
+        // Register the variable
+        declaredVars[instanceDecl->GetInstanceName()] = className;
+
+        // Validate initializer expression if present
+        if (auto initExpr = instanceDecl->GetInitializerExpression()) {
+          if (!ValidateExpression(initExpr, declaredVars, currentClass)) {
+            allValid = false;
+          }
+        }
+      }
+
+      // Assignments - validate the value expression
+      if (auto assign = std::dynamic_pointer_cast<QAssign>(node)) {
+        if (auto valExpr = assign->GetValueExpression()) {
+          if (!ValidateExpression(valExpr, declaredVars, currentClass)) {
+            allValid = false;
+          }
+        }
+      }
+
+      // Method calls - validate method exists on target class
+      if (auto methodCall = std::dynamic_pointer_cast<QMethodCall>(node)) {
+        if (!ValidateMethodCall(methodCall, declaredVars, currentClass)) {
+          allValid = false;
+        }
+      }
+
+      // Recurse into control structures
+      if (auto ifStmt = std::dynamic_pointer_cast<QIf>(node)) {
+        if (!ValidateCodeBlock(ifStmt->GetThenBlock(), currentClass)) {
+          allValid = false;
+        }
+        if (!ValidateCodeBlock(ifStmt->GetElseBlock(), currentClass)) {
+          allValid = false;
+        }
+        for (const auto &elseif : ifStmt->GetElseIfBlocks()) {
+          if (!ValidateCodeBlock(elseif.second, currentClass)) {
+            allValid = false;
+          }
+        }
+      }
+
+      if (auto whileStmt = std::dynamic_pointer_cast<QWhile>(node)) {
+        if (!ValidateCodeBlock(whileStmt->GetBody(), currentClass)) {
+          allValid = false;
+        }
+      }
+
+      if (auto forStmt = std::dynamic_pointer_cast<QFor>(node)) {
+        if (!ValidateCodeBlock(forStmt->GetBody(), currentClass)) {
+          allValid = false;
+        }
+      }
+    }
+
+    return allValid;
+  }
+
+  // Validate method calls within an expression
+  // Scans token patterns to find method calls like "identifier(" or
+  // "a.b.method("
+  bool ValidateExpression(
+      std::shared_ptr<QExpression> expr,
+      const std::unordered_map<std::string, std::string> &declaredVars,
+      std::shared_ptr<QClass> currentClass) {
+    if (!expr)
+      return true;
+
+    const auto &tokens = expr->GetElements();
+    bool allValid = true;
+
+    for (size_t i = 0; i < tokens.size(); ++i) {
+      const Token &tok = tokens[i];
+
+      // Look for pattern: identifier ( - this is a method/function call
+      if (tok.type == TokenType::T_IDENTIFIER && i + 1 < tokens.size() &&
+          tokens[i + 1].type == TokenType::T_LPAREN) {
+
+        // Collect the full method chain (e.g., "light1.Cam.GetPosition")
+        std::string fullChain = tok.value;
+        std::string methodName = tok.value;
+
+        // Look backwards for chained access (identifier.identifier.identifier)
+        size_t chainStart = i;
+        while (chainStart >= 2 &&
+               tokens[chainStart - 1].type == TokenType::T_DOT &&
+               tokens[chainStart - 2].type == TokenType::T_IDENTIFIER) {
+          chainStart -= 2;
+          fullChain = tokens[chainStart].value + "." + fullChain;
+        }
+
+        // Now validate: if there's a dot, it's obj.method() style
+        // If no dot, it's either this.method() or global function
+        size_t lastDot = fullChain.rfind('.');
+        if (lastDot != std::string::npos) {
+          // Extract instance chain and method name
+          std::string instanceChain = fullChain.substr(0, lastDot);
+          methodName = fullChain.substr(lastDot + 1);
+
+          // Resolve the instance type
+          std::string targetClass =
+              ResolveInstanceType(instanceChain, declaredVars, currentClass);
+
+          if (!targetClass.empty()) {
+            auto classIt = m_Classes.find(targetClass);
+            if (classIt != m_Classes.end()) {
+              if (!MethodExistsInClass(classIt->second, methodName)) {
+                ReportRuntimeError("Unknown method '" + methodName +
+                                   "' on class '" + targetClass + "'");
+                allValid = false;
+              }
+            }
+          }
+        } else {
+          // No dot - method on 'this' or global function
+          if (currentClass) {
+            // Check if it's a method on current class
+            if (!MethodExistsInClass(currentClass, methodName)) {
+              // Could be a constructor call or global - check if it's a class
+              // name
+              if (m_Classes.find(methodName) == m_Classes.end()) {
+                ReportRuntimeError("Unknown method or function '" + methodName +
+                                   "'");
+                allValid = false;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return allValid;
+  }
+
+  // Validate a method call - check that method exists on the target class
+  bool ValidateMethodCall(
+      std::shared_ptr<QMethodCall> methodCall,
+      const std::unordered_map<std::string, std::string> &declaredVars,
+      std::shared_ptr<QClass> currentClass) {
+
+    const std::string &instanceName = methodCall->GetInstanceName();
+    const std::string &methodName = methodCall->GetMethodName();
+
+    // Resolve the instance chain to get the target class type
+    // e.g., "light1.Cam" -> get type of light1, then get type of Cam member
+    std::string targetClassName =
+        ResolveInstanceType(instanceName, declaredVars, currentClass);
+
+    if (targetClassName.empty()) {
+      // Could be a global function or unknown - skip validation
+      return true;
+    }
+
+    // Check if the method exists on the target class
+    auto classIt = m_Classes.find(targetClassName);
+    if (classIt == m_Classes.end()) {
+      // Class not found - already reported in type validation
+      return true;
+    }
+
+    // Check methods on this class and its parents
+    if (!MethodExistsInClass(classIt->second, methodName)) {
+      ReportRuntimeError("Unknown method '" + methodName + "' on class '" +
+                         targetClassName + "'");
+      return false;
+    }
+
+    return true;
+  }
+
+  // Resolve an instance name (possibly chained) to its class type
+  std::string ResolveInstanceType(
+      const std::string &instanceName,
+      const std::unordered_map<std::string, std::string> &declaredVars,
+      std::shared_ptr<QClass> currentClass) {
+
+    // Check if it's a simple name (no dots)
+    size_t dotPos = instanceName.find('.');
+    if (dotPos == std::string::npos) {
+      // Simple variable - look it up
+      auto it = declaredVars.find(instanceName);
+      if (it != declaredVars.end()) {
+        return it->second;
+      }
+      // Maybe it's 'this'
+      if (instanceName == "this" && currentClass) {
+        return currentClass->GetName();
+      }
+      return "";
+    }
+
+    // Chained member access - split and resolve step by step
+    std::string current = instanceName.substr(0, dotPos);
+    std::string remainder = instanceName.substr(dotPos + 1);
+
+    // Get the type of the first variable
+    std::string currentType;
+    auto it = declaredVars.find(current);
+    if (it != declaredVars.end()) {
+      currentType = it->second;
+    } else if (current == "this" && currentClass) {
+      currentType = currentClass->GetName();
+    } else {
+      return "";
+    }
+
+    // Resolve the rest of the chain
+    while (!remainder.empty() && !currentType.empty()) {
+      // Find the class for currentType
+      auto classIt = m_Classes.find(currentType);
+      if (classIt == m_Classes.end()) {
+        return "";
+      }
+
+      // Find the next member name
+      dotPos = remainder.find('.');
+      std::string memberName;
+      if (dotPos == std::string::npos) {
+        memberName = remainder;
+        remainder = "";
+      } else {
+        memberName = remainder.substr(0, dotPos);
+        remainder = remainder.substr(dotPos + 1);
+      }
+
+      // Get the type of this member
+      currentType = GetMemberTypeInClass(classIt->second, memberName);
+    }
+
+    return currentType;
+  }
+
+  // Get the type of a member in a class (checking parent classes too)
+  std::string GetMemberTypeInClass(std::shared_ptr<QClass> cls,
+                                   const std::string &memberName) {
+    // Check members of this class
+    for (const auto &member : cls->GetMembers()) {
+      if (member->GetName() == memberName) {
+        return member->GetTypeName();
+      }
+    }
+
+    // Check parent class
+    if (cls->HasParent()) {
+      auto parentIt = m_Classes.find(cls->GetParentClassName());
+      if (parentIt != m_Classes.end()) {
+        return GetMemberTypeInClass(parentIt->second, memberName);
+      }
+    }
+
+    return "";
+  }
+
+  // Check if a method exists in a class (checking parent classes too)
+  bool MethodExistsInClass(std::shared_ptr<QClass> cls,
+                           const std::string &methodName) {
+    // Check methods of this class
+    for (const auto &method : cls->GetMethods()) {
+      if (method->GetName() == methodName) {
+        return true;
+      }
+    }
+
+    // Check parent class
+    if (cls->HasParent()) {
+      auto parentIt = m_Classes.find(cls->GetParentClassName());
+      if (parentIt != m_Classes.end()) {
+        return MethodExistsInClass(parentIt->second, methodName);
+      }
+    }
+
+    return false;
+  }
 
   // Helper methods
   void ExecuteStatement(std::shared_ptr<QStatement> stmt) {
@@ -676,6 +1088,7 @@ private:
   }
 
   // Execute an instance declaration (e.g., Test t1 = new Test();)
+  // Also handles expression initialization: Vec3 pos = obj.GetPosition();
   void ExecuteInstanceDecl(std::shared_ptr<QInstanceDecl> instanceDecl) {
     std::string className = instanceDecl->GetQClassName();
     std::string instanceName = instanceDecl->GetInstanceName();
@@ -685,6 +1098,21 @@ private:
               << className << " " << instanceName << std::endl;
 #endif
 
+    // Check if this is an expression initializer (e.g., Vec3 pos =
+    // obj.GetPosition())
+    if (instanceDecl->HasInitializerExpression()) {
+      // Evaluate the expression and store the result
+      QValue value =
+          EvaluateExpression(instanceDecl->GetInitializerExpression());
+      m_Context->SetVariable(instanceName, value);
+#if QLANG_DEBUG
+      std::cout << "[DEBUG] QRunner::ExecuteInstanceDecl() - expression init: "
+                << instanceName << " = " << ValueToString(value) << std::endl;
+#endif
+      return;
+    }
+
+    // Standard 'new ClassName()' initialization
     // Look up the class definition
     auto classIt = m_Classes.find(className);
     if (classIt == m_Classes.end()) {

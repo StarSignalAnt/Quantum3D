@@ -33,6 +33,17 @@ SceneGraphWidget::SceneGraphWidget(QWidget *parent) : QWidget(parent) {
 
   // Enable drop support for scripts
   setAcceptDrops(true);
+
+  // Initialize rename editor
+  m_RenameEditor = new QLineEdit(this);
+  m_RenameEditor->setVisible(false);
+  m_RenameEditor->setStyleSheet("QLineEdit { background-color: #3e3e42; color: "
+                                "#dcdcdc; border: 1px solid "
+                                "#0078d7; padding: 2px; }");
+  connect(m_RenameEditor, &QLineEdit::returnPressed, this,
+          &SceneGraphWidget::OnRenameFinished);
+  connect(m_RenameEditor, &QLineEdit::editingFinished, this,
+          &SceneGraphWidget::OnRenameFinished);
 }
 
 SceneGraphWidget::~SceneGraphWidget() {}
@@ -364,6 +375,21 @@ void SceneGraphWidget::mousePressEvent(QMouseEvent *event) {
   QWidget::mousePressEvent(event);
 }
 
+void SceneGraphWidget::mouseDoubleClickEvent(QMouseEvent *event) {
+  if (event->button() == Qt::LeftButton) {
+    int itemIndex = GetItemIndexAtY(event->pos().y());
+    if (itemIndex >= 0 && itemIndex < static_cast<int>(m_FlatList.size())) {
+      const TreeViewItem &item = m_FlatList[itemIndex];
+
+      // Check if clicked in the name area (roughly)
+      int indent = item.Depth * m_IndentWidth + 5 + 16 + 8; // icon + spacing
+      if (event->pos().x() >= indent) {
+        StartRenaming(itemIndex);
+      }
+    }
+  }
+}
+
 void SceneGraphWidget::wheelEvent(QWheelEvent *event) {
   if (m_VerticalScrollBar->isVisible()) {
     int delta = event->angleDelta().y();
@@ -506,4 +532,41 @@ void SceneGraphWidget::mouseReleaseEvent(QMouseEvent *event) {
     m_Dragging = false;
   }
   QWidget::mouseReleaseEvent(event);
+}
+
+void SceneGraphWidget::StartRenaming(int itemIndex) {
+  if (itemIndex < 0 || itemIndex >= static_cast<int>(m_FlatList.size()))
+    return;
+
+  const TreeViewItem &item = m_FlatList[itemIndex];
+  if (!item.Node)
+    return;
+
+  m_RenamingNode = item.Node;
+
+  // Calculate position
+  int itemY = (itemIndex * m_RowHeight) - m_ScrollOffset;
+  int editorWidth = width();
+
+  m_RenameEditor->setGeometry(0, itemY, editorWidth, m_RowHeight);
+  m_RenameEditor->setText(QString::fromStdString(m_RenamingNode->GetName()));
+  m_RenameEditor->setVisible(true);
+  m_RenameEditor->setFocus();
+  m_RenameEditor->selectAll();
+}
+
+void SceneGraphWidget::OnRenameFinished() {
+  if (!m_RenameEditor->isVisible() || !m_RenamingNode)
+    return;
+
+  QString newName = m_RenameEditor->text();
+  if (!newName.isEmpty() &&
+      newName.toStdString() != m_RenamingNode->GetName()) {
+    m_RenamingNode->SetName(newName.toStdString());
+    RefreshTree(); // Refresh to show new name and potentially resort
+  }
+
+  m_RenameEditor->setVisible(false);
+  m_RenamingNode = nullptr;
+  setFocus(); // Return focus to the widget
 }

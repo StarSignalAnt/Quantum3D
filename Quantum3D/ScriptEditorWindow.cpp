@@ -9,7 +9,9 @@
 
 // QLang Includes (standalone parsing - no QLangDomain)
 #include "../QLang/Parser.h"
+#include "../QLang/QContext.h"
 #include "../QLang/QError.h"
+#include "../QLang/QRunner.h"
 #include "../QLang/Tokenizer.h"
 
 namespace Quantum {
@@ -200,6 +202,8 @@ void ScriptEditorWindow::OnCompileTimerTimeout() {
 }
 
 void ScriptEditorWindow::compileScript(CodeEditor *editor) {
+  namespace fs = std::filesystem;
+
   if (!editor || !m_tabData.count(editor))
     return;
 
@@ -222,22 +226,111 @@ void ScriptEditorWindow::compileScript(CodeEditor *editor) {
     return; // Don't continue to parsing if there are lexer errors
   }
 
-  // Parse the code
+  // Parse the user script code (name validation is deferred)
   Parser parser(tokens, errorCollector);
-  parser.RegisterKnownClasses(m_engineClassNames); // Register Vec3, Mat4, etc.
+  parser.RegisterKnownClasses(m_engineClassNames); // For IntelliSense hints
   auto program = parser.Parse();
 
-  // Show all issues (errors and warnings)
-  if (errorCollector->HasAnyIssues()) {
+  // Check for parse errors
+  if (errorCollector->HasErrors()) {
     for (const auto &err : errorCollector->GetErrors()) {
       LogConsole("[" + err.GetSeverityString() + "] Line " +
                  std::to_string(err.line) + ": " + err.message);
     }
+    return;
+  }
 
-    // Still report success if only warnings
-    if (!errorCollector->HasErrors()) {
-      LogConsole("Compiled with " +
-                 std::to_string(errorCollector->GetWarningCount()) +
+  // === Two-Phase Name Validation ===
+  // Create QRunner with all engine classes registered first
+  auto context = std::make_shared<QContext>();
+  auto validationErrorCollector = std::make_shared<QErrorCollector>();
+  QRunner runner(context, validationErrorCollector);
+
+  // Phase 1: Register all engine classes
+  runner.RegisterClasses(m_enginePrograms);
+
+  // Phase 2: Parse and register ALL user scripts in the same folder
+  // This enables cross-references between user-defined classes
+  fs::path scriptPath(path);
+  fs::path contentDir = scriptPath.parent_path();
+
+  std::vector<std::shared_ptr<QProgram>> siblingPrograms;
+  if (fs::exists(contentDir) && fs::is_directory(contentDir)) {
+    for (const auto &entry : fs::directory_iterator(contentDir)) {
+      if (entry.is_regular_file() && entry.path().extension() == ".q") {
+        std::string siblingPath = entry.path().string();
+
+        // For the current file, use the already-parsed program
+        if (siblingPath == path) {
+          if (program) {
+            siblingPrograms.push_back(program);
+          }
+          continue;
+        }
+
+        // Parse sibling script
+        std::ifstream file(entry.path());
+        if (!file.is_open())
+          continue;
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string siblingCode = buffer.str();
+
+        auto siblingErrorCollector = std::make_shared<QErrorCollector>();
+        Tokenizer siblingTokenizer(siblingCode, true, siblingErrorCollector);
+        siblingTokenizer.Tokenize();
+
+        if (!siblingErrorCollector->HasErrors()) {
+          Parser siblingParser(siblingTokenizer.GetTokens(),
+                               siblingErrorCollector);
+          siblingParser.RegisterKnownClasses(m_engineClassNames);
+          auto siblingProgram = siblingParser.Parse();
+
+          if (siblingProgram && !siblingErrorCollector->HasErrors()) {
+            siblingPrograms.push_back(siblingProgram);
+          }
+        }
+      }
+    }
+  } else {
+    // If we can't read the folder, just register the current program
+    if (program) {
+      siblingPrograms.push_back(program);
+    }
+  }
+
+  // Register all user programs
+  runner.RegisterClasses(siblingPrograms);
+
+  LogConsole("Registered " + std::to_string(siblingPrograms.size()) +
+             " user script(s) from content folder");
+
+  // Phase 3: Validate name references in user script
+  bool namesValid = true;
+  if (program) {
+    namesValid = runner.EnsureNames(program);
+  }
+
+  // Report validation errors
+  if (!namesValid) {
+    for (const auto &err : validationErrorCollector->GetErrors()) {
+      LogConsole("[" + err.GetSeverityString() + "] " + err.message);
+    }
+  }
+
+  // Report final status
+  if (errorCollector->HasAnyIssues() || !namesValid) {
+    int totalErrors = errorCollector->GetErrorCount() +
+                      validationErrorCollector->GetErrorCount();
+    int totalWarnings = errorCollector->GetWarningCount() +
+                        validationErrorCollector->GetWarningCount();
+
+    if (totalErrors > 0) {
+      LogConsole("Compile failed with " + std::to_string(totalErrors) +
+                 " error(s)");
+    } else if (totalWarnings > 0) {
+      LogConsole("Compiled with " + std::to_string(totalWarnings) +
                  " warning(s)");
     }
   } else {
@@ -245,28 +338,31 @@ void ScriptEditorWindow::compileScript(CodeEditor *editor) {
   }
 
   // On successful compile (no errors), extract class definitions for
-  // IntelliSense
-  if (program && !errorCollector->HasErrors()) {
-    for (const auto &cls : program->GetClasses()) {
-      QLangClassDef classDef;
-      classDef.name = QString::fromStdString(cls->GetName());
-      classDef.parentClass = QString::fromStdString(cls->GetParentClassName());
+  // IntelliSense from ALL registered programs (current + siblings)
+  if (namesValid) {
+    for (const auto &prog : siblingPrograms) {
+      for (const auto &cls : prog->GetClasses()) {
+        QLangClassDef classDef;
+        classDef.name = QString::fromStdString(cls->GetName());
+        classDef.parentClass =
+            QString::fromStdString(cls->GetParentClassName());
 
-      // Add members
-      for (const auto &member : cls->GetMembers()) {
-        QString memberName = QString::fromStdString(member->GetName());
-        QString memberType = QString::fromStdString(member->GetTypeName());
-        classDef.members << memberName;
-        classDef.memberTypes[memberName] = memberType;
+        // Add members
+        for (const auto &member : cls->GetMembers()) {
+          QString memberName = QString::fromStdString(member->GetName());
+          QString memberType = QString::fromStdString(member->GetTypeName());
+          classDef.members << memberName;
+          classDef.memberTypes[memberName] = memberType;
+        }
+
+        // Add methods
+        for (const auto &method : cls->GetMethods()) {
+          classDef.methods << QString::fromStdString(method->GetName());
+        }
+
+        // Register with this editor's symbol collector
+        editor->symbolCollector().registerExternalClass(classDef);
       }
-
-      // Add methods
-      for (const auto &method : cls->GetMethods()) {
-        classDef.methods << QString::fromStdString(method->GetName());
-      }
-
-      // Register with this editor's symbol collector
-      editor->symbolCollector().registerExternalClass(classDef);
     }
   }
 }
@@ -297,7 +393,8 @@ void ScriptEditorWindow::loadEngineClasses() {
 
   LogConsole("Using path: " + engineClassPath);
 
-  // Scan all .q files and parse them to extract class names and members
+  // Phase 1: Parse all engine .q files (no name validation yet)
+  m_enginePrograms.clear();
   for (const auto &entry : fs::recursive_directory_iterator(engineClassPath)) {
     if (entry.is_regular_file() && entry.path().extension() == ".q") {
       std::ifstream file(entry.path());
@@ -319,38 +416,73 @@ void ScriptEditorWindow::loadEngineClasses() {
         auto program = parser.Parse();
 
         if (program) {
+          // Store the program for phase 2
+          m_enginePrograms.push_back(program);
+
+          // Extract class names for Parser preregistration
           for (const auto &cls : program->GetClasses()) {
             m_engineClassNames.insert(cls->GetName());
-
-            // Create full class definition for IntelliSense
-            QLangClassDef classDef;
-            classDef.name = QString::fromStdString(cls->GetName());
-            classDef.parentClass =
-                QString::fromStdString(cls->GetParentClassName());
-
-            // Add members
-            for (const auto &member : cls->GetMembers()) {
-              QString memberName = QString::fromStdString(member->GetName());
-              QString memberType =
-                  QString::fromStdString(member->GetTypeName());
-              classDef.members << memberName;
-              classDef.memberTypes[memberName] = memberType;
-            }
-
-            // Add methods
-            for (const auto &method : cls->GetMethods()) {
-              classDef.methods << QString::fromStdString(method->GetName());
-            }
-
-            m_engineClassDefs.push_back(classDef);
-
-            // Debug output
-            LogConsole("  Loaded class: " + cls->GetName() + " (" +
-                       std::to_string(classDef.members.size()) + " members, " +
-                       std::to_string(classDef.methods.size()) + " methods)");
           }
         }
       }
+    }
+  }
+
+  LogConsole("Phase 1: Parsed " + std::to_string(m_enginePrograms.size()) +
+             " engine files");
+
+  // Phase 2: Register all classes with QRunner
+  auto context = std::make_shared<QContext>();
+  auto errorCollector = std::make_shared<QErrorCollector>();
+  QRunner runner(context, errorCollector);
+  runner.RegisterClasses(m_enginePrograms);
+
+  LogConsole("Phase 2: Registered " +
+             std::to_string(m_engineClassNames.size()) + " engine classes");
+
+  // Phase 3: Validate all name references
+  bool allValid = true;
+  for (const auto &program : m_enginePrograms) {
+    if (!runner.EnsureNames(program)) {
+      allValid = false;
+    }
+  }
+
+  if (!allValid) {
+    LogConsole("WARNING: Engine classes have validation errors:");
+    for (const auto &err : errorCollector->GetErrors()) {
+      LogConsole("  [" + err.GetSeverityString() + "] " + err.message);
+    }
+  } else {
+    LogConsole("Phase 3: All engine class names validated OK");
+  }
+
+  // Build IntelliSense class definitions
+  for (const auto &program : m_enginePrograms) {
+    for (const auto &cls : program->GetClasses()) {
+      QLangClassDef classDef;
+      classDef.name = QString::fromStdString(cls->GetName());
+      classDef.parentClass = QString::fromStdString(cls->GetParentClassName());
+
+      // Add members
+      for (const auto &member : cls->GetMembers()) {
+        QString memberName = QString::fromStdString(member->GetName());
+        QString memberType = QString::fromStdString(member->GetTypeName());
+        classDef.members << memberName;
+        classDef.memberTypes[memberName] = memberType;
+      }
+
+      // Add methods
+      for (const auto &method : cls->GetMethods()) {
+        classDef.methods << QString::fromStdString(method->GetName());
+      }
+
+      m_engineClassDefs.push_back(classDef);
+
+      // Debug output
+      LogConsole("  Loaded class: " + cls->GetName() + " (" +
+                 std::to_string(classDef.members.size()) + " members, " +
+                 std::to_string(classDef.methods.size()) + " methods)");
     }
   }
 

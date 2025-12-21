@@ -425,6 +425,37 @@ bool QLangSymbolCollector::isKnownType(const QString &typeName) const {
   return false;
 }
 
+QString QLangSymbolCollector::getMemberType(const QString &className,
+                                            const QString &memberName) const {
+  // First check external classes
+  if (m_externalClasses.contains(className)) {
+    const QLangClassDef &classDef = m_externalClasses[className];
+
+    // Check memberTypes map
+    if (classDef.memberTypes.contains(memberName)) {
+      return classDef.memberTypes[memberName];
+    }
+
+    // Also check parent class if available
+    if (!classDef.parentClass.isEmpty()) {
+      QString parentType = getMemberType(classDef.parentClass, memberName);
+      if (!parentType.isEmpty()) {
+        return parentType;
+      }
+    }
+  }
+
+  // Check symbols from current file
+  for (const auto &sym : m_symbols) {
+    if (sym.parentClass == className && sym.name == memberName &&
+        sym.symbolType == "member") {
+      return sym.dataType;
+    }
+  }
+
+  return QString();
+}
+
 QList<QLangSymbolCollector::CompletionItem>
 QLangSymbolCollector::getTypedMembersForType(const QString &typeName) const {
   QList<CompletionItem> result;

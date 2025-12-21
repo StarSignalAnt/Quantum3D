@@ -55,6 +55,17 @@ public:
 
   bool HasTypeArguments() const { return !m_TypeArguments.empty(); }
 
+  // Expression initializer (e.g., Vec3 pos = obj.GetPosition())
+  void SetInitializerExpression(std::shared_ptr<QExpression> expr) {
+    m_InitializerExpr = expr;
+  }
+
+  std::shared_ptr<QExpression> GetInitializerExpression() const {
+    return m_InitializerExpr;
+  }
+
+  bool HasInitializerExpression() const { return m_InitializerExpr != nullptr; }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "InstanceDecl: " << m_ClassName;
@@ -96,5 +107,6 @@ private:
   std::string m_ClassName;
   std::string m_InstanceName;
   std::shared_ptr<QParameters> m_ConstructorArgs;
-  std::vector<std::string> m_TypeArguments; // Concrete types for generics
+  std::vector<std::string> m_TypeArguments;       // Concrete types for generics
+  std::shared_ptr<QExpression> m_InitializerExpr; // Expression initializer
 };

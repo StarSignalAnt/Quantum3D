@@ -58,6 +58,7 @@ protected:
   void dropEvent(QDropEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
+  void mouseDoubleClickEvent(QMouseEvent *event) override;
 
 private:
   // Rebuild the flat list from the scene graph
@@ -122,6 +123,13 @@ private:
   // Scrollbar
   QScrollBar *m_VerticalScrollBar = nullptr;
 
+  // Renaming
+  class QLineEdit *m_RenameEditor = nullptr;
+  Quantum::GraphNode *m_RenamingNode = nullptr;
+
+  void StartRenaming(int itemIndex);
+
 private slots:
   void OnScrollBarValueChanged(int value);
+  void OnRenameFinished();
 };

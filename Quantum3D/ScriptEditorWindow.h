@@ -10,8 +10,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 class QTimer;
+class QProgram; // Forward declaration for engine programs
 
 namespace Quantum {
 
@@ -57,6 +57,8 @@ private:
   std::set<std::string> m_engineClassNames;
   // Full engine class definitions for IntelliSense
   std::vector<QLangClassDef> m_engineClassDefs;
+  // Parsed engine programs (for deferred name validation)
+  std::vector<std::shared_ptr<QProgram>> m_enginePrograms;
 
   // Register engine classes with an editor's symbol collector
   void registerEngineClassesWithEditor(CodeEditor *editor);

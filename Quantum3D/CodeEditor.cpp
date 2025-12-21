@@ -629,17 +629,41 @@ QString CodeEditor::getIdentifierBeforeDot() const {
   if (pos < 0)
     return QString();
 
-  // Now extract the identifier
+  // Extract the FULL member access chain (e.g., "light1.Cam" not just "Cam")
+  // Work backwards collecting identifiers and dots
   int endPos = pos + 1;
-  while (pos >= 0 && (text[pos].isLetterOrNumber() || text[pos] == '_')) {
-    pos--;
+
+  while (pos >= 0) {
+    // Collect identifier
+    while (pos >= 0 && (text[pos].isLetterOrNumber() || text[pos] == '_')) {
+      pos--;
+    }
+
+    // Check if there's a dot before this identifier (part of a chain)
+    int checkPos = pos;
+    while (checkPos >= 0 && text[checkPos].isSpace()) {
+      checkPos--;
+    }
+
+    if (checkPos >= 0 && text[checkPos] == '.') {
+      // There's a dot, continue extracting the chain
+      pos = checkPos - 1;
+      // Skip whitespace before the dot
+      while (pos >= 0 && text[pos].isSpace()) {
+        pos--;
+      }
+    } else {
+      // No more dots in the chain, we're done
+      break;
+    }
   }
-  return text.mid(pos + 1, endPos - pos - 1);
+
+  return text.mid(pos + 1, endPos - pos - 1).trimmed();
 }
 
-void CodeEditor::showDotCompletion(const QString &variableName) {
+void CodeEditor::showDotCompletion(const QString &memberAccessChain) {
   emit debugLog("=== showDotCompletion called ===");
-  emit debugLog("Variable name: " + variableName);
+  emit debugLog("Member access chain: " + memberAccessChain);
 
   // First, update symbols to have the latest state
   m_symbolCollector.parse(toPlainText());
@@ -649,28 +673,68 @@ void CodeEditor::showDotCompletion(const QString &variableName) {
   QString methodName = getCurrentMethodName();
   emit debugLog("Context - class: " + className + ", method: " + methodName);
 
-  // Find the type of the variable
-  QString varType =
-      m_symbolCollector.getVariableType(variableName, className, methodName);
-  emit debugLog("Variable type from symbol collector: " +
-                (varType.isEmpty() ? "(empty)" : varType));
+  // Split the chain by dots (e.g., "light1.Cam" -> ["light1", "Cam"])
+  QStringList parts = memberAccessChain.split('.', Qt::SkipEmptyParts);
+  if (parts.isEmpty())
+    return;
 
-  // If not found in current context, it might be 'this' or a class member
-  if (varType.isEmpty()) {
-    if (variableName == "this") {
-      varType = className;
-      emit debugLog("Using 'this' context, varType = " + varType);
+  emit debugLog("Chain parts: " + parts.join(" -> "));
+
+  // Resolve the type step by step
+  QString currentType;
+
+  for (int i = 0; i < parts.size(); ++i) {
+    const QString &part = parts[i];
+
+    if (i == 0) {
+      // First part is a variable name - look it up
+      currentType =
+          m_symbolCollector.getVariableType(part, className, methodName);
+      emit debugLog(
+          "Step " + QString::number(i) + ": Variable '" + part +
+          "' -> type: " + (currentType.isEmpty() ? "(empty)" : currentType));
+
+      if (currentType.isEmpty()) {
+        // Maybe it's 'this'
+        if (part == "this") {
+          currentType = className;
+          emit debugLog("  Recognized 'this', using class: " + currentType);
+        }
+      }
     } else {
-      emit debugLog("Variable type is EMPTY! Cannot provide dot-completion.");
+      // Subsequent parts are member accesses - look up member type in current
+      // type
+      if (currentType.isEmpty()) {
+        emit debugLog("Step " + QString::number(i) +
+                      ": Cannot resolve member '" + part +
+                      "' - previous type was empty");
+        break;
+      }
+
+      // Get the type of this member from the current type
+      QString memberType = m_symbolCollector.getMemberType(currentType, part);
+      emit debugLog("Step " + QString::number(i) + ": Member '" + part +
+                    "' in class '" + currentType + "' -> type: " +
+                    (memberType.isEmpty() ? "(empty)" : memberType));
+
+      currentType = memberType;
+    }
+
+    if (currentType.isEmpty()) {
+      emit debugLog("Chain resolution failed at step " + QString::number(i));
+      break;
     }
   }
 
+  emit debugLog("Final resolved type: " +
+                (currentType.isEmpty() ? "(empty)" : currentType));
+
   // Get typed members for this type (members first, then methods)
   QList<QLangSymbolCollector::CompletionItem> items;
-  if (!varType.isEmpty()) {
-    items = m_symbolCollector.getTypedMembersForType(varType);
+  if (!currentType.isEmpty()) {
+    items = m_symbolCollector.getTypedMembersForType(currentType);
     emit debugLog("Found " + QString::number(items.size()) +
-                  " completions for " + varType);
+                  " completions for " + currentType);
   }
 
   if (items.isEmpty()) {
