@@ -49,6 +49,8 @@ public:
   void SetMetallicTexture(std::shared_ptr<Vivid::Texture2D> texture);
   void SetRoughnessTexture(std::shared_ptr<Vivid::Texture2D> texture);
   void SetAOTexture(std::shared_ptr<Vivid::Texture2D> texture);
+  void SetReflectionTexture(std::shared_ptr<Vivid::Texture2D> texture);
+  void SetRefractionTexture(std::shared_ptr<Vivid::Texture2D> texture);
   void SetEmissiveTexture(std::shared_ptr<Vivid::Texture2D> texture);
 
   // Checks and creates default 1x1 textures for missing PBR slots
@@ -60,6 +62,8 @@ public:
   std::shared_ptr<Vivid::Texture2D> GetRoughnessTexture() const;
   std::shared_ptr<Vivid::Texture2D> GetAOTexture() const;
   std::shared_ptr<Vivid::Texture2D> GetEmissiveTexture() const;
+  std::shared_ptr<Vivid::Texture2D> GetReflectionTexture() const;
+  std::shared_ptr<Vivid::Texture2D> GetRefractionTexture() const;
 
   // Get all texture slots
   const std::unordered_map<std::string, std::shared_ptr<Vivid::Texture2D>> &
@@ -81,6 +85,8 @@ public:
   static constexpr const char *SLOT_ROUGHNESS = "roughness";
   static constexpr const char *SLOT_AO = "ao";
   static constexpr const char *SLOT_EMISSIVE = "emissive";
+  static constexpr const char *SLOT_REFLECTION = "reflection";
+  static constexpr const char *SLOT_REFRACTION = "refraction";
 
 private:
   std::string m_Name;

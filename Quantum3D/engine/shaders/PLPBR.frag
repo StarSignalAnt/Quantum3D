@@ -15,7 +15,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 viewPos;
     float time;      // Changed from padding
     vec3 lightPos;
-    float padding2;
+    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
     vec3 lightColor;
     float lightRange; 
 } ubo;

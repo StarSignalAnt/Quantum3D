@@ -15,7 +15,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 viewPos;
     float time;      // Time for animation
     vec3 lightPos;
-    float padding2;
+    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
     vec3 lightColor;
     float lightRange; 
 } ubo;
@@ -26,6 +26,7 @@ layout(location = 1) out vec3 fragNormal;
 layout(location = 2) out vec2 fragUV;
 layout(location = 3) out vec3 fragTangent;
 layout(location = 4) out vec3 fragBitangent;
+layout(location = 5) out vec4 fragClipSpace;
 
 void main() {
     // Wave parameters (hardcoded for now, could be pushed via constants)
@@ -78,4 +79,5 @@ void main() {
 
     // Clip space position
     gl_Position = ubo.proj * ubo.view * worldPos;
+    fragClipSpace = gl_Position;
 }

@@ -15,7 +15,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 viewPos;
     float time;      // Changed from padding
     vec3 lightPos;
-    float padding2;
+    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
     vec3 lightColor;
     float lightRange; 
 } ubo;
@@ -26,6 +26,9 @@ layout(location = 1) out vec3 fragNormal;
 layout(location = 2) out vec2 fragUV;
 layout(location = 3) out vec3 fragTangent;
 layout(location = 4) out vec3 fragBitangent;
+
+// Clip distance for water clipping
+out float gl_ClipDistance[1];
 
 void main() {
     // World position
@@ -45,4 +48,11 @@ void main() {
     
     // Clip space position
     gl_Position = ubo.proj * ubo.view * worldPos;
+    
+    // Clip plane for water reflection/refraction
+    // clipPlaneDir > 0: clip if worldPos.y < 0 (for reflection, keep above water)
+    // clipPlaneDir < 0: clip if worldPos.y > 0 (for refraction, keep below water)
+    // clipPlaneDir = 0: no clipping (normal rendering)
+    float waterHeight = 0.0;
+    gl_ClipDistance[0] = (worldPos.y - waterHeight) * ubo.clipPlaneDir;
 }

@@ -15,7 +15,8 @@ const std::vector<const char *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
 
 const std::vector<const char *> deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME};
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -23,17 +24,7 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
-static VKAPI_ATTR VkBool32 VKAPI_CALL
-debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-              VkDebugUtilsMessageTypeFlagsEXT messageType,
-              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
-              void *pUserData) {
-
-  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
-
-  return VK_FALSE;
-}
-
+// Proxy function for vkCreateDebugUtilsMessengerEXT
 VkResult CreateDebugUtilsMessengerEXT(
     VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
     const VkAllocationCallbacks *pAllocator,
@@ -47,6 +38,7 @@ VkResult CreateDebugUtilsMessengerEXT(
   }
 }
 
+// Proxy function for vkDestroyDebugUtilsMessengerEXT
 void DestroyDebugUtilsMessengerEXT(VkInstance instance,
                                    VkDebugUtilsMessengerEXT debugMessenger,
                                    const VkAllocationCallbacks *pAllocator) {
@@ -57,29 +49,37 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance,
   }
 }
 
-// Original GLFW constructor
+static VKAPI_ATTR VkBool32 VKAPI_CALL
+debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+              VkDebugUtilsMessageTypeFlagsEXT messageType,
+              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+              void *pUserData) {
+  std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+  return VK_FALSE;
+}
+
 VividDevice::VividDevice(GLFWwindow *window, const char *title)
     : m_Window(window), m_UseGLFW(true) {
   CreateInstance(title, true);
   SetupDebugMessenger();
   CreateSurface();
-  InitCommon(title);
-}
-
-// New Win32 constructor for Qt integration
-VividDevice::VividDevice(HWND hwnd, HINSTANCE hinstance, const char *title)
-    : m_Hwnd(hwnd), m_Hinstance(hinstance), m_UseGLFW(false) {
-  CreateInstance(title, false);
-  SetupDebugMessenger();
-  CreateWin32Surface();
-  InitCommon(title);
-}
-
-void VividDevice::InitCommon(const char *title) {
   PickPhysicalDevice();
   CreateLogicalDevice();
   CreateCommandPool();
 }
+
+#ifdef _WIN32
+VividDevice::VividDevice(HWND hwnd, HINSTANCE hinstance, const char *title)
+    : m_Hwnd(hwnd), m_Hinstance(hinstance), m_Window(nullptr),
+      m_UseGLFW(false) {
+  CreateInstance(title, false);
+  SetupDebugMessenger();
+  CreateSurface();
+  PickPhysicalDevice();
+  CreateLogicalDevice();
+  CreateCommandPool();
+}
+#endif
 
 VividDevice::~VividDevice() {
   vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
@@ -91,142 +91,8 @@ VividDevice::~VividDevice() {
 
   vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
   vkDestroyInstance(m_Instance, nullptr);
-}
 
-void VividDevice::CreateInstance(const char *title, bool useGLFW) {
-  if (enableValidationLayers && !CheckValidationLayerSupport()) {
-    throw std::runtime_error("validation layers requested, but not available!");
-  }
-
-  VkApplicationInfo appInfo{};
-  appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-  appInfo.pApplicationName = title;
-  appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-  appInfo.pEngineName = "VividEngine";
-  appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  appInfo.apiVersion = VK_API_VERSION_1_0;
-
-  VkInstanceCreateInfo createInfo{};
-  createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-  createInfo.pApplicationInfo = &appInfo;
-
-  std::vector<const char *> extensions;
-
-  if (useGLFW) {
-    // GLFW path - get extensions from GLFW
-    uint32_t glfwExtensionCount = 0;
-    const char **glfwExtensions;
-    glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-    extensions = std::vector<const char *>(glfwExtensions,
-                                           glfwExtensions + glfwExtensionCount);
-  } else {
-    // Win32 path - specify extensions directly
-    extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-#ifdef _WIN32
-    extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-#endif
-  }
-
-  if (enableValidationLayers) {
-    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  }
-
-  createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-  createInfo.ppEnabledExtensionNames = extensions.data();
-
-  VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-  if (enableValidationLayers) {
-    createInfo.enabledLayerCount =
-        static_cast<uint32_t>(validationLayers.size());
-    createInfo.ppEnabledLayerNames = validationLayers.data();
-
-    debugCreateInfo.sType =
-        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    debugCreateInfo.messageSeverity =
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    debugCreateInfo.messageType =
-        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    debugCreateInfo.pfnUserCallback = debugCallback;
-    createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
-  } else {
-    createInfo.enabledLayerCount = 0;
-    createInfo.pNext = nullptr;
-  }
-
-  if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create instance!");
-  }
-}
-
-void VividDevice::SetupDebugMessenger() {
-  if (!enableValidationLayers)
-    return;
-
-  VkDebugUtilsMessengerCreateInfoEXT createInfo{};
-  createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-  createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-  createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                           VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                           VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-  createInfo.pfnUserCallback = debugCallback;
-
-  if (CreateDebugUtilsMessengerEXT(m_Instance, &createInfo, nullptr,
-                                   &m_DebugMessenger) != VK_SUCCESS) {
-    throw std::runtime_error("failed to set up debug messenger!");
-  }
-}
-
-void VividDevice::CreateSurface() {
-  if (glfwCreateWindowSurface(m_Instance, m_Window, nullptr, &m_Surface) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to create window surface!");
-  }
-}
-
-void VividDevice::CreateWin32Surface() {
-#ifdef _WIN32
-  VkWin32SurfaceCreateInfoKHR createInfo{};
-  createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
-  createInfo.hwnd = m_Hwnd;
-  createInfo.hinstance = m_Hinstance;
-
-  if (vkCreateWin32SurfaceKHR(m_Instance, &createInfo, nullptr, &m_Surface) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to create Win32 window surface!");
-  }
-#else
-  throw std::runtime_error(
-      "Win32 surface creation not supported on this platform!");
-#endif
-}
-
-void VividDevice::PickPhysicalDevice() {
-  uint32_t deviceCount = 0;
-  vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr);
-
-  if (deviceCount == 0) {
-    throw std::runtime_error("failed to find GPUs with Vulkan support!");
-  }
-
-  std::vector<VkPhysicalDevice> devices(deviceCount);
-  vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
-
-  for (const auto &device : devices) {
-    if (IsDeviceSuitable(device)) {
-      m_PhysicalDevice = device;
-      break;
-    }
-  }
-
-  if (m_PhysicalDevice == VK_NULL_HANDLE) {
-    throw std::runtime_error("failed to find a suitable GPU!");
-  }
+  // Note: GLFW window destruction is handled by VividApplication or outside
 }
 
 void VividDevice::CreateLogicalDevice() {
@@ -250,8 +116,17 @@ void VividDevice::CreateLogicalDevice() {
   deviceFeatures.samplerAnisotropy = VK_TRUE;
   deviceFeatures.fillModeNonSolid = VK_TRUE; // Enable Wireframe
 
+  // Enable Extended Dynamic State Feature
+  VkPhysicalDeviceExtendedDynamicStateFeaturesEXT
+      extendedDynamicStateFeatures{};
+  extendedDynamicStateFeatures.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
+  extendedDynamicStateFeatures.extendedDynamicState = VK_TRUE;
+  extendedDynamicStateFeatures.pNext = nullptr;
+
   VkDeviceCreateInfo createInfo{};
   createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  createInfo.pNext = &extendedDynamicStateFeatures; // Chain the new feature
   createInfo.pEnabledFeatures = &deviceFeatures;
   createInfo.queueCreateInfoCount =
       static_cast<uint32_t>(queueCreateInfos.size());
@@ -348,6 +223,148 @@ bool VividDevice::CheckValidationLayerSupport() {
   }
 
   return true;
+}
+
+void VividDevice::CreateInstance(const char *title, bool useGLFW) {
+  if (enableValidationLayers && !CheckValidationLayerSupport()) {
+    throw std::runtime_error("validation layers requested, but not available!");
+  }
+
+  VkApplicationInfo appInfo{};
+  appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+  appInfo.pApplicationName = title;
+  appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+  appInfo.pEngineName = "Vivid Engine";
+  appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+  appInfo.apiVersion = VK_API_VERSION_1_0;
+
+  VkInstanceCreateInfo createInfo{};
+  createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  createInfo.pApplicationInfo = &appInfo;
+
+  std::vector<const char *> extensions;
+  if (useGLFW) {
+    uint32_t glfwExtensionCount = 0;
+    const char **glfwExtensions;
+    glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    for (uint32_t i = 0; i < glfwExtensionCount; i++) {
+      extensions.push_back(glfwExtensions[i]);
+    }
+  } else {
+#ifdef _WIN32
+    extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+    extensions.push_back("VK_KHR_win32_surface");
+#endif
+  }
+
+  if (enableValidationLayers) {
+    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
+
+  createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
+  createInfo.ppEnabledExtensionNames = extensions.data();
+
+  VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
+  if (enableValidationLayers) {
+    createInfo.enabledLayerCount =
+        static_cast<uint32_t>(validationLayers.size());
+    createInfo.ppEnabledLayerNames = validationLayers.data();
+
+    // Populate debugCreateInfo logic here if needed or use separated function
+    debugCreateInfo = {};
+    debugCreateInfo.sType =
+        VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+    debugCreateInfo.messageSeverity =
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+    debugCreateInfo.messageType =
+        VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+        VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    debugCreateInfo.pfnUserCallback = debugCallback;
+    debugCreateInfo.pUserData = nullptr; // Optional
+
+    createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
+  } else {
+    createInfo.enabledLayerCount = 0;
+    createInfo.pNext = nullptr;
+  }
+
+  if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create instance!");
+  }
+}
+
+void VividDevice::SetupDebugMessenger() {
+  if (!enableValidationLayers)
+    return;
+
+  VkDebugUtilsMessengerCreateInfoEXT createInfo{};
+  createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+  createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+  createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                           VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+  createInfo.pfnUserCallback = debugCallback;
+  createInfo.pUserData = nullptr; // Optional
+
+  if (CreateDebugUtilsMessengerEXT(m_Instance, &createInfo, nullptr,
+                                   &m_DebugMessenger) != VK_SUCCESS) {
+    throw std::runtime_error("failed to set up debug messenger!");
+  }
+}
+
+void VividDevice::CreateSurface() {
+  if (m_UseGLFW) {
+    if (glfwCreateWindowSurface(m_Instance, m_Window, nullptr, &m_Surface) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to create window surface!");
+    }
+  } else {
+#ifdef _WIN32
+    CreateWin32Surface();
+#endif
+  }
+}
+
+#ifdef _WIN32
+void VividDevice::CreateWin32Surface() {
+  VkWin32SurfaceCreateInfoKHR createInfo{};
+  createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+  createInfo.hwnd = m_Hwnd;
+  createInfo.hinstance = m_Hinstance;
+
+  if (vkCreateWin32SurfaceKHR(m_Instance, &createInfo, nullptr, &m_Surface) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to create win32 surface!");
+  }
+}
+#endif
+
+void VividDevice::PickPhysicalDevice() {
+  uint32_t deviceCount = 0;
+  vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr);
+
+  if (deviceCount == 0) {
+    throw std::runtime_error("failed to find GPUs with Vulkan support!");
+  }
+
+  std::vector<VkPhysicalDevice> devices(deviceCount);
+  vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
+
+  for (const auto &device : devices) {
+    if (IsDeviceSuitable(device)) {
+      m_PhysicalDevice = device;
+      break;
+    }
+  }
+
+  if (m_PhysicalDevice == VK_NULL_HANDLE) {
+    throw std::runtime_error("failed to find a suitable GPU!");
+  }
 }
 
 QueueFamilyIndices VividDevice::FindQueueFamilies(VkPhysicalDevice device) {
@@ -597,12 +614,21 @@ void VividDevice::CopyBufferToImage(VkBuffer buffer, VkImage image,
 }
 
 VkImageView VividDevice::CreateImageView(VkImage image, VkFormat format) {
+  // Determine correct aspect mask based on format
+  VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  if (format == VK_FORMAT_D32_SFLOAT ||
+      format == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+      format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D16_UNORM ||
+      format == VK_FORMAT_D16_UNORM_S8_UINT) {
+    aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  }
+
   VkImageViewCreateInfo viewInfo{};
   viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   viewInfo.image = image;
   viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
   viewInfo.format = format;
-  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  viewInfo.subresourceRange.aspectMask = aspectMask;
   viewInfo.subresourceRange.baseMipLevel = 0;
   viewInfo.subresourceRange.levelCount = 1;
   viewInfo.subresourceRange.baseArrayLayer = 0;

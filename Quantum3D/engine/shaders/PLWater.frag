@@ -15,7 +15,7 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     vec3 viewPos;
     float time;      // Changed
     vec3 lightPos;
-    float padding2;
+    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
     vec3 lightColor;
     float lightRange; 
 } ubo;
@@ -25,6 +25,11 @@ layout(set = 1, binding = 0) uniform sampler2D albedoMap;
 layout(set = 1, binding = 1) uniform sampler2D normalMap;
 layout(set = 1, binding = 2) uniform sampler2D metallicMap;
 layout(set = 1, binding = 3) uniform sampler2D roughnessMap;
+layout(set = 1, binding = 4) uniform sampler2D reflectionMap;
+layout(set = 1, binding = 5) uniform sampler2D refractionMap;
+
+// Clip space input
+layout(location = 5) in vec4 fragClipSpace;
 
 // Shadow cube map (Set 0 - Global Light Data)
 layout(set = 0, binding = 1) uniform samplerCube shadowMap;
@@ -36,16 +41,26 @@ const float PI = 3.14159265359;
 
 // Calculate shadow factor (0 = fully shadowed, 1 = fully lit)
 float calculateShadow(vec3 fragToLight, float currentDepth) {
+    // Sample the cube map using the direction from light to fragment
     float closestDepth = texture(shadowMap, fragToLight).r;
+    
+    // Get the far plane used for shadow rendering
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
+    
+    // Normalize current depth to match shadow map range (0-1)
     float normalizedCurrent = currentDepth / shadowFarPlane;
+    
+    // Simple fixed bias
     float bias = 0.01;
     
+    // If we're past the far plane, no shadow
     if (normalizedCurrent > 1.0) {
         return 1.0;
     }
     
+    // Shadow: if current fragment is further than stored closest, we're in shadow
     float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
+    
     return shadow;
 }
 
@@ -82,21 +97,22 @@ float GeometrySchlickGGX(float NdotV, float roughness) {
 // Geometry Smith
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
     float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0); // Reverted to max
+    float NdotL = max(dot(N, L), 0.0);
     float ggx2  = GeometrySchlickGGX(NdotV, roughness);
     float ggx1  = GeometrySchlickGGX(NdotL, roughness);
 	
     return ggx1 * ggx2;
 }
 
+// ... existing code ...
+
 void main() {
     // Water Base Properties
-    vec3 baseColor = texture(albedoMap, fragUV).rgb; // Uses the blue texture we set
+    vec3 baseColor = texture(albedoMap, fragUV).rgb; 
     float metallic  = 0.1;
-    float roughness = 0.2; // Shiny
+    float roughness = 0.2; 
 
     // Animated Normal Mapping
-    // Scrolling UVs
     float speed = 0.05;
     vec2 uv1 = fragUV + vec2(ubo.time * speed, ubo.time * speed * 0.5);
     vec2 uv2 = fragUV + vec2(-ubo.time * speed * 0.7, ubo.time * speed * 0.3);
@@ -104,31 +120,57 @@ void main() {
     // Sample normal map twice
     vec3 n1 = texture(normalMap, uv1).xyz * 2.0 - 1.0;
     vec3 n2 = texture(normalMap, uv2).xyz * 2.0 - 1.0;
-    
-    // Blend normals
     vec3 tangentNormal = normalize(n1 + n2);
     
     // TBN Matrix
     vec3 N_geom = normalize(fragNormal);
     vec3 T = normalize(fragTangent);
     vec3 B = normalize(fragBitangent);
-    
-    // Gram-Schmidt
     T = normalize(T - dot(T, N_geom) * N_geom);
     mat3 TBN = mat3(T, B, N_geom);
-    
-    // Final World Normal
     vec3 N = normalize(TBN * tangentNormal);
     
-    // View Vector
     vec3 V = normalize(ubo.viewPos - fragWorldPos);
 
-    // F0 for water (dielectric)
+    // Calculate F0
     vec3 F0 = vec3(0.04); 
     F0 = mix(F0, baseColor, metallic);
 
-    // Lighting
-    vec3 Lo = vec3(0.0);
+    // --- Reflection and Refraction Calculation ---
+    
+    // Calculate NDC coordinates
+    vec2 ndc = (fragClipSpace.xy / fragClipSpace.w) / 2.0 + 0.5;
+    
+    // Distortion strength
+    float distortStrength = 0.02; // Reduced strength for realism
+    vec2 distortion = tangentNormal.xy * distortStrength;
+
+    // Reflection UV: flip X to correct horizontal mirroring
+    vec2 reflectUV = vec2(1.0 - ndc.x, ndc.y) + distortion;
+    vec2 refractUV = ndc + distortion;
+
+    // Clamp UVs to avoid artifacts
+    reflectUV.x = clamp(reflectUV.x, 0.001, 0.999);
+    reflectUV.y = clamp(reflectUV.y, 0.001, 0.999);
+    refractUV.x = clamp(refractUV.x, 0.001, 0.999);
+    refractUV.y = clamp(refractUV.y, 0.001, 0.999);
+
+    vec3 reflectionColor = texture(reflectionMap, reflectUV).rgb * 3.0;  // Amplified 3x
+    vec3 refractionColor = texture(refractionMap, refractUV).rgb;
+
+    // Tint refraction with base color
+    refractionColor = mix(refractionColor, baseColor * refractionColor, 0.5);
+
+    // Simple Fresnel using scalar factor
+    float NdotV = max(dot(N, V), 0.0);
+    float fresnelFactor = pow(1.0 - NdotV, 3.0);
+    fresnelFactor = clamp(fresnelFactor, 0.0, 1.0);
+
+    // Blend: use fixed 50/50 mix for consistent reflection + refraction visibility
+    // (Original Fresnel blend: refraction at direct angles, reflection at grazing)
+    vec3 waterColor = mix(refractionColor, reflectionColor, 0.5);
+
+    // --- PBR Specular (no shadows) ---
     vec3 L = normalize(ubo.lightPos - fragWorldPos);
     vec3 H = normalize(V + L);
     float distance = length(ubo.lightPos - fragWorldPos);
@@ -137,56 +179,27 @@ void main() {
     if (ubo.lightRange > 0.0) {
         rangeFactor = max(0.0, 1.0 - distance / ubo.lightRange);
     }
-    
+
     float attenuation = 1.0 / (distance * distance + 0.001);
     vec3 radiance = ubo.lightColor * attenuation * rangeFactor;
-    
-    // Shadow
-    vec3 fragToLight = fragWorldPos - ubo.lightPos;
-    // Fix incorrect negative X flip which was likely a hack
-    // fragToLight.x = -fragToLight.x; 
-
-    // Calculate shadow with increased bias for wave displacement
-    float closestDepth = texture(shadowMap, fragToLight).r;
-    float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
-    float normalizedCurrent = distance / shadowFarPlane;
-    
-    // Much larger bias for water to prevent self-shadowing from flat-plane shadow map
-    float bias = 0.05; 
-    
-    float shadow = 0.0;
-    if (normalizedCurrent > 1.0) {
-        shadow = 1.0;
-    } else {
-        shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
-    }
 
     // Cook-Torrance BRDF
-    float NDF = DistributionGGX(N, H, roughness);   
-    float G   = GeometrySmith(N, V, L, roughness);      
-    vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
+    float NDF = DistributionGGX(N, H, roughness);
+    float G   = GeometrySmith(N, V, L, roughness);
+    vec3 F_spec = fresnelSchlick(max(dot(H, V), 0.0), F0);
         
-    vec3 numerator    = NDF * G * F;
+    vec3 numerator    = NDF * G * F_spec;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular     = numerator / denominator;
-        
-    vec3 kS = F;
-    vec3 kD = vec3(1.0) - kS;
-    kD *= (1.0 - metallic);	  
     
-    // Reverted to single-sided lighting
     float NdotL = max(dot(N, L), 0.0);
     
-    Lo += (kD * baseColor / PI + specular) * radiance * NdotL * shadow; 
+    // Final color: water color + specular (no shadows)
+    vec3 finalColor = waterColor + specular * radiance * NdotL;
     
     // Ambient
     vec3 ambient = vec3(0.05) * baseColor;
-    
-    vec3 color = ambient + Lo;
+    finalColor += ambient;
 
-    // HDR / Gamma correction (if needed, usually done in post-process but doing consistent with PLPBR)
-    // color = color / (color + vec3(1.0));
-    // color = pow(color, vec3(1.0/2.2)); 
-
-    outColor = vec4(color, 0.8); // Slight transparency? For now opaque as blend is disabled in PBR pipeline by default
+    outColor = vec4(finalColor, 1.0);
 }

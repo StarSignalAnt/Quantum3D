@@ -31,7 +31,7 @@ void WaterNode::GeneratePlaneMesh() {
   int gridSize = 128;    // Higher resolution for smoother waves
   float tileSize = 0.5f; // Size of each grid cell
   float size = (gridSize * tileSize) / 2.0f; // Half-width for centering
-  float uvScale = 4.0f;                      // Texture tiling factor
+  float uvScale = 8.0f;                      // Texture tiling factor
 
   // Generate Vertices
   for (int z = 0; z <= gridSize; ++z) {

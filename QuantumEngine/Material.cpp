@@ -74,6 +74,14 @@ void Material::SetEmissiveTexture(std::shared_ptr<Vivid::Texture2D> texture) {
   SetTexture(SLOT_EMISSIVE, texture);
 }
 
+void Material::SetReflectionTexture(std::shared_ptr<Vivid::Texture2D> texture) {
+  SetTexture(SLOT_REFLECTION, texture);
+}
+
+void Material::SetRefractionTexture(std::shared_ptr<Vivid::Texture2D> texture) {
+  SetTexture(SLOT_REFRACTION, texture);
+}
+
 void Material::CheckRequiredTextures(Vivid::VividDevice *device) {
   // 1x1 Default Pixel Data - optimized for visible PBR lighting
   unsigned char lightGreyPixel[] = {180, 180, 180,
@@ -145,28 +153,34 @@ std::shared_ptr<Vivid::Texture2D> Material::GetEmissiveTexture() const {
   return GetTexture(SLOT_EMISSIVE);
 }
 
+std::shared_ptr<Vivid::Texture2D> Material::GetReflectionTexture() const {
+  return GetTexture(SLOT_REFLECTION);
+}
+
+std::shared_ptr<Vivid::Texture2D> Material::GetRefractionTexture() const {
+  return GetTexture(SLOT_REFRACTION);
+}
+
 void Material::CreateDescriptorSet(
     Vivid::VividDevice *device, VkDescriptorPool pool,
     VkDescriptorSetLayout layout,
     std::shared_ptr<Vivid::Texture2D> defaultTexture) {
-  // Skip if already created
-  if (m_DescriptorSet != VK_NULL_HANDLE) {
-    return;
-  }
 
-  // Allocate descriptor set from pool
-  VkDescriptorSetAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  allocInfo.descriptorPool = pool;
-  allocInfo.descriptorSetCount = 1;
-  allocInfo.pSetLayouts = &layout;
+  // Allocate descriptor set from pool if not already allocated
+  if (m_DescriptorSet == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = pool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &layout;
 
-  VkResult result = vkAllocateDescriptorSets(device->GetDevice(), &allocInfo,
-                                             &m_DescriptorSet);
-  if (result != VK_SUCCESS) {
-    std::cerr << "[Material] ERROR: Failed to allocate descriptor set for "
-              << m_Name << "! VkResult: " << result << std::endl;
-    return;
+    VkResult result = vkAllocateDescriptorSets(device->GetDevice(), &allocInfo,
+                                               &m_DescriptorSet);
+    if (result != VK_SUCCESS) {
+      std::cerr << "[Material] ERROR: Failed to allocate descriptor set for "
+                << m_Name << "! VkResult: " << result << std::endl;
+      return;
+    }
   }
 
   // Get textures with fallbacks to default
@@ -182,7 +196,15 @@ void Material::CreateDescriptorSet(
 
   // ========== Bindings 0-3: Textures (Albedo, Normal, Metallic, Roughness)
   // ==========
-  std::array<VkDescriptorImageInfo, 4> imageInfos{};
+  Vivid::Texture2D *reflectionTex = GetReflectionTexture()
+                                        ? GetReflectionTexture().get()
+                                        : defaultTexture.get();
+  Vivid::Texture2D *refractionTex = GetRefractionTexture()
+                                        ? GetRefractionTexture().get()
+                                        : defaultTexture.get();
+
+  // ========== Bindings 0-5: Textures ==========
+  std::array<VkDescriptorImageInfo, 6> imageInfos{};
   imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfos[0].imageView = albedoTex->GetImageView();
   imageInfos[0].sampler = albedoTex->GetSampler();
@@ -199,14 +221,22 @@ void Material::CreateDescriptorSet(
   imageInfos[3].imageView = roughnessTex->GetImageView();
   imageInfos[3].sampler = roughnessTex->GetSampler();
 
-  // Create writes for 4 texture bindings
-  std::array<VkWriteDescriptorSet, 4> writes{};
+  imageInfos[4].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfos[4].imageView = reflectionTex->GetImageView();
+  imageInfos[4].sampler = reflectionTex->GetSampler();
 
-  for (int i = 0; i < 4; ++i) {
+  imageInfos[5].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfos[5].imageView = refractionTex->GetImageView();
+  imageInfos[5].sampler = refractionTex->GetSampler();
+
+  // Create writes for 6 texture bindings
+  std::array<VkWriteDescriptorSet, 6> writes{};
+
+  for (int i = 0; i < 6; ++i) {
     writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     writes[i].pNext = nullptr;
     writes[i].dstSet = m_DescriptorSet;
-    writes[i].dstBinding = i; // Bindings 0-3
+    writes[i].dstBinding = i; // Bindings 0-5
     writes[i].dstArrayElement = 0;
     writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     writes[i].descriptorCount = 1;

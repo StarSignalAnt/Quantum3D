@@ -160,6 +160,7 @@ void ViewportWidget::initScene() {
     m_MainLight2 = l2;
     m_SceneGraph->AddLight(l2);
 
+
     m_SceneGraph->AddLight(m_MainLight);
 
     // Scaling the monkey down because import scalefactor is 100
@@ -329,6 +330,9 @@ void ViewportWidget::renderFrame() {
     // Phase 1: Shadow pass (before main render pass)
     if (m_SceneRenderer) {
       m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
+      // Water passes (reflection/refraction) also go here
+      m_SceneRenderer->RenderWaterPasses(m_Renderer->GetCommandBuffer(),
+                                         m_TotalTime);
     }
 
     // Phase 2: Begin main render pass

@@ -47,6 +47,9 @@ public:
   void RenderScene(VkCommandBuffer cmd, int width, int height,
                    float time); // Added time
 
+  // Render water reflection/refraction passes (call before main pass)
+  void RenderWaterPasses(VkCommandBuffer cmd, float time);
+
   // Get the descriptor set layout (needed for pipeline creation)
   // Get the descriptor set layout (returns Material layout for Materials)
   VkDescriptorSetLayout GetDescriptorSetLayout() const {
@@ -101,6 +104,9 @@ private:
   void CreateDescriptorSets();
   void CreateUniformBuffer();
   void RenderNode(VkCommandBuffer cmd, GraphNode *node, int width, int height);
+  void RenderNode(VkCommandBuffer cmd, GraphNode *node, int width, int height,
+                  const glm::mat4 &view, const glm::mat4 &proj,
+                  bool skipWater = false); // Overload for custom view
 
   // Shadow rendering
   void InitializeShadowResources();
@@ -151,6 +157,14 @@ private:
   // Animation state
   float m_AnimationAngle = 0.0f;
 
+  // Viewport aspect ratio (for matching reflection camera projection)
+  float m_ViewportAspect = 1.0f;
+
+  // Clip plane direction for water passes
+  // 1.0 = reflection (clip below Y=0), -1.0 = refraction (clip above Y=0), 0.0
+  // = no clip
+  float m_ClipPlaneDir = 0.0f;
+
   // Debug counters (reset each frame)
   mutable int m_RenderNodeCount = 0;
   mutable int m_RenderMeshCount = 0;
@@ -181,5 +195,48 @@ private:
   void UpdatePBRTextures(Material *material);
   void UpdateFirstMaterialTextures(GraphNode *node);
   void CreateMaterialDescriptorSetsRecursive(GraphNode *node);
+
+  // Water Rendering
+  void CreateWaterResources();
+  void DestroyWaterResources();
+  void RenderReflection(VkCommandBuffer cmd,
+                        float time); // Render reflected scene
+  void RenderRefraction(VkCommandBuffer cmd,
+                        float time); // Render refracted scene
+  void AssignWaterTextures(GraphNode *node);
+
+  bool m_WaterResourcesCreated = false;
+  uint32_t m_WaterResolution = 1024; // Resolution for reflection/refraction
+  VkRenderPass m_WaterRenderPass = VK_NULL_HANDLE;
+
+  // Reflection
+  VkImage m_ReflectionImage = VK_NULL_HANDLE;
+  VkDeviceMemory m_ReflectionMemory = VK_NULL_HANDLE;
+  VkImageView m_ReflectionImageView = VK_NULL_HANDLE;
+  VkFramebuffer m_ReflectionFramebuffer = VK_NULL_HANDLE;
+  std::shared_ptr<Vivid::Texture2D>
+      m_ReflectionTexture; // For binding to shader
+
+  // Refraction
+  VkImage m_RefractionImage = VK_NULL_HANDLE;
+  VkDeviceMemory m_RefractionMemory = VK_NULL_HANDLE;
+  VkImageView m_RefractionImageView = VK_NULL_HANDLE;
+  VkFramebuffer m_RefractionFramebuffer = VK_NULL_HANDLE;
+  std::shared_ptr<Vivid::Texture2D>
+      m_RefractionTexture; // For binding to shader
+
+  // Separate depth buffers for each pass to avoid corruption
+  VkImage m_ReflectionDepthImage = VK_NULL_HANDLE;
+  VkDeviceMemory m_ReflectionDepthMemory = VK_NULL_HANDLE;
+  VkImageView m_ReflectionDepthImageView = VK_NULL_HANDLE;
+
+  VkImage m_RefractionDepthImage = VK_NULL_HANDLE;
+  VkDeviceMemory m_RefractionDepthMemory = VK_NULL_HANDLE;
+  VkImageView m_RefractionDepthImageView = VK_NULL_HANDLE;
+
+  // Helper to create texture image
+  void CreateAttachment(VkFormat format, VkImageUsageFlags usage,
+                        VkImage &image, VkDeviceMemory &memory,
+                        VkImageView &view);
 };
 } // namespace Quantum

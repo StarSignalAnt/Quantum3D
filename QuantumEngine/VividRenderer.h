@@ -40,6 +40,13 @@ public:
 
   VkExtent2D GetExtent() const { return m_SwapChainPtr->GetExtent(); }
 
+  VkFormat GetSwapChainImageFormat() const {
+    return m_SwapChainPtr->GetImageFormat();
+  }
+  VkFormat GetSwapChainDepthFormat() const {
+    return m_SwapChainPtr->GetDepthFormat();
+  }
+
 private:
   void CreateSyncObjects();
 

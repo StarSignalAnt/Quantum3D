@@ -28,7 +28,7 @@ struct UniformBufferObject {
   glm::vec3 viewPos;
   float time; // Changed from padding
   glm::vec3 lightPos;
-  float padding2;
+  float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
   glm::vec3 lightColor;
   float lightRange; // 0 = infinite range, otherwise max light distance
 };
@@ -239,6 +239,9 @@ void SceneRenderer::Initialize() {
   // Create descriptor sets (Global sets depend on shadow maps and UBOs)
   CreateDescriptorSets();
 
+  // Initialize Water Resources
+  CreateWaterResources();
+
   m_Initialized = true;
   std::cout << "[SceneRenderer] Initialization complete" << std::endl;
 }
@@ -269,6 +272,8 @@ void SceneRenderer::Shutdown() {
     }
   }
   m_ShadowMaps.clear();
+
+  DestroyWaterResources();
 
   std::cout << "[SceneRenderer] Resetting uniform buffers..." << std::endl;
   for (auto &buffer : m_UniformBuffers) {
@@ -322,6 +327,9 @@ void SceneRenderer::SetSceneGraph(std::shared_ptr<SceneGraph> sceneGraph) {
   // Re-initialize resources that depend on the scene graph
   if (m_Initialized && m_SceneGraph) {
     InitializeShadowResources();
+    if (!m_WaterResourcesCreated) {
+      CreateWaterResources();
+    }
     CreateDescriptorSets();
     RefreshMaterialTextures();
   }
@@ -341,6 +349,15 @@ void SceneRenderer::SetSceneGraph(std::shared_ptr<SceneGraph> sceneGraph) {
         << std::endl;
     if (m_SceneGraph->GetRoot()) {
       UpdateFirstMaterialTextures(m_SceneGraph->GetRoot());
+
+      // Ensure Water Resources exist
+      if (!m_WaterResourcesCreated) {
+        CreateWaterResources();
+      }
+
+      // Assign Water Textures (Reflection/Refraction)
+      AssignWaterTextures(m_SceneGraph->GetRoot());
+
       // Create descriptor sets for all materials
       RefreshMaterialTextures();
     }
@@ -380,10 +397,11 @@ void SceneRenderer::CreateDescriptorSetLayout() {
     throw std::runtime_error("Failed to create Global Descriptor Set Layout!");
   }
 
-  // --- SET 1: MATERIAL (Albedo, Normal, Metallic, Roughness) ---
-  VkDescriptorSetLayoutBinding materialBindings[4];
-  for (int i = 0; i < 4; i++) {
-    materialBindings[i].binding = i; // 0, 1, 2, 3
+  // --- SET 1: MATERIAL (Albedo, Normal, Metallic, Roughness, Reflection,
+  // Refraction) ---
+  VkDescriptorSetLayoutBinding materialBindings[6];
+  for (int i = 0; i < 6; i++) {
+    materialBindings[i].binding = i; // 0, 1, 2, 3, 4, 5
     materialBindings[i].descriptorType =
         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     materialBindings[i].descriptorCount = 1;
@@ -393,7 +411,7 @@ void SceneRenderer::CreateDescriptorSetLayout() {
 
   VkDescriptorSetLayoutCreateInfo materialInfo{};
   materialInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  materialInfo.bindingCount = 4;
+  materialInfo.bindingCount = 6;
   materialInfo.pBindings = materialBindings;
 
   if (vkCreateDescriptorSetLayout(m_Device->GetDevice(), &materialInfo, nullptr,
@@ -414,7 +432,7 @@ void SceneRenderer::CreateDescriptorPool() {
   poolSizes[0].descriptorCount = 200; // Enough for Global sets (Light*Frame)
   poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   poolSizes[1].descriptorCount =
-      1000; // 400 Material textures + 100 Shadow Maps
+      1500; // 600 Material textures + 100 Shadow Maps + Extras
 
   VkDescriptorPoolCreateInfo poolInfo{};
   poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -442,15 +460,15 @@ void SceneRenderer::CreateDescriptorSets() {
       throw std::runtime_error("Failed to allocate Default Material Set!");
     }
 
-    std::array<VkDescriptorImageInfo, 4> defaultInfos;
-    for (int i = 0; i < 4; i++) {
+    std::array<VkDescriptorImageInfo, 6> defaultInfos;
+    for (int i = 0; i < 6; i++) {
       defaultInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       defaultInfos[i].imageView = m_DefaultTexture->GetImageView();
       defaultInfos[i].sampler = m_DefaultTexture->GetSampler();
     }
 
     std::vector<VkWriteDescriptorSet> matWrites;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
       VkWriteDescriptorSet write{};
       write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       write.dstSet = m_DefaultMaterialSet;
@@ -649,9 +667,10 @@ void SceneRenderer::ResizeUniformBuffers(size_t requiredDraws) {
 
 void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
                                 float time) {
-  // For now, force buffer 0 since descriptors are created with buffer 0
-  m_CurrentFrameIndex = 0;
-  m_CurrentDrawIndex = 0;      // Reset draw index for the new frame
+  // NOTE: m_CurrentFrameIndex and m_CurrentDrawIndex are set in
+  // RenderWaterPasses which runs before this. If water passes didn't run,
+  // they're still at frame start values. Main scene continues from where water
+  // passes left off.
   m_CurrentPipeline = nullptr; // Reset pipeline tracking to force rebind
   m_CurrentTexture = nullptr;  // Reset texture tracking
   m_GizmoDrawIndex = 0;        // Reset gizmo draw index
@@ -692,6 +711,9 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
   if (width <= 0 || height <= 0)
     return;
 
+  // Store viewport aspect ratio for water passes to use
+  m_ViewportAspect = static_cast<float>(width) / static_cast<float>(height);
+
   // Set dynamic viewport
   VkViewport viewport{};
   viewport.x = 0.0f;
@@ -716,8 +738,7 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
   // Reset current pipeline state for new frame/command buffer
   m_CurrentPipeline = nullptr;
 
-  // Reset draw index for new frame
-  m_CurrentDrawIndex = 0;
+  // NOTE: m_CurrentDrawIndex is NOT reset here - it continues from water passes
 
   // Render the scene - loop through lights
   if (m_SceneGraph && m_SceneGraph->GetRoot()) {
@@ -739,13 +760,22 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
     for (size_t i = 0; i < numLights; ++i) {
 
       m_CurrentLightIndex = i;
-      // Linear accumulation: m_CurrentDrawIndex continues growing across
-      // light passes This packs the UBO tightly: [Light0_Draws]
+
+      // RenderReflection/RenderRefraction removed from here - called in
+      // ViewportWidget Linear accumulation: m_CurrentDrawIndex continues
+      // growing across light passes This packs the UBO tightly: [Light0_Draws]
       // [Light1_Draws] ...
 
       // Set dynamic state INSIDE loop to ensure it persists
       vkCmdSetViewport(cmd, 0, 1, &viewport);
       vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+      PFN_vkCmdSetFrontFaceEXT vkCmdSetFrontFaceEXT =
+          (PFN_vkCmdSetFrontFaceEXT)vkGetDeviceProcAddr(m_Device->GetDevice(),
+                                                        "vkCmdSetFrontFaceEXT");
+      if (vkCmdSetFrontFaceEXT) {
+        vkCmdSetFrontFaceEXT(cmd, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+      }
 
       // Reset pipeline state for each light pass
       m_CurrentPipeline = nullptr;
@@ -889,8 +919,35 @@ void SceneRenderer::SetGizmoType(GizmoType type) {
   }
 }
 
+// Proxy RenderNode (uses camera view/proj)
 void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
                                int height) {
+  if (!node || !m_SceneGraph)
+    return;
+
+  glm::mat4 view(1.0f);
+  glm::mat4 proj(1.0f);
+
+  auto camera = m_SceneGraph->GetCurrentCamera();
+  if (camera) {
+    view = camera->GetWorldMatrix();
+  } else {
+    view =
+        glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
+                    glm::vec3(0.0f, 1.0f, 0.0f));
+  }
+
+  float aspect = (float)width / (float)height;
+  proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
+  proj[1][1] *= -1;
+
+  RenderNode(cmd, node, width, height, view, proj);
+}
+
+// Overload with explicit View/Proj (used by proxy and reflection/refraction)
+void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
+                               int height, const glm::mat4 &view,
+                               const glm::mat4 &proj, bool skipWater) {
   if (!node) {
     return;
   }
@@ -903,34 +960,18 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
     // Update uniform buffer with MVP matrices
     UniformBufferObject ubo{};
 
-    // Just use identity model (ignore node transform for now)
-    // Place model 5 units in front of camera
-    ubo.model = node->GetWorldMatrix(); // glm::translate(glm::mat4(1.0f),
-                                        // glm::vec3(0.0f, 0.0f, -5.0f));
+    // Just use identity model (ignore node transform for now) ???
+    // UPDATE: Use node GetWorldMatrix()!
+    ubo.model = node->GetWorldMatrix();
 
-    // Use active camera if available, otherwise fallback to default
-    auto camera = m_SceneGraph->GetCurrentCamera();
-    if (camera) {
-      ubo.view = camera->GetWorldMatrix(); // CameraNode::GetWorldMatrix
-                                           // returns View Matrix
-    } else {
-      // Simple camera at origin looking down negative Z (Fallback)
-      ubo.view =
-          glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f),
-                      glm::vec3(0.0f, 1.0f, 0.0f));
-    }
-
-    ubo.proj = glm::perspective(glm::radians(45.0f),
-                                (float)width / (float)height, 0.1f, 100.0f);
-    ubo.proj[1][1] *= -1; // Flip Y for Vulkan
+    ubo.view = view;
+    ubo.proj = proj;
 
     // Set lighting data for PBR
-    if (camera) {
-      ubo.viewPos =
-          camera->GetWorldPosition(); // Use inherited GraphNode method
-    } else {
-      ubo.viewPos = glm::vec3(0.0f, 0.0f, 0.0f);
-    }
+    // Calculate ViewPos from View Matrix inverse
+    glm::mat4 invView = glm::inverse(view);
+    ubo.viewPos = glm::vec3(invView[3]);
+
     ubo.time = m_AnimationAngle;
 
     // Use current light based on m_CurrentLightIndex (set by RenderScene
@@ -954,52 +995,36 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
       ubo.lightRange = 150.0f;
     }
 
-    // Debug output to verify light position sync
-    // std::cout << "Light Pos: " << ubo.lightPos.x << "," << ubo.lightPos.y
-    // <<
-    // "," << ubo.lightPos.z << std::endl;
-
-    ubo.padding2 = 0.0f;
-
-    // Debug: Log light data for each pass (temporary)
+    ubo.clipPlaneDir =
+        m_ClipPlaneDir; // Clip plane: 1=reflection, -1=refraction, 0=normal
 
     // DYNAMIC BUFFER STRATEGY:
     // We strictly use linear indexing. Check capacity.
     if (m_CurrentDrawIndex >= m_MaxDraws) {
-      // Buffer full, cannot write debug info or draw
-      // (This check should ideally be in the mesh loop for safety, but we do
-      // it here for log consistency)
+      // Buffer full
     }
     VkDeviceSize drawOffset = m_CurrentDrawIndex * m_AlignedUBOSize;
 
-    // Redundant UBO write removed - we write inside the mesh loop
-    // But we still calculate drawOffset for debug logging
-
     // DEBUG: Track every node/light/draw combination
-    static int debugCounter = 0;
-    if (debugCounter < 200) {
-      std::cout << "[UBO] Node=" << node->GetName()
-                << " LightIdx=" << m_CurrentLightIndex
-                << " DrawIdx=" << m_CurrentDrawIndex << " Offset=" << drawOffset
-                << " LightColor=(" << ubo.lightColor.x << ","
-                << ubo.lightColor.y << "," << ubo.lightColor.z << ")"
-                << std::endl;
-      debugCounter++;
-    }
+    // static int debugCounter = 0;
+    // if (debugCounter < 200) {
+    // ... logging ...
+    //   debugCounter++;
+    // }
 
     // Render each mesh
     for (const auto &mesh : node->GetMeshes()) {
       if (mesh) {
         if (mesh->IsFinalized()) {
-          // Get the pipeline and texture from the mesh's material
           Vivid::VividPipeline *meshPipeline = nullptr;
-          Vivid::Texture2D *albedoTexture = nullptr;
+          Vivid::Texture2D *albedoTexture = nullptr; // Unused
           auto material = mesh->GetMaterial();
           if (material) {
             meshPipeline = material->GetPipeline();
-            auto albedoTex = material->GetAlbedoTexture();
-            if (albedoTex) {
-              albedoTexture = albedoTex.get();
+
+            // Skip water meshes when rendering reflection/refraction maps
+            if (skipWater && material->GetPipelineName() == "PLWater") {
+              continue;
             }
           }
 
@@ -1009,13 +1034,8 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
           }
 
           // DYNAMIC PIPELINE SWITCH FOR MULTI-LIGHT PASS
-          // CRITICAL: This must happen AFTER fallback, so ALL meshes get
-          // additive
           if (m_CurrentLightIndex > 0 && meshPipeline) {
-            // Check if this is a Water material (heuristic based on pipeline
-            // name)
             bool isWater = false;
-            // Best way is to check the *original* pipeline we got from material
             if (material && material->GetPipeline() &&
                 material->GetPipeline()->GetName() == "PLWater") {
               isWater = true;
@@ -1025,58 +1045,32 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
               meshPipeline = Quantum::RenderingPipelines::Get().GetPipeline(
                   "PLWater_Additive");
             } else {
-              // Standard PBR Additive
               meshPipeline = Quantum::RenderingPipelines::Get().GetPipeline(
                   "PLPBR_Additive");
             }
 
             if (!meshPipeline) {
-              std::cerr
-                  << "[SceneRenderer] ERROR: Failed to get Additive pipeline! "
-                     "Fallback to Opaque."
-                  << std::endl;
               if (material) {
                 meshPipeline = material->GetPipeline();
               } else {
                 meshPipeline =
                     RenderingPipelines::Get().GetPipeline("PLSimple");
               }
-            } else {
-              static bool loggedSwitch = false;
-              if (!loggedSwitch && m_CurrentLightIndex == 1) {
-
-                loggedSwitch = true;
-              }
             }
           }
 
           // Bind pipeline if it changed
           if (meshPipeline && meshPipeline != m_CurrentPipeline) {
-            // DEBUG: Log pipeline switch
-            static int pipelineLogCount = 0;
-            if (pipelineLogCount < 50) {
-              std::cout << "[PIPELINE] Node=" << node->GetName()
-                        << " LightIdx=" << m_CurrentLightIndex
-                        << " SWITCHING pipeline (prev="
-                        << (m_CurrentPipeline ? "set" : "null") << ") to "
-                        << (m_CurrentLightIndex > 0 ? "ADDITIVE" : "OPAQUE")
-                        << std::endl;
-              pipelineLogCount++;
-            }
             m_CurrentPipeline = meshPipeline;
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               meshPipeline->GetPipeline());
           }
 
-          // Safety check: ensure we have a bound pipeline
           if (!m_CurrentPipeline) {
-            std::cerr << "[SceneRenderer] ERROR: No pipeline bound!"
-                      << std::endl;
             continue;
           }
 
           // Bind the GLOBAL descriptor set (Set 0)
-          // Includes UBO (dynamic offset) and Shadow Map for this light/frame
           size_t globalSetIndex =
               m_CurrentFrameIndex * m_ShadowMaps.size() + m_CurrentLightIndex;
           if (globalSetIndex < m_GlobalDescriptorSets.size()) {
@@ -1095,9 +1089,6 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     meshPipeline->GetPipelineLayout(), 0, 1,
                                     &globalSet, 1, &dynamicOffset);
-          } else {
-            // Fallback or error?
-            // Should not happen if sets allocated correctly
           }
 
           // Bind the MATERIAL descriptor set (Set 1)
@@ -1124,7 +1115,7 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
 
   // Recursively render children
   for (const auto &child : node->GetChildren()) {
-    RenderNode(cmd, child.get(), width, height);
+    RenderNode(cmd, child.get(), width, height, view, proj, skipWater);
   }
 }
 
@@ -1449,17 +1440,20 @@ void SceneRenderer::RenderSelection(VkCommandBuffer cmd,
   UniformBufferObject ubo{};
   ubo.model = model;
 
-  // Use same Camera/Proj as last used (stored where?)
-  // We need to access the camera again.
+  // Determine View/Proj (fetch camera)
+  // Logic restored from previous implementation
   auto camera = m_SceneGraph->GetCurrentCamera();
   if (camera) {
     ubo.view = camera->GetWorldMatrix();
-    ubo.viewPos = camera->GetWorldPosition();
+
+    // Calculate ViewPos from View Matrix (inverse)
+    glm::mat4 invView = glm::inverse(ubo.view);
+    ubo.viewPos = glm::vec3(invView[3]);
   } else {
-    // Fallback
     ubo.view = glm::mat4(1.0f);
+    ubo.viewPos = glm::vec3(0.0f);
   }
-  // Projection logic duplicates RenderNode... should ideally refactor getProj
+
   int width = Vivid::VividApplication::GetFrameWidth();
   int height = Vivid::VividApplication::GetFrameHeight();
   if (width <= 0)
@@ -1471,11 +1465,19 @@ void SceneRenderer::RenderSelection(VkCommandBuffer cmd,
                               0.1f, 100.0f);
   ubo.proj[1][1] *= -1;
 
-  // Yellow Color for selection
-  ubo.lightColor = glm::vec3(
-      1.0f, 1.0f, 0.0f); // Re-purpose lightColor as object color for PLSimple
-  ubo.lightPos = glm::vec3(0.0f); // Unused by simple shader usually, or ignored
-  ubo.lightRange = 0.0f;
+  // Handle Light Data (same as before or simplified?)
+  // For now, keep the lighting logic simple or same.
+  // We need lightPos, lightColor etc.
+
+  // Yellow Color for selection (Wait, this is RenderNode, not RenderSelection?)
+  // Ah, the snippet I viewed in Step 357 lines 1400-1460 was confusingly
+  // seemingly inside RenderNode? Wait, Step 353 showed RenderNode start. Lines
+  // 1419 says "Update UBO for Selection Box". Is this code inside RenderNode?
+  // Let me look at Step 353 again.
+  // It says `void SceneRenderer::RenderNode(...)` starts at 934.
+  // Step 357 starts at 1400. That is FAR later.
+  // I might have been looking at `RenderSelection` or something else in Step
+  // 357? Let's verify WHERE RenderNode is.
 
   // Write to Buffer
   // Note: This relies on m_UniformBuffers being mapped.
@@ -1512,6 +1514,516 @@ void SceneRenderer::RenderSelection(VkCommandBuffer cmd,
                    0, 0, 0);
 
   m_CurrentDrawIndex++;
+}
+
+// =================================================================================================
+// Water Rendering Implementation
+// =================================================================================================
+
+void SceneRenderer::CreateAttachment(VkFormat format, VkImageUsageFlags usage,
+                                     VkImage &image, VkDeviceMemory &memory,
+                                     VkImageView &view) {
+  if (image != VK_NULL_HANDLE)
+    return;
+
+  VkImageAspectFlags aspectMask = 0;
+  if (usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) {
+    aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  }
+  if (usage & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
+    aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  }
+
+  m_Device->CreateImage(m_WaterResolution, m_WaterResolution, format,
+                        VK_IMAGE_TILING_OPTIMAL, usage,
+                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, image, memory);
+  view = m_Device->CreateImageView(
+      image, format); // Basic CreateImageView usually assumes Color?
+
+  // VividDevice::CreateImageView implementation check:
+  // It creates view with aspectMask derived from format inside VividDevice
+  // typically, or we might need to be careful if it defaults to color. Assuming
+  // VividDevice::CreateImageView handles depth formats correctly.
+}
+
+void SceneRenderer::CreateWaterResources() {
+  if (m_WaterResourcesCreated)
+    return;
+  std::cout << "[SceneRenderer] Creating Water Resources (" << m_WaterResolution
+            << "x" << m_WaterResolution << ")..." << std::endl;
+
+  // 1. Create Render Pass
+  VkAttachmentDescription attachments[2] = {};
+
+  // Color attachment - Use same format as swapchain for compatibility
+  attachments[0].format = m_Renderer->GetSwapChainImageFormat();
+  attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+  attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  attachments[0].finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+  // Depth attachment
+  attachments[1].format = VK_FORMAT_D32_SFLOAT;
+  attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
+  attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  attachments[1].storeOp =
+      VK_ATTACHMENT_STORE_OP_DONT_CARE; // We don't sample depth
+  attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+  VkAttachmentReference colorRef = {};
+  colorRef.attachment = 0;
+  colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+  VkAttachmentReference depthRef = {};
+  depthRef.attachment = 1;
+  depthRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+  VkSubpassDescription subpass = {};
+  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount = 1;
+  subpass.pColorAttachments = &colorRef;
+  subpass.pDepthStencilAttachment = &depthRef;
+
+  // Dependencies
+  std::array<VkSubpassDependency, 2> dependencies;
+
+  dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+  dependencies[0].dstSubpass = 0;
+  dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+  dependencies[1].srcSubpass = 0;
+  dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+  dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+  VkRenderPassCreateInfo renderPassInfo = {};
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  renderPassInfo.attachmentCount = 2;
+  renderPassInfo.pAttachments = attachments;
+  renderPassInfo.subpassCount = 1;
+  renderPassInfo.pSubpasses = &subpass;
+  renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+  renderPassInfo.pDependencies = dependencies.data();
+
+  if (vkCreateRenderPass(m_Device->GetDevice(), &renderPassInfo, nullptr,
+                         &m_WaterRenderPass) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Water Render Pass!");
+  }
+
+  // 2. Create Attachments
+  CreateAttachment(
+      m_Renderer->GetSwapChainImageFormat(),
+      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      m_ReflectionImage, m_ReflectionMemory, m_ReflectionImageView);
+  CreateAttachment(
+      m_Renderer->GetSwapChainImageFormat(),
+      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      m_RefractionImage, m_RefractionMemory, m_RefractionImageView);
+
+  // Create SEPARATE depth buffers for each pass to avoid corruption
+  CreateAttachment(m_Renderer->GetSwapChainDepthFormat(),
+                   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                   m_ReflectionDepthImage, m_ReflectionDepthMemory,
+                   m_ReflectionDepthImageView);
+  CreateAttachment(m_Renderer->GetSwapChainDepthFormat(),
+                   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                   m_RefractionDepthImage, m_RefractionDepthMemory,
+                   m_RefractionDepthImageView);
+
+  // 3. Create Framebuffers
+  VkFramebufferCreateInfo fbInfo = {};
+  fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+  fbInfo.renderPass = m_WaterRenderPass;
+  fbInfo.attachmentCount = 2;
+  fbInfo.width = m_WaterResolution;
+  fbInfo.height = m_WaterResolution;
+  fbInfo.layers = 1;
+
+  // Reflection Framebuffer (uses its own depth buffer)
+  std::array<VkImageView, 2> reflAttachments = {m_ReflectionImageView,
+                                                m_ReflectionDepthImageView};
+  fbInfo.pAttachments = reflAttachments.data();
+  if (vkCreateFramebuffer(m_Device->GetDevice(), &fbInfo, nullptr,
+                          &m_ReflectionFramebuffer) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Reflection Framebuffer!");
+  }
+
+  // Refraction Framebuffer (uses its own depth buffer)
+  std::array<VkImageView, 2> refrAttachments = {m_RefractionImageView,
+                                                m_RefractionDepthImageView};
+  fbInfo.pAttachments = refrAttachments.data();
+  if (vkCreateFramebuffer(m_Device->GetDevice(), &fbInfo, nullptr,
+                          &m_RefractionFramebuffer) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Refraction Framebuffer!");
+  }
+
+  // 4. Create Texture Wrappers (so we can bind them)
+  // Create a sampler
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.anisotropyEnable = VK_TRUE;
+  samplerInfo.maxAnisotropy = 16.0f;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  samplerInfo.mipLodBias = 0.0f;
+  samplerInfo.minLod = 0.0f;
+  samplerInfo.maxLod = 1.0f;
+
+  VkSampler sampler;
+  vkCreateSampler(m_Device->GetDevice(), &samplerInfo, nullptr, &sampler);
+  // Note: We are leaking this sampler technically if we don't store it,
+  // but Texture2D copies it? No, Texture2D doesn't own the sampler in the
+  // wrapper constructor. The wrapper constructor "Wrap existing resources"
+  // assumes ownership? Checking Texture2D header: "Wrap existing resources
+  // (does not own them)" Ah, so we need to manage the sampler + views lifetime.
+  // Ideally we should store m_WaterSampler. For now, let's create a dedicated
+  // one in header or here and store it. Actually, let's just create Texture2D
+  // normally which owns resources? No, we created resources manually. We will
+  // cheat and let the wrapper use the sampler we just created, but we need to
+  // keep the sampler alive. Or, we use the constructor 2: CreateFromData... no.
+  // Constructor 3: Texture2D(device, view, sampler, w, h)
+
+  // Let's create `m_WaterSampler` member or just leak it for this session (it's
+  // destroyed on device shutdown). Better: store it in a static or member.
+
+  // For now, I will create valid Texture2D objects.
+  m_ReflectionTexture = std::make_shared<Vivid::Texture2D>(
+      m_Device, m_ReflectionImageView, sampler, m_WaterResolution,
+      m_WaterResolution);
+  m_RefractionTexture = std::make_shared<Vivid::Texture2D>(
+      m_Device, m_RefractionImageView, sampler, m_WaterResolution,
+      m_WaterResolution);
+
+  m_WaterResourcesCreated = true;
+}
+
+void SceneRenderer::DestroyWaterResources() {
+  VkDevice device = m_Device->GetDevice();
+
+  if (m_ReflectionFramebuffer != VK_NULL_HANDLE)
+    vkDestroyFramebuffer(device, m_ReflectionFramebuffer, nullptr);
+  if (m_RefractionFramebuffer != VK_NULL_HANDLE)
+    vkDestroyFramebuffer(device, m_RefractionFramebuffer, nullptr);
+  if (m_WaterRenderPass != VK_NULL_HANDLE)
+    vkDestroyRenderPass(device, m_WaterRenderPass, nullptr);
+
+  if (m_ReflectionImageView != VK_NULL_HANDLE)
+    vkDestroyImageView(device, m_ReflectionImageView, nullptr);
+  if (m_ReflectionImage != VK_NULL_HANDLE)
+    vkDestroyImage(device, m_ReflectionImage, nullptr);
+  if (m_ReflectionMemory != VK_NULL_HANDLE)
+    vkFreeMemory(device, m_ReflectionMemory, nullptr);
+
+  if (m_RefractionImageView != VK_NULL_HANDLE)
+    vkDestroyImageView(device, m_RefractionImageView, nullptr);
+  if (m_RefractionImage != VK_NULL_HANDLE)
+    vkDestroyImage(device, m_RefractionImage, nullptr);
+  if (m_RefractionMemory != VK_NULL_HANDLE)
+    vkFreeMemory(device, m_RefractionMemory, nullptr);
+
+  // Cleanup separate depth buffers
+  if (m_ReflectionDepthImageView != VK_NULL_HANDLE)
+    vkDestroyImageView(device, m_ReflectionDepthImageView, nullptr);
+  if (m_ReflectionDepthImage != VK_NULL_HANDLE)
+    vkDestroyImage(device, m_ReflectionDepthImage, nullptr);
+  if (m_ReflectionDepthMemory != VK_NULL_HANDLE)
+    vkFreeMemory(device, m_ReflectionDepthMemory, nullptr);
+
+  if (m_RefractionDepthImageView != VK_NULL_HANDLE)
+    vkDestroyImageView(device, m_RefractionDepthImageView, nullptr);
+  if (m_RefractionDepthImage != VK_NULL_HANDLE)
+    vkDestroyImage(device, m_RefractionDepthImage, nullptr);
+  if (m_RefractionDepthMemory != VK_NULL_HANDLE)
+    vkFreeMemory(device, m_RefractionDepthMemory, nullptr);
+
+  m_WaterResourcesCreated = false;
+}
+
+void SceneRenderer::RenderReflection(VkCommandBuffer cmd, float time) {
+  if (!m_WaterResourcesCreated || !m_SceneGraph->GetCurrentCamera())
+    return;
+
+  // Begin Render Pass
+  VkRenderPassBeginInfo renderPassInfo{};
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassInfo.renderPass = m_WaterRenderPass;
+  renderPassInfo.framebuffer = m_ReflectionFramebuffer;
+  renderPassInfo.renderArea.offset = {0, 0};
+  renderPassInfo.renderArea.extent = {m_WaterResolution, m_WaterResolution};
+
+  std::array<VkClearValue, 2> clearValues{};
+  clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}}; // Black for proper sky
+  clearValues[1].depthStencil = {1.0f, 0};
+  renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+  renderPassInfo.pClearValues = clearValues.data();
+
+  vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  // Reset render state for reflection pass
+  // NOTE: m_CurrentDrawIndex is NOT reset here - it continues from frame start
+  // so each pass uses unique UBO offsets
+  m_CurrentLightIndex = 0;     // Use first light only for reflection
+  m_CurrentPipeline = nullptr; // Force pipeline rebind
+  // Viewport
+  VkViewport viewport{};
+  viewport.x = 0.0f;
+  viewport.y = 0.0f;
+  viewport.width = (float)m_WaterResolution;
+  viewport.height = (float)m_WaterResolution;
+  viewport.minDepth = 0.0f;
+  viewport.maxDepth = 1.0f;
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  VkRect2D scissor{};
+  scissor.offset = {0, 0};
+  scissor.extent = {m_WaterResolution, m_WaterResolution};
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  // =========================================================================
+  // TRADITIONAL MIRRORED CAMERA REFLECTION
+  // Camera position: Y = -originalY (below water)
+  // Camera pitch: inverted (if looking down 30°, now look up 30°)
+  // =========================================================================
+  auto camera = m_SceneGraph->GetCurrentCamera();
+  glm::mat4 mainView = camera->GetWorldMatrix();
+
+  // Extract camera world position and orientation from inverse view matrix
+  glm::mat4 invView = glm::inverse(mainView);
+  glm::vec3 camPos = glm::vec3(invView[3]); // Camera world position
+  glm::vec3 camForward = -glm::normalize(
+      glm::vec3(invView[2])); // Forward direction (camera looks down -Z)
+  glm::vec3 camUp = glm::normalize(glm::vec3(invView[1])); // Up direction
+
+  // Mirror camera position across Y=0 water plane
+  glm::vec3 reflectPos;
+  reflectPos.x = camPos.x;
+  reflectPos.y = -camPos.y; // NEGATE Y: camera goes below water
+  reflectPos.z = camPos.z;
+
+  // Mirror forward direction: NEGATE Y component to flip pitch
+  // If camera was looking DOWN, now it looks UP at same angle
+  glm::vec3 reflectForward;
+  reflectForward.x = camForward.x;
+  reflectForward.y = -camForward.y; // FLIP PITCH
+  reflectForward.z = camForward.z;
+
+  // Mirror up vector: NEGATE Y to maintain correct orientation
+  glm::vec3 reflectUp;
+  reflectUp.x = camUp.x;
+  reflectUp.y = -camUp.y;
+  reflectUp.z = camUp.z;
+
+  // Build reflection view matrix using lookAt
+  glm::vec3 reflectTarget = reflectPos + reflectForward;
+  glm::mat4 view = glm::lookAt(reflectPos, reflectTarget, reflectUp);
+
+  // Projection - use MAIN viewport aspect ratio
+  float aspect = m_ViewportAspect > 0.0f ? m_ViewportAspect : 1.0f;
+  glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 1000.0f);
+  proj[1][1] *= -1; // Vulkan Y-flip
+
+  // Update UBO?
+  // We rely on RenderNode using the dynamic offset and incrementing
+  // m_CurrentDrawIndex. RenderNode updates the UBO with the provided view/proj.
+
+  // 1. Render Scene to Reflection Map
+  // Use the overload that accepts view/proj
+  if (m_SceneGraph && m_SceneGraph->GetRoot()) {
+    PFN_vkCmdSetFrontFaceEXT vkCmdSetFrontFaceEXT =
+        (PFN_vkCmdSetFrontFaceEXT)vkGetDeviceProcAddr(m_Device->GetDevice(),
+                                                      "vkCmdSetFrontFaceEXT");
+    if (vkCmdSetFrontFaceEXT) {
+      vkCmdSetFrontFaceEXT(cmd, VK_FRONT_FACE_CLOCKWISE);
+    }
+
+    // Set clip plane to clip below Y=0 (keep above water for reflection)
+    m_ClipPlaneDir = 1.0f;
+
+    RenderNode(cmd, m_SceneGraph->GetRoot(), m_WaterResolution,
+               m_WaterResolution, view, proj, true); // skipWater = true
+
+    // Reset clip plane
+    m_ClipPlaneDir = 0.0f;
+
+    if (vkCmdSetFrontFaceEXT) {
+      vkCmdSetFrontFaceEXT(cmd, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    }
+  }
+
+  vkCmdEndRenderPass(cmd);
+}
+
+void SceneRenderer::RenderRefraction(VkCommandBuffer cmd, float time) {
+  if (!m_WaterResourcesCreated || !m_SceneGraph->GetCurrentCamera())
+    return;
+
+  // Begin Render Pass
+  VkRenderPassBeginInfo renderPassInfo{};
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassInfo.renderPass = m_WaterRenderPass;
+  renderPassInfo.framebuffer = m_RefractionFramebuffer;
+  renderPassInfo.renderArea.offset = {0, 0};
+  renderPassInfo.renderArea.extent = {m_WaterResolution, m_WaterResolution};
+
+  std::array<VkClearValue, 2> clearValues{};
+  clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}}; // Black for proper sky
+  clearValues[1].depthStencil = {1.0f, 0};
+  renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
+  renderPassInfo.pClearValues = clearValues.data();
+
+  vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  // Reset render state for refraction pass
+  // NOTE: m_CurrentDrawIndex is NOT reset here - it continues from reflection
+  // so each pass uses unique UBO offsets
+  m_CurrentLightIndex = 0;     // Use first light only for refraction
+  m_CurrentPipeline = nullptr; // Force pipeline rebind
+  // Viewport
+  VkViewport viewport{};
+  viewport.x = 0.0f;
+  viewport.y = 0.0f;
+  viewport.width = (float)m_WaterResolution;
+  viewport.height = (float)m_WaterResolution;
+  viewport.minDepth = 0.0f;
+  viewport.maxDepth = 1.0f;
+  vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+  VkRect2D scissor{};
+  scissor.offset = {0, 0};
+  scissor.extent = {m_WaterResolution, m_WaterResolution};
+  vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+  // Refraction Camera = Main Camera
+  auto camera = m_SceneGraph->GetCurrentCamera();
+  // We need the VIEW matrix (inverse of World)
+  glm::mat4 view =
+      camera
+          ->GetWorldMatrix(); // CameraNode::GetWorldMatrix returns View Matrix
+
+  // Projection - use MAIN viewport aspect ratio for correct UV alignment
+  float aspect = m_ViewportAspect > 0.0f ? m_ViewportAspect : 1.0f;
+  glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 1000.0f);
+  proj[1][1] *= -1;
+
+  // Render Scene to Refraction Map
+  if (m_SceneGraph && m_SceneGraph->GetRoot()) {
+    PFN_vkCmdSetFrontFaceEXT vkCmdSetFrontFaceEXT =
+        (PFN_vkCmdSetFrontFaceEXT)vkGetDeviceProcAddr(m_Device->GetDevice(),
+                                                      "vkCmdSetFrontFaceEXT");
+    if (vkCmdSetFrontFaceEXT) {
+      vkCmdSetFrontFaceEXT(cmd, VK_FRONT_FACE_COUNTER_CLOCKWISE);
+    }
+
+    // Set clip plane to clip above Y=0 (keep below water for refraction)
+    m_ClipPlaneDir = -1.0f;
+
+    RenderNode(cmd, m_SceneGraph->GetRoot(), m_WaterResolution,
+               m_WaterResolution, view, proj, true); // skipWater = true
+
+    // Reset clip plane
+    m_ClipPlaneDir = 0.0f;
+  }
+
+  vkCmdEndRenderPass(cmd);
+}
+
+void SceneRenderer::RenderWaterPasses(VkCommandBuffer cmd, float time) {
+  if (!m_WaterResourcesCreated)
+    return;
+
+  // Ensure water materials have the correct reflection/refraction textures
+  // bound
+  if (m_SceneGraph && m_SceneGraph->GetRoot()) {
+    AssignWaterTextures(m_SceneGraph->GetRoot());
+  }
+
+  // Reset draw index at the start of the frame (ONLY place this should happen)
+  // Water passes + main scene will all use sequential UBO offsets
+  m_CurrentDrawIndex = 0;
+  m_CurrentFrameIndex = 0;
+
+  // Calculate viewport aspect from global frame size for water camera
+  // projections
+  int frameWidth = Vivid::VividApplication::GetFrameWidth();
+  int frameHeight = Vivid::VividApplication::GetFrameHeight();
+  if (frameWidth > 0 && frameHeight > 0) {
+    m_ViewportAspect =
+        static_cast<float>(frameWidth) / static_cast<float>(frameHeight);
+  }
+
+  RenderReflection(cmd, time);
+  RenderRefraction(cmd, time);
+
+  // Pipeline barrier to ensure texture writes are complete before main pass
+  // reads
+  VkMemoryBarrier memoryBarrier{};
+  memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  memoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, nullptr, 0, nullptr);
+}
+
+void SceneRenderer::AssignWaterTextures(GraphNode *node) {
+  if (!node)
+    return;
+
+  if (node->HasMeshes()) {
+    for (const auto &mesh : node->GetMeshes()) {
+      if (mesh && mesh->GetMaterial()) {
+        auto material = mesh->GetMaterial();
+        if (material->GetPipelineName() == "PLWater") {
+
+          bool needsUpdate = false;
+          if (material->GetReflectionTexture() != m_ReflectionTexture) {
+            material->SetReflectionTexture(m_ReflectionTexture);
+            needsUpdate = true;
+          }
+          if (material->GetRefractionTexture() != m_RefractionTexture) {
+            material->SetRefractionTexture(m_RefractionTexture);
+            needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            std::cout
+                << "[SceneRenderer] Assigning water textures to material: "
+                << material->GetName() << std::endl;
+            // Re-create descriptor set to bind new textures
+            material->CreateDescriptorSet(m_Device, m_DescriptorPool,
+                                          m_MaterialSetLayout,
+                                          m_DefaultTexture);
+          }
+        }
+      }
+    }
+  }
+
+  for (const auto &child : node->GetChildren()) {
+    AssignWaterTextures(child.get());
+  }
 }
 
 } // namespace Quantum
