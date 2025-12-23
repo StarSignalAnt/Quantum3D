@@ -12,12 +12,15 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 lightSpaceMatrix;
     vec3 viewPos;
-    float time;      // Changed from padding
+    float time;
     vec3 lightPos;
-    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
+    float clipPlaneDir;
     vec3 lightColor;
-    float lightRange; 
+    float lightRange;
+    float lightType;  // 0 = Point, 1 = Directional, 2 = Spot
+    float _pad1, _pad2, _pad3;  // Padding for alignment
 } ubo;
 
 // Outputs

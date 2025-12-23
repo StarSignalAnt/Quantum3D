@@ -1,3 +1,4 @@
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "SceneRenderer.h"
 #include "CameraNode.h"
 #include "Draw2D.h"
@@ -25,12 +26,17 @@ struct UniformBufferObject {
   glm::mat4 model;
   glm::mat4 view;
   glm::mat4 proj;
+  glm::mat4 lightSpaceMatrix; // Added for directional shadows
   glm::vec3 viewPos;
-  float time; // Changed from padding
+  float time;
   glm::vec3 lightPos;
-  float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
+  float clipPlaneDir;
   glm::vec3 lightColor;
-  float lightRange; // 0 = infinite range, otherwise max light distance
+  float lightRange;
+  float lightType; // 0 = Directional, 1 = Point, 2 = Spot
+  float _pad1, _pad2,
+      _pad3; // Padding KaTeX parse error: Expected 'EOF', got '&' at position
+             // 16: to maintain 16-byte alignment
 };
 
 SceneRenderer::SceneRenderer(Vivid::VividDevice *device,
@@ -84,6 +90,12 @@ void SceneRenderer::Initialize() {
   m_DefaultTexture = std::make_shared<Vivid::Texture2D>(
       m_Device, reinterpret_cast<unsigned char *>(&white), 1, 1, 4);
   std::cout << "[SceneRenderer] Default texture created" << std::endl;
+
+  // Create null shadow maps for fallback (needed for pipeline creation)
+  m_NullShadowMap = std::make_unique<PointShadowMap>();
+  m_NullShadowMap->Initialize(m_Device, 128);
+  m_NullDirShadowMap = std::make_unique<DirectionalShadowMap>();
+  m_NullDirShadowMap->Initialize(m_Device, 128);
 
   // Initialize RenderingPipelines with our descriptor layout
   std::cout << "[SceneRenderer] Initializing RenderingPipelines..."
@@ -234,13 +246,13 @@ void SceneRenderer::Initialize() {
     m_UnitCube->Finalize(m_Device);
   }
 
+  // Water resources depend on textures
+  CreateWaterResources();
+
   // Initialize shadow mapping resources
   InitializeShadowResources();
   // Create descriptor sets (Global sets depend on shadow maps and UBOs)
   CreateDescriptorSets();
-
-  // Initialize Water Resources
-  CreateWaterResources();
 
   m_Initialized = true;
   std::cout << "[SceneRenderer] Initialization complete" << std::endl;
@@ -272,6 +284,8 @@ void SceneRenderer::Shutdown() {
     }
   }
   m_ShadowMaps.clear();
+  m_NullShadowMap.reset();
+  m_NullDirShadowMap.reset();
 
   DestroyWaterResources();
 
@@ -279,6 +293,7 @@ void SceneRenderer::Shutdown() {
   for (auto &buffer : m_UniformBuffers) {
     buffer.reset();
   }
+  m_GizmoUniformBuffer.reset();
 
   if (m_DescriptorPool != VK_NULL_HANDLE && m_Device) {
     std::cout << "[SceneRenderer] Destroying descriptor pool..." << std::endl;
@@ -384,8 +399,15 @@ void SceneRenderer::CreateDescriptorSetLayout() {
   shadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   shadowBinding.pImmutableSamplers = nullptr;
 
-  std::array<VkDescriptorSetLayoutBinding, 2> globalBindings = {uboBinding,
-                                                                shadowBinding};
+  VkDescriptorSetLayoutBinding dirShadowBinding{};
+  dirShadowBinding.binding = 2;
+  dirShadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  dirShadowBinding.descriptorCount = 1;
+  dirShadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  dirShadowBinding.pImmutableSamplers = nullptr;
+
+  std::array<VkDescriptorSetLayoutBinding, 3> globalBindings = {
+      uboBinding, shadowBinding, dirShadowBinding};
 
   VkDescriptorSetLayoutCreateInfo globalInfo{};
   globalInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -483,22 +505,11 @@ void SceneRenderer::CreateDescriptorSets() {
                            matWrites.data(), 0, nullptr);
   }
 
-  size_t numLights = m_ShadowMaps.size();
-  size_t totalGlobalSets = numLights * MAX_FRAMES_IN_FLIGHT;
-
-  if (totalGlobalSets == 0) {
-    std::cout << "[SceneRenderer] No lights/shadows, valid but no global sets "
-                 "created."
-              << std::endl;
-    return;
-  }
-
-  // Clear old sets if any (handled by pool reset usually, but here we just
-  // overwrite vector) Actually we should free them if we are re-creating? Since
-  // we don't reset the pool explicitly here, we rely on the vector being
-  // cleared or resized. But vkAllocateDescriptorSets appends. Ideally we should
-  // free old sets if this checks run multiple times? Current logic assumes
-  // one-time creation or pool reset externally. For now, let's just proceed.
+  size_t numPointShadows = m_ShadowMaps.size();
+  size_t numDirShadows = m_DirShadowMaps.size();
+  size_t numLights = numPointShadows + numDirShadows;
+  size_t numSetsPerFrame = std::max(numLights, (size_t)1);
+  size_t totalGlobalSets = numSetsPerFrame * MAX_FRAMES_IN_FLIGHT;
 
   m_GlobalDescriptorSets.resize(totalGlobalSets);
 
@@ -517,11 +528,11 @@ void SceneRenderer::CreateDescriptorSets() {
 
   // Bind resources for each set
   for (size_t frame = 0; frame < MAX_FRAMES_IN_FLIGHT; frame++) {
-    for (size_t light = 0; light < numLights; light++) {
-      size_t setIndex = frame * numLights + light;
+    for (size_t light = 0; light < numSetsPerFrame; light++) {
+      size_t setIndex = frame * numSetsPerFrame + light;
       VkDescriptorSet set = m_GlobalDescriptorSets[setIndex];
 
-      // Binding 0: UBO (Use buffer for this frame)
+      // Binding 0: UBO
       VkDescriptorBufferInfo bufferInfo{};
       bufferInfo.buffer = m_UniformBuffers[frame]->GetBuffer();
       bufferInfo.offset = 0;
@@ -535,11 +546,16 @@ void SceneRenderer::CreateDescriptorSets() {
       uboWrite.descriptorCount = 1;
       uboWrite.pBufferInfo = &bufferInfo;
 
-      // Binding 1: Shadow Map
+      // Binding 1: Point Shadow Map
       VkDescriptorImageInfo shadowInfo{};
       shadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      shadowInfo.imageView = m_ShadowMaps[light]->GetCubeImageView();
-      shadowInfo.sampler = m_ShadowMaps[light]->GetSampler();
+      if (light < numPointShadows) {
+        shadowInfo.imageView = m_ShadowMaps[light]->GetCubeImageView();
+        shadowInfo.sampler = m_ShadowMaps[light]->GetSampler();
+      } else {
+        shadowInfo.imageView = m_NullShadowMap->GetCubeImageView();
+        shadowInfo.sampler = m_NullShadowMap->GetSampler();
+      }
 
       VkWriteDescriptorSet shadowWrite{};
       shadowWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -549,7 +565,29 @@ void SceneRenderer::CreateDescriptorSets() {
       shadowWrite.descriptorCount = 1;
       shadowWrite.pImageInfo = &shadowInfo;
 
-      std::array<VkWriteDescriptorSet, 2> writes = {uboWrite, shadowWrite};
+      // Binding 2: Directional Shadow Map
+      VkDescriptorImageInfo dirShadowInfo{};
+      dirShadowInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      if (light >= numPointShadows &&
+          (light - numPointShadows) < numDirShadows) {
+        size_t dirIndex = light - numPointShadows;
+        dirShadowInfo.imageView = m_DirShadowMaps[dirIndex]->GetImageView();
+        dirShadowInfo.sampler = m_DirShadowMaps[dirIndex]->GetSampler();
+      } else {
+        dirShadowInfo.imageView = m_NullDirShadowMap->GetImageView();
+        dirShadowInfo.sampler = m_NullDirShadowMap->GetSampler();
+      }
+
+      VkWriteDescriptorSet dirShadowWrite{};
+      dirShadowWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      dirShadowWrite.dstSet = set;
+      dirShadowWrite.dstBinding = 2;
+      dirShadowWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      dirShadowWrite.descriptorCount = 1;
+      dirShadowWrite.pImageInfo = &dirShadowInfo;
+
+      std::array<VkWriteDescriptorSet, 3> writes = {uboWrite, shadowWrite,
+                                                    dirShadowWrite};
       vkUpdateDescriptorSets(m_Device->GetDevice(),
                              static_cast<uint32_t>(writes.size()),
                              writes.data(), 0, nullptr);
@@ -667,10 +705,9 @@ void SceneRenderer::ResizeUniformBuffers(size_t requiredDraws) {
 
 void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
                                 float time) {
-  // NOTE: m_CurrentFrameIndex and m_CurrentDrawIndex are set in
-  // RenderWaterPasses which runs before this. If water passes didn't run,
-  // they're still at frame start values. Main scene continues from where water
-  // passes left off.
+  // Reset draw indices at the start of the frame
+  // (RenderWaterPasses also resets this, but may be skipped if no water)
+  m_CurrentDrawIndex = 0;
   m_CurrentPipeline = nullptr; // Reset pipeline tracking to force rebind
   m_CurrentTexture = nullptr;  // Reset texture tracking
   m_GizmoDrawIndex = 0;        // Reset gizmo draw index
@@ -980,9 +1017,23 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
       const auto &lights = m_SceneGraph->GetLights();
       if (m_CurrentLightIndex < lights.size()) {
         auto light = lights[m_CurrentLightIndex];
-        ubo.lightPos = light->GetWorldPosition();
         ubo.lightColor = light->GetColor();
         ubo.lightRange = light->GetRange();
+
+        // Set light type explicitly: 0=Directional, 1=Point, 2=Spot
+        ubo.lightType = static_cast<float>(light->GetType());
+
+        // For directional lights, pass the light DIRECTION
+        // For point lights, pass the light POSITION
+        if (light->GetType() == LightNode::LightType::Directional) {
+          // Get forward direction from light's world matrix (+Z is forward)
+          // Shader will negate this to get direction FROM fragment TO light
+          glm::vec3 lightDir = glm::normalize(
+              glm::vec3(light->GetWorldMatrix() * glm::vec4(0, 0, 1, 0)));
+          ubo.lightPos = lightDir; // This is a DIRECTION, not a position
+        } else {
+          ubo.lightPos = light->GetWorldPosition();
+        }
       } else {
         // Default fallbacks if no lights
         ubo.lightPos = glm::vec3(5.0f, 5.0f, 5.0f);
@@ -997,6 +1048,37 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
 
     ubo.clipPlaneDir =
         m_ClipPlaneDir; // Clip plane: 1=reflection, -1=refraction, 0=normal
+
+    // Set lightSpaceMatrix for directional shadow mapping
+    // For directional lights, compute the matrix from the current light
+    ubo.lightSpaceMatrix = glm::mat4(1.0f); // Default to identity
+    if (m_SceneGraph &&
+        m_CurrentLightIndex < m_SceneGraph->GetLights().size()) {
+      auto light = m_SceneGraph->GetLights()[m_CurrentLightIndex];
+      if (light->GetType() == LightNode::LightType::Directional) {
+        // Find corresponding directional shadow map
+        size_t dirLightIndex = 0;
+        for (size_t i = 0; i < m_CurrentLightIndex; i++) {
+          if (i < m_SceneGraph->GetLights().size() &&
+              m_SceneGraph->GetLights()[i]->GetType() !=
+                  LightNode::LightType::Directional) {
+            // Skip non-directional lights
+          } else {
+            dirLightIndex++;
+          }
+        }
+        // For simplicity, assume directional lights come after point lights
+        // and use index 0 for the first directional shadow map
+        size_t numPointLights = m_ShadowMaps.size();
+        size_t dirIndex = m_CurrentLightIndex >= numPointLights
+                              ? m_CurrentLightIndex - numPointLights
+                              : 0;
+        if (dirIndex < m_DirShadowMaps.size() && m_DirShadowMaps[dirIndex]) {
+          // Use cached matrix calculated in RenderShadowPass for consistency
+          ubo.lightSpaceMatrix = m_CachedDirShadowMatrix;
+        }
+      }
+    }
 
     // DYNAMIC BUFFER STRATEGY:
     // We strictly use linear indexing. Check capacity.
@@ -1070,9 +1152,26 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
             continue;
           }
 
+          // Set light space matrix in UBO if it's a directional light
+          ubo.lightSpaceMatrix = glm::mat4(1.0f);
+          if (m_CurrentLightIndex >= m_ShadowMaps.size() &&
+              (m_CurrentLightIndex - m_ShadowMaps.size()) <
+                  m_DirShadowMaps.size()) {
+            size_t dirIndex = m_CurrentLightIndex - m_ShadowMaps.size();
+            auto light = m_SceneGraph->GetLights()[m_CurrentLightIndex];
+            glm::vec3 lightDir =
+                light->GetWorldMatrix() * glm::vec4(0, 0, 1, 0);
+            ubo.lightSpaceMatrix =
+                m_DirShadowMaps[dirIndex]->GetLightSpaceMatrix(lightDir,
+                                                               m_SceneCenter);
+          }
+
           // Bind the GLOBAL descriptor set (Set 0)
+          size_t numSetsPerFrame =
+              std::max(m_ShadowMaps.size() + m_DirShadowMaps.size(), (size_t)1);
           size_t globalSetIndex =
-              m_CurrentFrameIndex * m_ShadowMaps.size() + m_CurrentLightIndex;
+              m_CurrentFrameIndex * numSetsPerFrame + m_CurrentLightIndex;
+
           if (globalSetIndex < m_GlobalDescriptorSets.size()) {
             VkDescriptorSet globalSet = m_GlobalDescriptorSets[globalSetIndex];
             uint32_t dynamicOffset =
@@ -1192,80 +1291,166 @@ void SceneRenderer::InitializeShadowResources() {
   // Get lights from scene
   auto lights = m_SceneGraph->GetLights();
   int pointLightCount = 0;
+  int dirLightCount = 0;
   for (const auto &light : lights) {
     if (light->GetType() == LightNode::LightType::Point) {
       pointLightCount++;
       auto shadowMap = std::make_unique<PointShadowMap>();
       shadowMap->Initialize(m_Device);
       m_ShadowMaps.push_back(std::move(shadowMap));
+    } else if (light->GetType() == LightNode::LightType::Directional) {
+      dirLightCount++;
+      auto shadowMap = std::make_unique<DirectionalShadowMap>();
+      shadowMap->Initialize(m_Device);
+      m_DirShadowMaps.push_back(std::move(shadowMap));
     }
   }
 
   std::cout << "[SceneRenderer] Created " << m_ShadowMaps.size()
-            << " shadow maps for " << pointLightCount << " point lights"
-            << std::endl;
+            << " point shadow maps and " << m_DirShadowMaps.size()
+            << " directional shadow maps" << std::endl;
 
-  if (m_ShadowMaps.empty()) {
-    std::cout << "[SceneRenderer] No point lights, skipping pipeline creation"
-              << std::endl;
-    return;
-  }
-
-  // Initialize ShadowPipeline (Reuse render pass from first shadow map)
-  // Assuming all shadow maps have compatible render passes (they should)
+  // Initialize ShadowPipeline (Reuse render pass from null shadow map)
   m_ShadowPipeline = std::make_unique<ShadowPipeline>(
       m_Device, "engine/shaders/ShadowDepth.vert.spv",
-      "engine/shaders/ShadowDepth.frag.spv", m_ShadowMaps[0]->GetRenderPass());
+      "engine/shaders/ShadowDepth.frag.spv", m_NullShadowMap->GetRenderPass());
 
   std::cout << "[SceneRenderer] Shadow pipeline created" << std::endl;
 }
 
 void SceneRenderer::RenderShadowDebug(Vivid::Draw2D *draw2d) {
-  if (!draw2d || m_FaceTextures.empty())
+  if (!draw2d)
     return;
 
-  // Draw 6 faces in a row at the top
-  float size = 200.0f;
-  float padding = 10.0f;
-  float startX = 10.0f;
-  float startY = 10.0f;
+  // TEST: Always draw a red rectangle to verify Draw2D works from this function
+  if (m_DefaultTexture) {
+    draw2d->DrawTexture(glm::vec2(20.0f, 20.0f), glm::vec2(100.0f, 100.0f),
+                        m_DefaultTexture.get(),
+                        glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+  }
 
-  for (size_t i = 0; i < m_FaceTextures.size(); i++) {
-    glm::vec2 pos(startX + i * (size + padding), startY);
-    glm::vec2 dim(size, size);
+  // Debug: Always draw a small indicator to verify this function is called
+  static bool firstCall = true;
+  if (firstCall) {
+    std::cout
+        << "[SceneRenderer::RenderShadowDebug] Called. m_DirShadowMaps.size()="
+        << m_DirShadowMaps.size()
+        << " m_FaceTextures.size()=" << m_FaceTextures.size()
+        << " m_DefaultTexture=" << (m_DefaultTexture ? "valid" : "null")
+        << std::endl;
+    firstCall = false;
+  }
 
-    // Draw colored border to identify faces
-    glm::vec4 borderColor(1, 1, 1, 1);
-    switch (i) {
-    case 0:
-      borderColor = glm::vec4(1, 0, 0, 1);
-      break; // Red (+X)
-    case 1:
-      borderColor = glm::vec4(0, 1, 0, 1);
-      break; // Green (-X)
-    case 2:
-      borderColor = glm::vec4(0, 0, 1, 1);
-      break; // Blue (+Y)
-    case 3:
-      borderColor = glm::vec4(1, 1, 0, 1);
-      break; // Yellow (-Y)
-    case 4:
-      borderColor = glm::vec4(0, 1, 1, 1);
-      break; // Cyan (+Z)
-    case 5:
-      borderColor = glm::vec4(1, 0, 1, 1);
-      break; // Magenta (-Z)
+  // Draw point light shadow cube faces (if available)
+  if (!m_FaceTextures.empty()) {
+    float size = 150.0f;
+    float padding = 10.0f;
+    float startX = 10.0f;
+    float startY = 10.0f;
+
+    for (size_t i = 0; i < m_FaceTextures.size(); i++) {
+      glm::vec2 pos(startX + i * (size + padding), startY);
+      glm::vec2 dim(size, size);
+
+      // Draw colored border to identify faces
+      glm::vec4 borderColor(1, 1, 1, 1);
+      switch (i) {
+      case 0:
+        borderColor = glm::vec4(1, 0, 0, 1);
+        break; // Red (+X)
+      case 1:
+        borderColor = glm::vec4(0, 1, 0, 1);
+        break; // Green (-X)
+      case 2:
+        borderColor = glm::vec4(0, 0, 1, 1);
+        break; // Blue (+Y)
+      case 3:
+        borderColor = glm::vec4(1, 1, 0, 1);
+        break; // Yellow (-Y)
+      case 4:
+        borderColor = glm::vec4(0, 1, 1, 1);
+        break; // Cyan (+Z)
+      case 5:
+        borderColor = glm::vec4(1, 0, 1, 1);
+        break; // Magenta (-Z)
+      }
+
+      draw2d->DrawRectOutline(pos, dim, m_DefaultTexture.get(), borderColor);
+      draw2d->DrawTexture(pos, dim, m_FaceTextures[i].get(), glm::vec4(1.0f));
     }
+  }
 
-    // Draw background rect (black) to see if texture is empty/transparent
-    draw2d->DrawRectOutline(pos, dim, m_DefaultTexture.get(), borderColor);
+  // Create debug textures for directional shadow maps if needed
+  if (m_DirShadowDebugTextures.size() != m_DirShadowMaps.size()) {
+    m_DirShadowDebugTextures.clear();
+    for (const auto &shadowMap : m_DirShadowMaps) {
+      if (shadowMap && shadowMap->IsInitialized()) {
+        // Create a wrapper Texture2D from the shadow map's image view and
+        // sampler
+        auto debugTex = std::make_unique<Vivid::Texture2D>(
+            m_Device, shadowMap->GetImageView(), shadowMap->GetSampler(),
+            static_cast<int>(shadowMap->GetResolution()),
+            static_cast<int>(shadowMap->GetResolution()));
+        m_DirShadowDebugTextures.push_back(std::move(debugTex));
+      }
+    }
+    std::cout << "[SceneRenderer] Created " << m_DirShadowDebugTextures.size()
+              << " directional shadow debug textures" << std::endl;
+  }
 
-    // Draw texture
-    // Use red color to tint? No, white.
-    // Ensure BlendMode handles single channel?
-    // Usually single channel R is rendered as Red? Or Grayscale?
-    // If Draw2D shader samples just RGB, and texture provides RRR1 or R001.
-    draw2d->DrawTexture(pos, dim, m_FaceTextures[i].get(), glm::vec4(1.0f));
+  // Draw directional shadow maps (below point light faces or at top if no point
+  // lights)
+  float dirSize = 256.0f;
+  float dirPadding = 10.0f;
+  float dirStartX = 10.0f;
+  float dirStartY = m_FaceTextures.empty() ? 10.0f : 180.0f;
+
+  for (size_t i = 0; i < m_DirShadowDebugTextures.size(); i++) {
+    glm::vec2 pos(dirStartX + i * (dirSize + dirPadding), dirStartY);
+    glm::vec2 dim(dirSize, dirSize);
+
+    // Orange border for directional light shadow
+    glm::vec4 borderColor(1.0f, 0.5f, 0.0f, 1.0f);
+    draw2d->DrawRectOutline(pos, dim, m_DefaultTexture.get(), borderColor,
+                            3.0f);
+
+    // Draw the shadow map texture
+    draw2d->DrawTexture(pos, dim, m_DirShadowDebugTextures[i].get(),
+                        glm::vec4(1.0f));
+  }
+
+  // Always draw a small indicator to show this function runs
+  // Draw a green square in top-left corner if no shadow maps to display
+  if (m_FaceTextures.empty() && m_DirShadowDebugTextures.empty()) {
+    glm::vec2 indicatorPos(10.0f, 10.0f);
+    glm::vec2 indicatorSize(50.0f, 50.0f);
+    // Green border to indicate "RenderShadowDebug was called but no shadow
+    // maps"
+    draw2d->DrawRectOutline(indicatorPos, indicatorSize, m_DefaultTexture.get(),
+                            glm::vec4(0.0f, 1.0f, 0.0f, 1.0f), 5.0f);
+  }
+}
+
+void SceneRenderer::InvalidateTextureDescriptors() {
+  // Called before Draw2D destruction on swapchain recreation
+  // Invalidate all textures that may have cached descriptor sets from Draw2D's
+  // pool
+  if (m_DefaultTexture) {
+    m_DefaultTexture->InvalidateDescriptorSet();
+  }
+
+  // Invalidate face textures (point light shadow debug)
+  for (auto &tex : m_FaceTextures) {
+    if (tex) {
+      tex->InvalidateDescriptorSet();
+    }
+  }
+
+  // Invalidate directional shadow debug textures
+  for (auto &tex : m_DirShadowDebugTextures) {
+    if (tex) {
+      tex->InvalidateDescriptorSet();
+    }
   }
 }
 void SceneRenderer::RenderShadowPass(VkCommandBuffer cmd) {
@@ -1280,22 +1465,35 @@ void SceneRenderer::RenderShadowPass(VkCommandBuffer cmd) {
   if (!root)
     return;
 
-  // Render to each shadow map
-  for (size_t i = 0; i < m_ShadowMaps.size(); i++) {
-    // Skip if light index is invalid
-    if (i >= lights.size())
-      break;
+  // Compute scene center from camera BEFORE rendering shadows
+  // This ensures both shadow render and shadow sampling use the same center
+  auto camera = m_SceneGraph->GetCurrentCamera();
+  if (camera) {
+    // Get the world matrix (inverse of the view matrix returned by CameraNode)
+    glm::mat4 view = camera->GetWorldMatrix();
+    glm::mat4 world = glm::inverse(view);
 
-    auto light = lights[i];
+    glm::vec3 cameraPos = glm::vec3(world[3]);
+    glm::vec3 cameraForward = -glm::vec3(world[2]); // Forward is -Z
+
+    // Scene center is 10 units in front of the camera (tighter focus for our
+    // 20-unit shadow area)
+    m_SceneCenter = cameraPos + cameraForward * 10.0f;
+  } else {
+    m_SceneCenter = glm::vec3(0.0f);
+  }
+
+  // Render to each point shadow map
+  for (size_t i = 0; i < m_ShadowMaps.size(); i++) {
+    auto light = lights[i]; // Point lights are first
     auto shadowMap = m_ShadowMaps[i].get();
     glm::vec3 lightPos = light->GetWorldPosition();
     float farPlane = light->GetRange();
     if (farPlane <= 0.0f)
-      farPlane = 100.0f; // Default
+      farPlane = 100.0f;
 
     shadowMap->SetFarPlane(farPlane);
 
-    // Render 6 faces
     for (uint32_t face = 0; face < 6; ++face) {
       glm::mat4 lightSpaceMatrix =
           shadowMap->GetLightSpaceMatrix(lightPos, face);
@@ -1327,17 +1525,64 @@ void SceneRenderer::RenderShadowPass(VkCommandBuffer cmd) {
       vkCmdSetScissor(cmd, 0, 1, &scissor);
 
       m_ShadowPipeline->Bind(cmd);
-      RenderNodeToShadow(cmd, root, lightSpaceMatrix, lightPos, farPlane);
+      RenderNodeToShadow(cmd, m_SceneGraph->GetRoot(), lightSpaceMatrix,
+                         glm::vec4(lightPos, farPlane));
 
       vkCmdEndRenderPass(cmd);
     }
+  }
+
+  // Render to each directional shadow map
+  for (size_t i = 0; i < m_DirShadowMaps.size(); i++) {
+    // Directional lights are after point lights in the list
+    if (m_ShadowMaps.size() + i >= lights.size())
+      break;
+    auto light = lights[m_ShadowMaps.size() + i];
+    auto shadowMap = m_DirShadowMaps[i].get();
+
+    // Calculate light space matrix (using scene center as target)
+    glm::vec3 lightDir = light->GetWorldMatrix() * glm::vec4(0, 0, 1, 0);
+    glm::mat4 lightSpaceMatrix =
+        shadowMap->GetLightSpaceMatrix(lightDir, m_SceneCenter);
+
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = shadowMap->GetRenderPass();
+    renderPassInfo.framebuffer = shadowMap->GetFramebuffer();
+    renderPassInfo.renderArea.offset = {0, 0};
+    renderPassInfo.renderArea.extent.width = shadowMap->GetResolution();
+    renderPassInfo.renderArea.extent.height = shadowMap->GetResolution();
+
+    VkClearValue clearValue{};
+    clearValue.depthStencil = {1.0f, 0};
+    renderPassInfo.clearValueCount = 1;
+    renderPassInfo.pClearValues = &clearValue;
+
+    vkCmdBeginRenderPass(cmd, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    VkViewport viewport{};
+    viewport.width = static_cast<float>(shadowMap->GetResolution());
+    viewport.height = static_cast<float>(shadowMap->GetResolution());
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.extent = renderPassInfo.renderArea.extent;
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    m_ShadowPipeline->Bind(cmd);
+    // Directional lights use farPlane = 0.0 to signal non-cube shadow
+    RenderNodeToShadow(cmd, m_SceneGraph->GetRoot(), lightSpaceMatrix,
+                       glm::vec4(light->GetWorldPosition(), 0.0f));
+
+    vkCmdEndRenderPass(cmd);
   }
 }
 
 void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
                                        const glm::mat4 &lightSpaceMatrix,
-                                       const glm::vec3 &lightPos,
-                                       float farPlane) {
+                                       const glm::vec4 &lightInfo) {
   if (!node)
     return;
 
@@ -1347,12 +1592,12 @@ void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
       ShadowPushConstants pc{};
       pc.lightSpaceMatrix = lightSpaceMatrix;
       pc.model = node->GetWorldMatrix();
-      pc.lightPos = glm::vec4(lightPos, farPlane);
+      pc.lightPos = lightInfo;
 
       vkCmdPushConstants(cmd, m_ShadowPipeline->GetPipelineLayout(),
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
-                         0, sizeof(ShadowPushConstants), &pc);
+                         0, (uint32_t)sizeof(ShadowPushConstants), &pc);
 
       mesh->Bind(cmd);
       uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
@@ -1363,7 +1608,7 @@ void SceneRenderer::RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
   }
 
   for (const auto &child : node->GetChildren()) {
-    RenderNodeToShadow(cmd, child.get(), lightSpaceMatrix, lightPos, farPlane);
+    RenderNodeToShadow(cmd, child.get(), lightSpaceMatrix, lightInfo);
   }
 }
 

@@ -31,7 +31,7 @@ Texture2D::Texture2D(VividDevice *device, VkImageView view, VkSampler sampler,
 Texture2D::~Texture2D() {
   // Check if device pointer is still valid before cleanup
   if (m_DevicePtr && m_DevicePtr->GetDevice() != VK_NULL_HANDLE &&
-      m_OwnsResources) { 
+      m_OwnsResources) {
     if (m_TextureSampler != VK_NULL_HANDLE) {
       vkDestroySampler(m_DevicePtr->GetDevice(), m_TextureSampler, nullptr);
     }
@@ -148,6 +148,13 @@ VkDescriptorSet Texture2D::GetDescriptorSet(VkDescriptorPool pool,
   if (m_DescriptorSet != VK_NULL_HANDLE) {
     return m_DescriptorSet;
   }
+
+  // DEBUG: Log what's being bound
+  static int allocCount = 0;
+  std::cout << "[Texture2D::GetDescriptorSet] Alloc #" << (++allocCount)
+            << " ImageView=" << (void *)m_TextureImageView
+            << " Sampler=" << (void *)m_TextureSampler << " Size=" << m_Width
+            << "x" << m_Height << std::endl;
 
   VkDescriptorSetAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;

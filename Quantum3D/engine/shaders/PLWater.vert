@@ -12,12 +12,13 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 lightSpaceMatrix;
     vec3 viewPos;
-    float time;      // Time for animation
+    float time;
     vec3 lightPos;
-    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
+    float clipPlaneDir;
     vec3 lightColor;
-    float lightRange; 
+    float lightRange;
 } ubo;
 
 // Outputs

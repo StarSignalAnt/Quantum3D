@@ -12,10 +12,11 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 lightSpaceMatrix;
     vec3 viewPos;
-    float time;      // Changed from padding
+    float time;
     vec3 lightPos;
-    float padding2;
+    float clipPlaneDir;
     vec3 lightColor;
     float lightRange;
 } ubo;

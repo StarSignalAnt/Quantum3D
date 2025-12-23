@@ -1,10 +1,12 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "GraphNode.h"
 
+#include "../QLang/QContext.h"
 #include "Mesh3D.h"
 #include "QLangDomain.h"
 #include <algorithm>
 #include <cmath>
+#include <variant>
 
 namespace Quantum {
 

@@ -12,10 +12,11 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 lightSpaceMatrix;
     vec3 viewPos;
-    float time;      // Changed
+    float time;
     vec3 lightPos;
-    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
+    float clipPlaneDir;
     vec3 lightColor;
     float lightRange; 
 } ubo;
@@ -31,37 +32,35 @@ layout(set = 1, binding = 5) uniform sampler2D refractionMap;
 // Clip space input
 layout(location = 5) in vec4 fragClipSpace;
 
-// Shadow cube map (Set 0 - Global Light Data)
+// Shadow maps (Set 0 - Global Light Data)
 layout(set = 0, binding = 1) uniform samplerCube shadowMap;
+layout(set = 0, binding = 2) uniform sampler2D dirShadowMap;
 
 // Output
 layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
-// Calculate shadow factor (0 = fully shadowed, 1 = fully lit)
+// Calculate point shadow factor
 float calculateShadow(vec3 fragToLight, float currentDepth) {
-    // Sample the cube map using the direction from light to fragment
     float closestDepth = texture(shadowMap, fragToLight).r;
-    
-    // Get the far plane used for shadow rendering
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
-    
-    // Normalize current depth to match shadow map range (0-1)
     float normalizedCurrent = currentDepth / shadowFarPlane;
-    
-    // Simple fixed bias
     float bias = 0.01;
-    
-    // If we're past the far plane, no shadow
-    if (normalizedCurrent > 1.0) {
-        return 1.0;
-    }
-    
-    // Shadow: if current fragment is further than stored closest, we're in shadow
+    if (normalizedCurrent > 1.0) return 1.0;
     float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
-    
     return shadow;
+}
+
+// Calculate directional shadow factor
+float calculateDirShadow(vec4 fragPosLightSpace) {
+    vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;
+    if (projCoords.z > 1.0) return 1.0;
+    float closestDepth = texture(dirShadowMap, projCoords.xy).r;
+    float currentDepth = projCoords.z;
+    float bias = 0.005;
+    return (currentDepth - bias > closestDepth) ? 0.0 : 1.0;
 }
 
 // Fresnel Schlick

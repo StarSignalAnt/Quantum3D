@@ -12,6 +12,7 @@ public:
   ~LightNode() override = default;
 
   LightType GetType() const { return m_Type; }
+  void SetType(LightType type) { m_Type = type; }
 
   void SetColor(const glm::vec3 &color);
   const glm::vec3 &GetColor() const { return m_LightColor; }

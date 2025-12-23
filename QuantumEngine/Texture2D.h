@@ -30,6 +30,10 @@ public:
   int GetWidth() const { return m_Width; }
   int GetHeight() const { return m_Height; }
 
+  // Invalidate cached descriptor set (call when descriptor pool is
+  // destroyed/recreated)
+  void InvalidateDescriptorSet() { m_DescriptorSet = VK_NULL_HANDLE; }
+
 private:
   void CreateTextureImage(const std::string &path);
   void CreateTextureImageFromData(const unsigned char *pixels, int width,

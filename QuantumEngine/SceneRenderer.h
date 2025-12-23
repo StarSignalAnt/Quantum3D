@@ -1,4 +1,5 @@
 #pragma once
+#include "DirectionalShadowMap.h"
 #include "GizmoBase.h"
 #include "PointShadowMap.h"
 #include "SceneGraph.h"
@@ -73,6 +74,10 @@ public:
   // Render shadow depth pass (call BEFORE BeginRenderPass for main scene)
   void RenderShadowPass(VkCommandBuffer cmd);
 
+  // Invalidate texture descriptors (call before Draw2D destruction on swapchain
+  // recreation)
+  void InvalidateTextureDescriptors();
+
   // Debug rendering of shadow map faces
   void RenderShadowDebug(Vivid::Draw2D *draw2d);
 
@@ -112,7 +117,7 @@ private:
   void InitializeShadowResources();
   void RenderNodeToShadow(VkCommandBuffer cmd, GraphNode *node,
                           const glm::mat4 &lightSpaceMatrix,
-                          const glm::vec3 &lightPos, float farPlane);
+                          const glm::vec4 &lightInfo);
 
   Vivid::VividDevice *m_Device = nullptr;
   Vivid::VividRenderer *m_Renderer = nullptr;
@@ -179,14 +184,25 @@ private:
   std::shared_ptr<Vivid::Texture2D> m_DefaultTexture;
 
   std::vector<std::unique_ptr<PointShadowMap>> m_ShadowMaps;
+  std::vector<std::unique_ptr<DirectionalShadowMap>> m_DirShadowMaps;
+  std::unique_ptr<PointShadowMap> m_NullShadowMap;
+  std::unique_ptr<DirectionalShadowMap> m_NullDirShadowMap;
   std::unique_ptr<ShadowPipeline> m_ShadowPipeline;
   bool m_ShadowsEnabled = true;
 
   // Multi-light rendering state
   mutable size_t m_CurrentLightIndex = 0;
 
+  // Scene center for shadow map targeting (computed from camera)
+  mutable glm::vec3 m_SceneCenter = glm::vec3(0.0f);
+
+  // Cached directional shadow matrix to ensure consistency between passes
+  mutable glm::mat4 m_CachedDirShadowMatrix = glm::mat4(1.0f);
+
   // Debug textures for shadow faces
   std::vector<std::unique_ptr<Vivid::Texture2D>> m_FaceTextures;
+  // Debug textures for directional shadow maps
+  std::vector<std::unique_ptr<Vivid::Texture2D>> m_DirShadowDebugTextures;
 
   // Selection Helpers
   std::shared_ptr<Mesh3D> m_UnitCube;

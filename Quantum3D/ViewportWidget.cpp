@@ -145,7 +145,7 @@ void ViewportWidget::initScene() {
 
     // Create Test Light
     m_MainLight = std::make_shared<Quantum::LightNode>("MainLight");
-    m_MainLight->SetColor(glm::vec3(150.0f, 150.0f, 150.0f));
+    m_MainLight->SetColor(glm::vec3(5.0f, 5.0f, 5.0f));
     m_MainLight->SetLocalPosition(0.0f, 2.0f,
                                   5.0f); // Position light in FRONT ensures
                                          // intuitive face mapping (Face 5)
@@ -158,16 +158,11 @@ void ViewportWidget::initScene() {
     // intuitive face mapping (Face 5)
     l2->SetRange(100.0f);
     m_MainLight2 = l2;
-    m_SceneGraph->AddLight(l2);
-
+    // m_SceneGraph->AddLight(l2);
+    m_MainLight->SetType(Quantum::LightNode::LightType::Directional);
 
     m_SceneGraph->AddLight(m_MainLight);
 
-    // Scaling the monkey down because import scalefactor is 100
-    // We can do this on the root node or the monkey node if we had a reference
-    // But since we import via file drop or code, let's look for it?
-    // For now, relying on the user to drop it?
-    // Wait, m_TestModel is loaded in initScene.
     if (m_TestModel) {
       m_TestModel->SetLocalScale(0.01f);
       m_SceneGraph->GetRoot()->AddChild(m_TestModel); // Re-enable adding child
@@ -290,6 +285,20 @@ void ViewportWidget::recreateSwapChain() {
            m_SceneRenderer->GetDescriptorSetLayout()});
     }
 
+    // CRITICAL: Recreate Draw2D with the new render pass
+    // The old Draw2D had pipelines created with the old render pass
+    // Before destroying, invalidate all texture descriptor sets that were
+    // allocated from Draw2D's pool
+    if (m_LightIcon) {
+      m_LightIcon->InvalidateDescriptorSet();
+    }
+    if (m_SceneRenderer) {
+      m_SceneRenderer->InvalidateTextureDescriptors();
+    }
+    m_Draw2D.reset();
+    m_Draw2D =
+        std::make_unique<Vivid::Draw2D>(m_Device, m_Renderer->GetRenderPass());
+
     m_NeedsResize = false;
   } catch (const std::exception &e) {
     std::cerr << "Failed to recreate swap chain: " << e.what() << std::endl;
@@ -369,6 +378,8 @@ void ViewportWidget::renderFrame() {
       if (m_Draw2D) {
         m_Draw2D->Begin(m_Renderer);
         RenderLightIcons();
+        // Shadow map debug visualization
+        m_SceneRenderer->RenderShadowDebug(m_Draw2D.get());
         m_Draw2D->End();
       }
     }

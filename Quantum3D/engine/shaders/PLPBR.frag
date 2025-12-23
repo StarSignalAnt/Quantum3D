@@ -12,12 +12,15 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
     mat4 model;
     mat4 view;
     mat4 proj;
+    mat4 lightSpaceMatrix;
     vec3 viewPos;
-    float time;      // Changed from padding
+    float time;
     vec3 lightPos;
-    float clipPlaneDir; // 1.0=clip below Y=0, -1.0=clip above Y=0, 0.0=no clip
+    float clipPlaneDir;
     vec3 lightColor;
-    float lightRange; 
+    float lightRange;
+    float lightType;  // 0 = Point, 1 = Directional, 2 = Spot
+    float _pad1, _pad2, _pad3;  // Padding for alignment
 } ubo;
 
 // Textures (all in set 0)
@@ -29,37 +32,55 @@ layout(set = 1, binding = 3) uniform sampler2D roughnessMap;
 
 // Shadow cube map (Set 0 - Global Light Data)
 layout(set = 0, binding = 1) uniform samplerCube shadowMap;
+layout(set = 0, binding = 2) uniform sampler2D dirShadowMap;
 
 // Output
 layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
-// Calculate shadow factor (0 = fully shadowed, 1 = fully lit)
+// Calculate point shadow factor
 float calculateShadow(vec3 fragToLight, float currentDepth) {
-    // Sample the cube map using the direction from light to fragment
     float closestDepth = texture(shadowMap, fragToLight).r;
-    
-    // Get the far plane used for shadow rendering
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
-    
-    // Normalize current depth to match shadow map range (0-1)
     float normalizedCurrent = currentDepth / shadowFarPlane;
-    
-    // Simple fixed bias
     float bias = 0.01;
-    
-    // If we're past the far plane, no shadow
-    if (normalizedCurrent > 1.0) {
-        return 1.0;
-    }
-    
-    // Shadow: if current fragment is further than stored closest, we're in shadow
-    // closestDepth stores the distance to the nearest occluder
-    // If normalizedCurrent > closestDepth, something is between us and the light
+    if (normalizedCurrent > 1.0) return 1.0;
     float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
-    
     return shadow;
+}
+
+// Calculate directional shadow factor
+// Based on working DX12 reference shader
+float calculateDirShadow(vec4 lightSpacePos) {
+    // 1. Convert from clip space to NDC [-1, 1]
+    vec3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
+
+    // 2. Convert from NDC to texture coordinates [0, 1]
+    projCoords.x = projCoords.x * 0.5 + 0.5;
+    projCoords.y = projCoords.y * 0.5 + 0.5; // No Y-flip needed (Vulkan Y-down is handled in C++ proj)
+
+    // 3. If we are outside the [0,1] range, this pixel is not in the shadow map
+    if (projCoords.x < 0.0 || projCoords.x > 1.0 ||
+        projCoords.y < 0.0 || projCoords.y > 1.0) {
+        return 1.0; // Return full light
+    }
+
+    // 4. Get the depth of the current pixel from the light's perspective
+    float currentDepth = projCoords.z;
+
+    // 5. Sample the depth stored in the shadow map
+    float shadowMapDepth = texture(dirShadowMap, projCoords.xy).r;
+
+    // 6. Use a simple, constant bias
+    float bias = 0.005;
+
+    // 7. Perform the comparison (matches DX12 reference)
+    if (currentDepth > shadowMapDepth + bias) {
+        return 0.0; // The pixel is in shadow
+    } else {
+        return 1.0; // The pixel is lit
+    }
 }
 
 // Calculate Normal from Normal Map using TBN matrix
@@ -127,12 +148,10 @@ void main() {
     // Use normal map for per-pixel lighting
     vec3 N = normalize(fragNormal);
     
+    // Normal mapping
     vec3 T = normalize(fragTangent);
     vec3 B = normalize(fragBitangent);
-    
-    // Gram-Schmidt re-orthogonalization
-    T = normalize(T - dot(T, N) * N);
-    
+    T = normalize(T - dot(T, N) * N);  // Gram-Schmidt re-orthogonalization
     mat3 TBN = mat3(T, B, N);
     vec3 tangentNormal = texture(normalMap, fragUV).xyz * 2.0 - 1.0;
     vec3 N_pixel = normalize(TBN * tangentNormal);
@@ -147,31 +166,48 @@ void main() {
     // Reflectance equation
     vec3 Lo = vec3(0.0);
 
-    // Single point light
-    vec3 L = normalize(ubo.lightPos - fragWorldPos);
+    // Calculate light direction based on light type
+    // lightType: 0 = Point, 1 = Directional, 2 = Spot
+    vec3 L;
+    float distance;
+    float attenuation;
+    float rangeFactor = 1.0;
+    
+    if (ubo.lightType < 0.5) {
+        // Point Light (type 0): lightPos is a position, calculate direction from fragment
+        L = normalize(ubo.lightPos - fragWorldPos);
+        distance = length(ubo.lightPos - fragWorldPos);
+        if (ubo.lightRange > 0.0) {
+            rangeFactor = max(0.0, 1.0 - distance / ubo.lightRange);
+        }
+        attenuation = 1.0 / (distance * distance + 0.001);
+    } else {
+        // Directional Light (type 1): lightPos IS the direction the light is POINTING
+        // We NEGATE because L should be the direction FROM fragment TO light source
+        L = -normalize(ubo.lightPos);
+        distance = 1.0;
+        attenuation = 1.0; // No distance falloff for directional lights
+    }
     
     // Safe half-vector calculation
     vec3 H_raw = V + L;
     float H_len = length(H_raw);
     vec3 H = H_len > 0.0001 ? H_raw / H_len : N;
-    
-    // Calculate distance from pixel to light
-    float distance = length(ubo.lightPos - fragWorldPos);
-    
-    // Range-based linear falloff
-    float rangeFactor = 1.0;
-    if (ubo.lightRange > 0.0) {
-        rangeFactor = max(0.0, 1.0 - distance / ubo.lightRange);
-    }
-    
-    float attenuation = 1.0 / (distance * distance + 0.001);
+
     vec3 radiance = ubo.lightColor * attenuation * rangeFactor;
 
     // Calculate shadow
-    vec3 fragToLight = fragWorldPos - ubo.lightPos;
-     fragToLight.x = - fragToLight.x; // Unflip X check if needed
-    float shadow = calculateShadow(fragToLight, distance);
-    // float shadow = 1.0; // Fully lit (no shadows)
+    float shadow = 1.0;
+    if (ubo.lightType < 0.5) {
+        // Point Light Shadow
+        vec3 fragToLight = fragWorldPos - ubo.lightPos;
+        fragToLight.x = -fragToLight.x; 
+        shadow = calculateShadow(fragToLight, distance);
+    } else {
+        // Directional Light Shadow
+        vec4 fragPosLightSpace = ubo.lightSpaceMatrix * vec4(fragWorldPos, 1.0);
+        shadow = calculateDirShadow(fragPosLightSpace);
+    }
 
     // Cook-Torrance BRDF
     float NDF = DistributionGGX(N, H, roughness);   
@@ -195,11 +231,7 @@ void main() {
     // Ambient (small amount so fully shadowed areas aren't completely black)
     vec3 ambient = vec3(0.03) * albedo;
     
-    vec3 color = Lo;
+    vec3 color = ambient + Lo;
 
     outColor = vec4(color, 1.0);
-
-   
-    // Normal lighting proceeds if no errors
-
 }

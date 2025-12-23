@@ -12,11 +12,15 @@ layout(push_constant) uniform PushConstants {
 } pc;
 
 void main() {
-    // Calculate distance from fragment to light
-    float lightDistance = length(fragWorldPos - pc.lightPos.xyz);
-    
-    // Normalize distance by far plane (0 = at light, 1 = at far plane)
-    // This gives us linear depth for point light shadows
     float farPlane = pc.lightPos.w;
-    gl_FragDepth = lightDistance / farPlane;
+    
+    if (farPlane > 0.0) {
+        // Point light shadow: Calculate distance from fragment to light
+        float lightDistance = length(fragWorldPos - pc.lightPos.xyz);
+        // Normalize distance by far plane (0 = at light, 1 = at far plane)
+        gl_FragDepth = lightDistance / farPlane;
+    } else {
+        // Directional shadow: Use standard depth
+        gl_FragDepth = gl_FragCoord.z;
+    }
 }

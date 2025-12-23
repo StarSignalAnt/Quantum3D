@@ -9,6 +9,7 @@
 #include "VividPipeline.h"
 #include "VividRenderer.h"
 #include "pch.h"
+#include <iostream>
 #include <stdexcept>
 
 namespace Vivid {
@@ -76,6 +77,7 @@ void Draw2D::CreatePipelines(VkRenderPass renderPass) {
   // Solid - No blending
   BlendConfig solidConfig;
   solidConfig.blendEnable = VK_FALSE;
+  solidConfig.cullMode = VK_CULL_MODE_NONE; // No culling for 2D sprites
   m_PipelineSolid =
       new VividPipeline(m_DevicePtr, vertPath, fragPath, m_DescriptorSetLayout,
                         renderPass, solidConfig);
@@ -87,6 +89,7 @@ void Draw2D::CreatePipelines(VkRenderPass renderPass) {
   alphaConfig.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   alphaConfig.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   alphaConfig.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  alphaConfig.cullMode = VK_CULL_MODE_NONE; // No culling for 2D sprites
   m_PipelineAlpha =
       new VividPipeline(m_DevicePtr, vertPath, fragPath, m_DescriptorSetLayout,
                         renderPass, alphaConfig);
@@ -98,6 +101,7 @@ void Draw2D::CreatePipelines(VkRenderPass renderPass) {
   additiveConfig.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
   additiveConfig.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   additiveConfig.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  additiveConfig.cullMode = VK_CULL_MODE_NONE; // No culling for 2D sprites
   m_PipelineAdditive =
       new VividPipeline(m_DevicePtr, vertPath, fragPath, m_DescriptorSetLayout,
                         renderPass, additiveConfig);
@@ -228,6 +232,15 @@ void Draw2D::RenderText(const glm::vec2 &pos, const std::string &text,
 void Draw2D::FlushBatch() {
   if (m_DrawQueue.empty())
     return;
+
+  // DEBUG: Log draw queue size
+  static bool firstFlush = true;
+  if (firstFlush) {
+    std::cout << "[Draw2D::FlushBatch] Processing " << m_DrawQueue.size()
+              << " draw commands. Screen size: " << m_ScreenSize.x << "x"
+              << m_ScreenSize.y << std::endl;
+    firstFlush = false;
+  }
 
   // Upload all instance data
   std::vector<SpriteInstance> instanceData;
