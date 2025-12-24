@@ -49,6 +49,7 @@ struct CompiledClass {
   std::unordered_map<std::string, llvm::Function *> methods;
   std::unordered_map<std::string, std::string>
       methodReturnTypes; // For chained ops
+  bool isStatic = false; // True if this is a static class (singleton)
 };
 
 class QJitRunner {
@@ -63,6 +64,18 @@ public:
 
   // Set base path for module resolution
   void SetBasePath(const std::string &basePath) { m_BasePath = basePath; }
+
+  // High-level API
+  std::shared_ptr<QJitProgram> RunScript(const std::string &path);
+  bool BuildModule(const std::string &path);
+
+  // Module system
+  bool ImportModule(const std::string &moduleName);
+
+public:
+  bool CompileModule(const std::string &moduleName,
+                     const std::string &sourcePath,
+                     const std::string &binaryPath);
 
 private:
   std::shared_ptr<QLVMContext> m_LVMContext;
@@ -81,8 +94,11 @@ private:
   // Compiled class registry
   std::unordered_map<std::string, CompiledClass> m_CompiledClasses;
 
-  // Loaded modules (to prevent double loading)
+  // Loaded modules (to prevent double loading in the current LLVM module)
   std::unordered_set<std::string> m_LoadedModules;
+
+  // Modules that should be automatically imported into every new program
+  std::unordered_set<std::string> m_AutoImportModules;
 
   // Method context - for implicit member access (this pointer)
   llvm::Value *m_CurrentInstance = nullptr;
@@ -139,11 +155,6 @@ private:
                                   const std::string &className,
                                   const std::vector<llvm::Value *> &args);
 
-  // Module system
-  bool ImportModule(const std::string &moduleName);
-  bool CompileModule(const std::string &moduleName,
-                     const std::string &sourcePath,
-                     const std::string &binaryPath);
   void LinkModuleInto(llvm::Module *srcModule, llvm::Module *dstModule);
 
   // Generate wrapper function for dynamic method calling

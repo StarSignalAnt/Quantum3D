@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-
 // QClass - represents a class definition with instance variables and methods
 class QClass : public QActionNode {
 public:
@@ -70,6 +69,10 @@ public:
     return m_Methods;
   }
 
+  // Static class support - single global instance
+  void SetStatic(bool isStatic) { m_IsStatic = isStatic; }
+  bool IsStatic() const { return m_IsStatic; }
+
   void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
     for (const auto &member : m_Members) {
       if (member)
@@ -83,6 +86,9 @@ public:
 
   void Print(int indent = 0) const override {
     PrintIndent(indent);
+    if (m_IsStatic) {
+      std::cout << "Static ";
+    }
     std::cout << "Class: " << m_Name;
     if (HasParent()) {
       std::cout << " extends " << m_ParentClassName;
@@ -118,4 +124,5 @@ private:
   std::vector<std::string> m_TypeParameters; // Generic type params (T, K, V)
   std::vector<std::shared_ptr<QVariableDecl>> m_Members;
   std::vector<std::shared_ptr<QMethod>> m_Methods;
+  bool m_IsStatic = false; // True if this is a static class (singleton)
 };

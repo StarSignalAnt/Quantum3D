@@ -34,7 +34,9 @@ struct RuntimeClassInfo {
   std::string constructorName;
   std::unordered_map<std::string, MethodSignature> methods;
   std::unordered_map<std::string, MemberInfo>
-      members; // Member offset info for get/set
+      members;           // Member offset info for get/set
+  bool isStatic = false; // True if this is a static class (singleton)
+  void *staticInstancePtr = nullptr; // Pointer to static instance (if isStatic)
 };
 
 class QJitProgram {
@@ -49,7 +51,8 @@ public:
 
   // Register a class for runtime instance creation
   void RegisterClass(const std::string &className, llvm::StructType *structType,
-                     uint64_t size, const std::string &constructorName);
+                     uint64_t size, const std::string &constructorName,
+                     bool isStatic = false);
 
   // Register a class member for runtime get/set access
   void RegisterMember(const std::string &className,
@@ -64,6 +67,10 @@ public:
   // Create an instance of a registered class
   std::shared_ptr<QJClassInstance>
   CreateClassInstance(const std::string &className);
+
+  // Get the singleton instance of a static class
+  std::shared_ptr<QJClassInstance>
+  GetStaticInstance(const std::string &className);
 
   // ==== Method Calling Options (slowest to fastest) ====
 

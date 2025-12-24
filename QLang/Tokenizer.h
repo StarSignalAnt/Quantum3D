@@ -48,7 +48,8 @@ enum class TokenType {
   T_NEXT,
   T_WHILE,
   T_WEND,
-  T_NULL, // null keyword
+  T_NULL,   // null keyword
+  T_STATIC, // static class keyword
 
   // Types
   T_INT32,

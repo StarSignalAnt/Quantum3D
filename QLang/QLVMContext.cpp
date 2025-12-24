@@ -39,25 +39,36 @@ void *QLVMContext::GetFuncPtr(const std::string &name) const {
 llvm::Function *QLVMContext::GetLLVMFunc(const std::string &name) const {
   auto it = m_LLVMFunctions.find(name);
   if (it != m_LLVMFunctions.end()) {
-    // Check if the function belongs to the currently active module
-    auto *module = QLVM::GetModule();
-    if (it->second->getParent() != module) {
-      // It's from a different module (likely the main program)
-      // Check if it already exists in the current module
-      llvm::Function *existingFunc = module->getFunction(name);
-      if (existingFunc) {
-        return existingFunc;
-      }
-
-      // Redeclare it in the current module
-      auto typeIt = m_FunctionTypes.find(name);
-      if (typeIt != m_FunctionTypes.end()) {
-        llvm::Function *newFunc = llvm::Function::Create(
-            typeIt->second, llvm::Function::ExternalLinkage, name, module);
-        return newFunc;
-      }
-    }
+    // We found it in the cache.
+    // Ideally we should check if it belongs to the current module, but
+    // accessing it->second->getParent() is unsafe if the module was deleted.
+    // The caller (QJitRunner) is responsible for calling ResetCache() when
+    // cached functions become invalid.
     return it->second;
   }
+
+  // Not in cache, or cache was cleared.
+  // Check if we have the type info to recreate it.
+  auto typeIt = m_FunctionTypes.find(name);
+  if (typeIt != m_FunctionTypes.end()) {
+    auto *module = QLVM::GetModule();
+
+    // Check if it already exists in the module (e.g. linked in or previously
+    // created)
+    llvm::Function *existingFunc = module->getFunction(name);
+    if (existingFunc) {
+      m_LLVMFunctions[name] = existingFunc;
+      return existingFunc;
+    }
+
+    // Create fresh declaration
+    llvm::Function *newFunc = llvm::Function::Create(
+        typeIt->second, llvm::Function::ExternalLinkage, name, module);
+    m_LLVMFunctions[name] = newFunc;
+    return newFunc;
+  }
+
   return nullptr;
 }
+
+void QLVMContext::ResetCache() { m_LLVMFunctions.clear(); }

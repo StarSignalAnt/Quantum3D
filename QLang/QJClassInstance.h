@@ -100,6 +100,34 @@ public:
     *reinterpret_cast<const char **>(ptr) = value;
   }
 
+  // Get cptr member (void* pointer)
+  void *GetPtrMember(const std::string &name) const {
+    auto it = m_Members.find(name);
+    if (it == m_Members.end() || !m_InstancePtr) {
+      return nullptr;
+    }
+
+    const MemberInfo &info = it->second;
+    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
+
+    // Return the stored pointer
+    return *reinterpret_cast<void **>(ptr);
+  }
+
+  // Set cptr member (void* pointer)
+  void SetPtrMember(const std::string &name, void *value) {
+    auto it = m_Members.find(name);
+    if (it == m_Members.end() || !m_InstancePtr) {
+      return;
+    }
+
+    const MemberInfo &info = it->second;
+    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
+
+    // Store the pointer
+    *reinterpret_cast<void **>(ptr) = value;
+  }
+
   // Get the members map (for debugging)
   const std::unordered_map<std::string, MemberInfo> &GetMembers() const {
     return m_Members;

@@ -1,5 +1,6 @@
 #include "QJitProgram.h"
 #include "QLVM.h"
+#include "QStaticRegistry.h"
 #include <iostream>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/GenericValue.h>
@@ -71,11 +72,22 @@ uint64_t QJitProgram::GetFunctionAddress(const std::string &funcName) {
 
 void QJitProgram::RegisterClass(const std::string &className,
                                 llvm::StructType *structType, uint64_t size,
-                                const std::string &constructorName) {
+                                const std::string &constructorName,
+                                bool isStatic) {
   RuntimeClassInfo info;
   info.structType = structType;
   info.size = size;
   info.constructorName = constructorName;
+  info.isStatic = isStatic;
+
+  if (isStatic) {
+    // Allocate static instance using QStaticRegistry
+    info.staticInstancePtr =
+        QStaticRegistry::Instance().GetOrCreateInstance(className, size);
+    std::cout << "[DEBUG] QJitProgram: Registered static class '" << className
+              << "' at " << info.staticInstancePtr << std::endl;
+  }
+
   m_RegisteredClasses[className] = info;
 }
 
@@ -150,6 +162,42 @@ QJitProgram::CreateClassInstance(const std::string &className) {
 
   // Create instance and register member info
   auto instance = std::make_shared<QJClassInstance>(className, instancePtr);
+
+  // Copy member info to instance for runtime access
+  for (const auto &member : info.members) {
+    instance->RegisterMember(member.first, member.second);
+  }
+
+  return instance;
+}
+
+std::shared_ptr<QJClassInstance>
+QJitProgram::GetStaticInstance(const std::string &className) {
+  auto it = m_RegisteredClasses.find(className);
+  if (it == m_RegisteredClasses.end()) {
+    std::cerr << "[ERROR] QJitProgram: Class '" << className
+              << "' not registered" << std::endl;
+    return nullptr;
+  }
+
+  const RuntimeClassInfo &info = it->second;
+
+  if (!info.isStatic) {
+    std::cerr << "[ERROR] QJitProgram: Class '" << className
+              << "' is not a static class. Use CreateClassInstance instead."
+              << std::endl;
+    return nullptr;
+  }
+
+  if (!info.staticInstancePtr) {
+    std::cerr << "[ERROR] QJitProgram: Static class '" << className
+              << "' has no allocated instance" << std::endl;
+    return nullptr;
+  }
+
+  // Create a wrapper instance pointing to the static memory
+  auto instance =
+      std::make_shared<QJClassInstance>(className, info.staticInstancePtr);
 
   // Copy member info to instance for runtime access
   for (const auto &member : info.members) {

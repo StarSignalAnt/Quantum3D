@@ -17,6 +17,7 @@ struct ModuleClassInfo {
   std::vector<std::string> memberTypeNames;
   std::vector<std::string> methodNames;
   std::unordered_map<std::string, std::string> methodReturnTypes;
+  bool isStatic = false; // True if this is a static class (singleton)
 };
 
 // Handles reading/writing compiled QLang modules (.qm files)

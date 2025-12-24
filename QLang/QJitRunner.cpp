@@ -20,6 +20,7 @@
 #include "QLVMContext.h"
 #include "QProgram.h"
 #include "QStatement.h"
+#include "QStaticRegistry.h"
 #include "QVariableDecl.h"
 #include "Tokenizer.h"
 
@@ -69,6 +70,8 @@ llvm::Type *QJitRunner::GetLLVMType(int tokenType,
     return llvm::Type::getInt1Ty(context);
   case TokenType::T_SHORT:
     return llvm::Type::getInt16Ty(context);
+  case TokenType::T_CPTR:
+    return llvm::PointerType::getUnqual(context); // void* pointer
   case TokenType::T_STRING_TYPE:
     return llvm::PointerType::getUnqual(context);
   case TokenType::T_IDENTIFIER:
@@ -348,7 +351,43 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
         return CompileMethodCall(methodCall);
       }
 
-      // Look up instance
+      // Check if varName is a STATIC class (not an instance variable)
+      auto staticClassIt = m_CompiledClasses.find(varName);
+      if (staticClassIt != m_CompiledClasses.end() &&
+          staticClassIt->second.isStatic) {
+        // This is a static class - get global instance from registry
+        CompiledClass &classInfo = staticClassIt->second;
+        int memberIdx = FindMemberIndex(classInfo, memberName);
+        if (memberIdx < 0) {
+          std::cerr << "[ERROR] QJitRunner: Member '" << memberName
+                    << "' not found in static class '" << varName << "'"
+                    << std::endl;
+          return nullptr;
+        }
+
+        // Get static instance pointer from registry
+        void *staticPtr = QStaticRegistry::Instance().GetInstance(varName);
+        if (!staticPtr) {
+          std::cerr << "[ERROR] QJitRunner: Static instance for '" << varName
+                    << "' not found in registry" << std::endl;
+          return nullptr;
+        }
+
+        // Create constant pointer to static instance
+        llvm::Value *instancePtr = llvm::ConstantInt::get(
+            builder.getInt64Ty(), reinterpret_cast<uint64_t>(staticPtr));
+        instancePtr = builder.CreateIntToPtr(instancePtr, builder.getPtrTy(),
+                                             varName + ".static.ptr");
+
+        llvm::Value *memberPtr = builder.CreateStructGEP(
+            classInfo.structType, instancePtr, static_cast<unsigned>(memberIdx),
+            varName + "." + memberName + ".ptr");
+
+        return builder.CreateLoad(classInfo.memberTypes[memberIdx], memberPtr,
+                                  varName + "." + memberName);
+      }
+
+      // Look up instance (regular variable)
       auto varIt = m_LocalVariables.find(varName);
       if (varIt == m_LocalVariables.end()) {
         std::cerr << "[ERROR] QJitRunner: Undefined variable: " << varName
@@ -1212,8 +1251,12 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
     return;
   }
 
-  // Create opaque struct type first (allows self-referential types)
-  llvm::StructType *structType = llvm::StructType::create(context, className);
+  // Get or create struct type (don't create duplicate with suffix like .1)
+  llvm::StructType *structType =
+      llvm::StructType::getTypeByName(context, className);
+  if (!structType) {
+    structType = llvm::StructType::create(context, className);
+  }
 
   // Collect member types and names
   std::vector<llvm::Type *> memberTypes;
@@ -1244,7 +1287,13 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   classInfo.memberTypes = memberTypes;
   classInfo.memberTypeTokens = memberTypeTokens;
   classInfo.memberTypeNames = memberTypeNames;
+  classInfo.isStatic = classNode->IsStatic();
   m_CompiledClasses[className] = classInfo;
+
+  if (classNode->IsStatic()) {
+    std::cout << "[DEBUG] QJitRunner: Class '" << className
+              << "' is STATIC (singleton)" << std::endl;
+  }
 
   std::cout << "[DEBUG] QJitRunner: Class '" << className << "' compiled with "
             << memberTypes.size() << " members" << std::endl;
@@ -1858,22 +1907,63 @@ void QJitRunner::CompileMemberAssign(
             << instanceName << "." << memberName << std::endl;
 
   // Look up instance
+  llvm::Value *instancePtr = nullptr;
+  std::string className;
+  CompiledClass *staticClassInfo = nullptr;
+
   auto varIt = m_LocalVariables.find(instanceName);
-  if (varIt == m_LocalVariables.end()) {
-    std::cerr << "[ERROR] QJitRunner: Undefined variable: " << instanceName
-              << std::endl;
-    return;
+  if (varIt != m_LocalVariables.end()) {
+    // It's a local variable / instance
+    auto typeIt = m_VariableTypes.find(instanceName);
+    if (typeIt == m_VariableTypes.end()) {
+      std::cerr << "[ERROR] QJitRunner: Variable '" << instanceName
+                << "' is not a class instance" << std::endl;
+      return;
+    }
+    className = typeIt->second;
+
+    llvm::AllocaInst *instanceAlloca = varIt->second;
+    instancePtr = instanceAlloca;
+
+    // Check if the alloca contains a pointer (parameter case) or struct (local
+    // case) For local vars holding pointers (like 'inst'), we need to load the
+    // pointer first
+    if (instanceAlloca->getAllocatedType()->isPointerTy()) {
+      // If it's a pointer to a pointer (which local class vars are), load it
+      // But wait, m_VariableTypes implies it's a class instance.
+      // Local variables for classes are usually Alloca(Class*).
+      instancePtr = builder.CreateLoad(instanceAlloca->getAllocatedType(),
+                                       instanceAlloca, instanceName + ".ptr");
+    }
+  } else {
+    // Check if it's a static class
+    auto classIt = m_CompiledClasses.find(instanceName);
+    if (classIt != m_CompiledClasses.end() && classIt->second.isStatic) {
+      // It IS a static class
+      className = instanceName;
+      staticClassInfo = &classIt->second;
+
+      // Get the singleton instance pointer directly
+      // We need to call GetStaticInstance (runtime call) or getting it from
+      // registry For JIT, we basically need the pointer      // Since the
+      // memory is persistent, we can embed the pointer as a constant int and
+      // cast it
+
+      void *rawPtr = QStaticRegistry::Instance().GetInstance(className);
+      llvm::Constant *addrInt =
+          llvm::ConstantInt::get(llvm::Type::getInt64Ty(QLVM::GetContext()),
+                                 reinterpret_cast<uint64_t>(rawPtr));
+
+      instancePtr = builder.CreateIntToPtr(
+          addrInt, llvm::PointerType::getUnqual(QLVM::GetContext()));
+
+    } else {
+      std::cerr << "[ERROR] QJitRunner: Undefined variable or static class: "
+                << instanceName << std::endl;
+      return;
+    }
   }
 
-  // Look up class type
-  auto typeIt = m_VariableTypes.find(instanceName);
-  if (typeIt == m_VariableTypes.end()) {
-    std::cerr << "[ERROR] QJitRunner: Variable '" << instanceName
-              << "' is not a class instance" << std::endl;
-    return;
-  }
-
-  std::string className = typeIt->second;
   auto classIt = m_CompiledClasses.find(className);
   if (classIt == m_CompiledClasses.end()) {
     std::cerr << "[ERROR] QJitRunner: Class '" << className << "' not found"
@@ -1901,15 +1991,8 @@ void QJitRunner::CompileMemberAssign(
   }
 
   // GEP to member and store
-  llvm::AllocaInst *instanceAlloca = varIt->second;
-  llvm::Value *instancePtr = instanceAlloca;
-
-  // Check if the alloca contains a pointer (parameter case) or struct (local
-  // case)
-  if (instanceAlloca->getAllocatedType()->isPointerTy()) {
-    instancePtr = builder.CreateLoad(instanceAlloca->getAllocatedType(),
-                                     instanceAlloca, instanceName + ".ptr");
-  }
+  // instancePtr is already set above (either from local alloca or static
+  // registry)
 
   llvm::Value *memberPtr = builder.CreateStructGEP(
       classInfo.structType, instancePtr, static_cast<unsigned>(memberIdx),
@@ -1945,7 +2028,14 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
 
   m_LocalVariables.clear();
   m_VariableTypes.clear();
-  m_CompiledClasses.clear();
+  m_LoadedModules
+      .clear(); // Ensure modules are re-linked into the new LLVM module
+
+  // Automatically import all built modules to support the "Clean API"
+  // persistence
+  for (const auto &moduleName : m_AutoImportModules) {
+    ImportModule(moduleName);
+  }
 
   auto &context = QLVM::GetContext();
   auto &builder = QLVM::GetBuilder();
@@ -2005,7 +2095,8 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
         module->getDataLayout().getTypeAllocSize(classInfo.structType);
     std::string ctorName = className + "_" + className;
 
-    jitProgram->RegisterClass(className, classInfo.structType, size, ctorName);
+    jitProgram->RegisterClass(className, classInfo.structType, size, ctorName,
+                              classInfo.isStatic);
 
     // Register members with offset info for runtime get/set access
     const llvm::StructLayout *layout =
@@ -2110,6 +2201,7 @@ bool QJitRunner::ImportModule(const std::string &moduleName) {
     cc.memberNames = classInfo.memberNames;
     cc.memberTypeTokens = classInfo.memberTypeTokens;
     cc.memberTypeNames = classInfo.memberTypeNames;
+    cc.isStatic = classInfo.isStatic;
 
     // Get member types from the struct
     for (unsigned i = 0; i < cc.structType->getNumElements(); ++i) {
@@ -2200,6 +2292,7 @@ bool QJitRunner::CompileModule(const std::string &moduleName,
     info.memberNames = classIt->second.memberNames;
     info.memberTypeTokens = classIt->second.memberTypeTokens;
     info.memberTypeNames = classIt->second.memberTypeNames;
+    info.isStatic = classIt->second.isStatic;
 
     for (const auto &mp : classIt->second.methods) {
       info.methodNames.push_back(mp.first);
@@ -2351,4 +2444,57 @@ void QJitRunner::GenerateMethodWrapper(const std::string &className,
 
   std::cout << "[DEBUG] QJitRunner: Generated wrapper '" << wrapperName << "'"
             << std::endl;
+}
+
+std::shared_ptr<QJitProgram> QJitRunner::RunScript(const std::string &path) {
+  // Tokenize from file
+  Tokenizer tokenizer(path, m_ErrorCollector);
+  tokenizer.Tokenize();
+
+  if (m_ErrorCollector->HasErrors()) {
+    std::cerr << "[ERROR] QJitRunner: Tokenization errors in " << path << ":"
+              << std::endl;
+    m_ErrorCollector->ListErrors();
+    return nullptr;
+  }
+
+  // Parse
+  Parser parser(tokenizer.GetTokens(), m_ErrorCollector);
+  auto program = parser.Parse();
+
+  if (m_ErrorCollector->HasErrors()) {
+    std::cerr << "[ERROR] QJitRunner: Parse errors in " << path << ":"
+              << std::endl;
+    m_ErrorCollector->ListErrors();
+    return nullptr;
+  }
+
+  // Create new module for this script (one script = one LLVM module)
+  QLVM::CreateNewModule();
+
+  // Reset context cache because the old module is gone, so cached Function* are
+  // invalid
+  m_LVMContext->ResetCache();
+
+  // Compile
+  return CompileProgram(program);
+}
+
+bool QJitRunner::BuildModule(const std::string &path) {
+  std::filesystem::path p(path);
+  std::string moduleName = p.stem().string();
+  std::filesystem::path binaryPath = p;
+  binaryPath.replace_extension(".qm");
+
+  if (!CompileModule(moduleName, path, binaryPath.string())) {
+    return false;
+  }
+
+  // After building, import it into the persistent registry so the C++ API
+  // can see its classes even if other scripts don't explicitly import it.
+  if (ImportModule(moduleName)) {
+    m_AutoImportModules.insert(moduleName);
+    return true;
+  }
+  return false;
 }

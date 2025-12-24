@@ -290,6 +290,8 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_FOR;
   } else if (value == "class") {
     type = TokenType::T_CLASS;
+  } else if (value == "static") {
+    type = TokenType::T_STATIC;
   } else if (value == "method") {
     type = TokenType::T_METHOD;
   } else if (value == "new") {

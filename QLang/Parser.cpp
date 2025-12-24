@@ -110,6 +110,21 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
       while (Check(TokenType::T_END_OF_LINE)) {
         Advance();
       }
+    } else if (current.type == TokenType::T_STATIC) {
+      // static class ClassName
+      Advance(); // consume 'static'
+      if (Check(TokenType::T_CLASS)) {
+        auto cls = ParseClass();
+        if (cls) {
+          cls->SetStatic(true);
+          m_ClassNames.insert(cls->GetName());
+          program->AddClass(cls);
+          std::cout << "[DEBUG] Parser: Parsed static class '" << cls->GetName()
+                    << "'" << std::endl;
+        }
+      } else {
+        ReportError("Expected 'class' after 'static'");
+      }
     } else if (current.type == TokenType::T_CLASS) {
       auto cls = ParseClass();
       if (cls) {

@@ -24,8 +24,11 @@ public:
   // Get the LLVM function declaration
   llvm::Function *GetLLVMFunc(const std::string &name) const;
 
+  // Clear cached LLVM functions (used when module changes)
+  void ResetCache();
+
 private:
-  std::unordered_map<std::string, llvm::Function *> m_LLVMFunctions;
+  mutable std::unordered_map<std::string, llvm::Function *> m_LLVMFunctions;
   std::unordered_map<std::string, llvm::FunctionType *> m_FunctionTypes;
   std::unordered_map<std::string, void *> m_FunctionPtrs;
 };

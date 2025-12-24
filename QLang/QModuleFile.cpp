@@ -85,9 +85,13 @@ bool QModuleFile::SaveModule(const std::string &moduleName,
       WriteString(file, retType);
     }
 
+    // Write static flag
+    WriteInt32(file, cls.isStatic ? 1 : 0);
+
     std::cout << "[DEBUG] QModuleFile: Wrote class '" << cls.className
               << "' with " << cls.memberNames.size() << " members and "
-              << cls.methodNames.size() << " methods" << std::endl;
+              << cls.methodNames.size() << " methods"
+              << (cls.isStatic ? " (STATIC)" : "") << std::endl;
   }
 
   // Write LLVM bitcode
@@ -178,9 +182,13 @@ bool QModuleFile::LoadModule(const std::string &filePath,
       }
     }
 
+    // Read static flag
+    cls.isStatic = ReadInt32(file) != 0;
+
     std::cout << "[DEBUG] QModuleFile: Loaded class '" << cls.className
               << "' with " << cls.memberNames.size() << " members and "
-              << cls.methodNames.size() << " methods" << std::endl;
+              << cls.methodNames.size() << " methods"
+              << (cls.isStatic ? " (STATIC)" : "") << std::endl;
 
     outClasses.push_back(cls);
   }
