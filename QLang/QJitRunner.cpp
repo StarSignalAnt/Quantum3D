@@ -1441,6 +1441,10 @@ void QJitRunner::CompileMethod(const std::string &className,
 
   std::cout << "[DEBUG] QJitRunner: Method '" << fullName << "' compiled"
             << std::endl;
+
+  // Generate a universal wrapper function for dynamic calling
+  // Wrapper signature: void ClassName_MethodName__wrap(void* this, void** args)
+  GenerateMethodWrapper(className, methodName, func, method);
 }
 
 void QJitRunner::CompileAssign(std::shared_ptr<QAssign> assign) {
@@ -1989,7 +1993,39 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
     return nullptr;
   }
 
-  return std::make_shared<QJitProgram>(QLVM::TakeModule());
+  auto jitProgram = std::make_shared<QJitProgram>(QLVM::TakeModule());
+
+  // Register all compiled classes with the JIT program for runtime
+  // instantiation
+  for (const auto &pair : m_CompiledClasses) {
+    const std::string &className = pair.first;
+    const CompiledClass &classInfo = pair.second;
+
+    uint64_t size =
+        module->getDataLayout().getTypeAllocSize(classInfo.structType);
+    std::string ctorName = className + "_" + className;
+
+    jitProgram->RegisterClass(className, classInfo.structType, size, ctorName);
+
+    // Register members with offset info for runtime get/set access
+    const llvm::StructLayout *layout =
+        module->getDataLayout().getStructLayout(classInfo.structType);
+    for (size_t i = 0; i < classInfo.memberNames.size(); i++) {
+      const std::string &memberName = classInfo.memberNames[i];
+      size_t offset = layout->getElementOffset(i);
+      size_t memberSize =
+          module->getDataLayout().getTypeAllocSize(classInfo.memberTypes[i]);
+      int typeToken = classInfo.memberTypeTokens[i];
+      std::string typeName = i < classInfo.memberTypeNames.size()
+                                 ? classInfo.memberTypeNames[i]
+                                 : "";
+
+      jitProgram->RegisterMember(className, memberName, offset, memberSize,
+                                 typeToken, typeName);
+    }
+  }
+
+  return jitProgram;
 }
 
 // ============================================================================
@@ -2202,4 +2238,117 @@ void QJitRunner::LinkModuleInto(llvm::Module *srcModule,
   if (llvm::Linker::linkModules(*dstModule, llvm::CloneModule(*srcModule))) {
     std::cerr << "[ERROR] QJitRunner: Failed to link modules" << std::endl;
   }
+}
+
+// Generate a universal wrapper function for dynamic method calling
+// Wrapper signature: void ClassName_MethodName__wrap(void* this, void** args)
+// The wrapper unpacks arguments from the void** array and calls the real method
+void QJitRunner::GenerateMethodWrapper(const std::string &className,
+                                       const std::string &methodName,
+                                       llvm::Function *originalFunc,
+                                       std::shared_ptr<QMethod> method) {
+  if (!originalFunc || !method)
+    return;
+
+  auto &context = QLVM::GetContext();
+  auto &builder = QLVM::GetBuilder();
+  auto *module = QLVM::GetModule();
+
+  std::string wrapperName = className + "_" + methodName + "__wrap";
+
+  // Check if wrapper already exists
+  if (module->getFunction(wrapperName))
+    return;
+
+  // Create wrapper function type: void(void*, void**)
+  llvm::Type *voidPtrTy = llvm::PointerType::getUnqual(context);
+  llvm::Type *voidPtrPtrTy = llvm::PointerType::getUnqual(context);
+
+  std::vector<llvm::Type *> wrapperParams = {voidPtrTy, voidPtrPtrTy};
+  llvm::FunctionType *wrapperType =
+      llvm::FunctionType::get(builder.getVoidTy(), wrapperParams, false);
+
+  llvm::Function *wrapperFunc = llvm::Function::Create(
+      wrapperType, llvm::Function::ExternalLinkage, wrapperName, module);
+
+  // Create entry block
+  llvm::BasicBlock *entryBB =
+      llvm::BasicBlock::Create(context, "entry", wrapperFunc);
+
+  // Save current insert point
+  auto savedInsertPoint = builder.GetInsertBlock();
+  builder.SetInsertPoint(entryBB);
+
+  // Get wrapper arguments
+  auto argIt = wrapperFunc->arg_begin();
+  llvm::Value *thisPtr = &*argIt;
+  thisPtr->setName("this");
+  argIt++;
+  llvm::Value *argsArray = &*argIt;
+  argsArray->setName("args");
+
+  // Build call arguments: first is 'this', then unpacked args from array
+  std::vector<llvm::Value *> callArgs;
+  callArgs.push_back(thisPtr);
+
+  // Unpack arguments from void** array based on the original function signature
+  const auto &params = method->GetParameters();
+  for (size_t i = 0; i < params.size(); i++) {
+    // Get pointer to args[i]
+    llvm::Value *idx = llvm::ConstantInt::get(builder.getInt64Ty(), i);
+    llvm::Value *argSlotPtr = builder.CreateGEP(voidPtrTy, argsArray, idx);
+    llvm::Value *argSlot = builder.CreateLoad(voidPtrTy, argSlotPtr);
+
+    // Get the expected type for this parameter
+    llvm::Type *paramType =
+        GetLLVMType(static_cast<int>(params[i].type), params[i].typeName);
+    if (!paramType)
+      paramType = voidPtrTy;
+
+    // Cast and load the value based on type
+    if (paramType->isIntegerTy(32)) {
+      // For int32: the void* slot contains the value directly (reinterpret as
+      // int32)
+      llvm::Value *asInt =
+          builder.CreatePtrToInt(argSlot, builder.getInt64Ty());
+      llvm::Value *truncated = builder.CreateTrunc(asInt, builder.getInt32Ty());
+      callArgs.push_back(truncated);
+    } else if (paramType->isIntegerTy(64)) {
+      llvm::Value *asInt =
+          builder.CreatePtrToInt(argSlot, builder.getInt64Ty());
+      callArgs.push_back(asInt);
+    } else if (paramType->isFloatTy()) {
+      // For float: the void* slot contains a bitcast float
+      llvm::Value *asInt =
+          builder.CreatePtrToInt(argSlot, builder.getInt32Ty());
+      llvm::Value *asFloat = builder.CreateBitCast(asInt, builder.getFloatTy());
+      callArgs.push_back(asFloat);
+    } else if (paramType->isDoubleTy()) {
+      llvm::Value *asInt =
+          builder.CreatePtrToInt(argSlot, builder.getInt64Ty());
+      llvm::Value *asDouble =
+          builder.CreateBitCast(asInt, builder.getDoubleTy());
+      callArgs.push_back(asDouble);
+    } else if (paramType->isPointerTy()) {
+      // For pointers (including strings), use directly
+      callArgs.push_back(argSlot);
+    } else {
+      // Default: use as pointer
+      callArgs.push_back(argSlot);
+    }
+  }
+
+  // Call the original method
+  builder.CreateCall(originalFunc, callArgs);
+
+  // Return void
+  builder.CreateRetVoid();
+
+  // Restore insert point
+  if (savedInsertPoint) {
+    builder.SetInsertPoint(savedInsertPoint);
+  }
+
+  std::cout << "[DEBUG] QJitRunner: Generated wrapper '" << wrapperName << "'"
+            << std::endl;
 }

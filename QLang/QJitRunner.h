@@ -6,6 +6,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "QJClassInstance.h"
+
 // Forward declarations
 class QProgram;
 class QCode;
@@ -143,4 +145,10 @@ private:
                      const std::string &sourcePath,
                      const std::string &binaryPath);
   void LinkModuleInto(llvm::Module *srcModule, llvm::Module *dstModule);
+
+  // Generate wrapper function for dynamic method calling
+  void GenerateMethodWrapper(const std::string &className,
+                             const std::string &methodName,
+                             llvm::Function *originalFunc,
+                             std::shared_ptr<QMethod> method);
 };
