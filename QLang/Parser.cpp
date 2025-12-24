@@ -75,11 +75,42 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
 
   auto program = std::make_shared<QProgram>();
 
-  // Parse classes at program level
+  // Parse imports and classes at program level
   while (!IsAtEnd()) {
     Token current = Peek();
 
-    if (current.type == TokenType::T_CLASS) {
+    if (current.type == TokenType::T_MODULE) {
+      Advance(); // consume 'module'
+      if (Check(TokenType::T_IDENTIFIER)) {
+        Advance(); // consume module name
+      } else {
+        ReportError("Expected module name after 'module'");
+      }
+      // Skip optional newline
+      while (Check(TokenType::T_END_OF_LINE)) {
+        Advance();
+      }
+      continue;
+    }
+
+    if (current.type == TokenType::T_IMPORT) {
+      Advance(); // consume 'import'
+      // Expect module name (identifier)
+      if (Check(TokenType::T_IDENTIFIER)) {
+        Token moduleToken = Advance();
+        program->AddImport(moduleToken.value);
+#if QLANG_DEBUG
+        std::cout << "[DEBUG] ParseProgram() - parsed import: "
+                  << moduleToken.value << std::endl;
+#endif
+      } else {
+        ReportError("Expected module name after 'import'");
+      }
+      // Skip optional newline
+      while (Check(TokenType::T_END_OF_LINE)) {
+        Advance();
+      }
+    } else if (current.type == TokenType::T_CLASS) {
       auto cls = ParseClass();
       if (cls) {
         // Register class name for instance detection

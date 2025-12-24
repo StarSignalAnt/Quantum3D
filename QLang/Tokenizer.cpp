@@ -276,6 +276,8 @@ void Tokenizer::ScanIdentifierOrKeyword() {
   TokenType type = TokenType::T_IDENTIFIER;
   if (value == "module") {
     type = TokenType::T_MODULE;
+  } else if (value == "import") {
+    type = TokenType::T_IMPORT;
   } else if (value == "end") {
     type = TokenType::T_END;
   } else if (value == "if") {

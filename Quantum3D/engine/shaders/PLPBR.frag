@@ -39,15 +39,49 @@ layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
 
-// Calculate point shadow factor
+vec3 gridOffsets[20] = vec3[](
+   vec3(1, 1, 1), vec3(1, -1, 1), vec3(-1, -1, 1), vec3(-1, 1, 1), 
+   vec3(1, 1, -1), vec3(1, -1, -1), vec3(-1, -1, -1), vec3(-1, 1, -1),
+   vec3(1, 1, 0), vec3(1, -1, 0), vec3(-1, -1, 0), vec3(-1, 1, 0),
+   vec3(1, 0, 1), vec3(-1, 0, 1), vec3(1, 0, -1), vec3(-1, 0, -1),
+   vec3(0, 1, 1), vec3(0, -1, 1), vec3(0, -1, -1), vec3(0, 1, -1)
+);
+
+// Calculate point shadow factor with optimized PCF
 float calculateShadow(vec3 fragToLight, float currentDepth) {
-    float closestDepth = texture(shadowMap, fragToLight).r;
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
     float normalizedCurrent = currentDepth / shadowFarPlane;
     float bias = 0.01;
+    
     if (normalizedCurrent > 1.0) return 1.0;
-    float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
-    return shadow;
+
+    // Optimization: Early exit check with 4 samples
+    // diskRadius controls the softness spread
+    float viewDistance = length(ubo.viewPos - fragWorldPos);
+    float diskRadius = (1.0 + (viewDistance / shadowFarPlane)) / 50.0; 
+    
+    float earlyShadow = 0.0;
+    for(int i = 0; i < 4; ++i) {
+        float closestDepth = texture(shadowMap, fragToLight + gridOffsets[i] * diskRadius).r;
+        if (normalizedCurrent - bias > closestDepth) {
+            earlyShadow += 1.0;
+        }
+    }
+    
+    // If all 4 samples are the same, we are either fully in light or fully in shadow
+    if (earlyShadow == 0.0) return 1.0;
+    if (earlyShadow == 4.0) return 0.0;
+    
+    // We are on a shadow edge, perform full PCF sampling for smooth gradient
+    float shadow = earlyShadow;
+    for(int i = 4; i < 20; ++i) {
+        float closestDepth = texture(shadowMap, fragToLight + gridOffsets[i] * diskRadius).r;
+        if (normalizedCurrent - bias > closestDepth) {
+            shadow += 1.0;
+        }
+    }
+    
+    return 1.0 - (shadow / 20.0);
 }
 
 // Calculate directional shadow factor

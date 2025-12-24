@@ -108,18 +108,23 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <AdditionalIncludeDirectories>C:\Quantum\QLang\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <DisableSpecificWarnings>4146;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
+
     <Link>
       <SubSystem>
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
+
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -157,6 +162,11 @@
     <ClInclude Include="Parser.h" />
     <ClInclude Include="QContext.h" />
     <ClInclude Include="QRunner.h" />
+    <ClInclude Include="QLVM.h" />
+    <ClInclude Include="QLVMContext.h" />
+    <ClInclude Include="QJitRunner.h" />
+    <ClInclude Include="QJitProgram.h" />
+    <ClInclude Include="QModuleFile.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -168,7 +178,13 @@
     <ClCompile Include="QLang.cpp" />
     <ClCompile Include="Tokenizer.cpp" />
     <ClCompile Include="Parser.cpp" />
+    <ClCompile Include="QLVM.cpp" />
+    <ClCompile Include="QLVMContext.cpp" />
+    <ClCompile Include="QJitRunner.cpp" />
+    <ClCompile Include="QJitProgram.cpp" />
+    <ClCompile Include="QModuleFile.cpp" />
   </ItemGroup>
+
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

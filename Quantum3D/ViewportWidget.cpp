@@ -158,10 +158,11 @@ void ViewportWidget::initScene() {
     // intuitive face mapping (Face 5)
     l2->SetRange(100.0f);
     m_MainLight2 = l2;
-    // m_SceneGraph->AddLight(l2);
+     m_SceneGraph->AddLight(l2);
+
     m_MainLight->SetType(Quantum::LightNode::LightType::Directional);
 
-    m_SceneGraph->AddLight(m_MainLight);
+//    m_SceneGraph->AddLight(m_MainLight);
 
     if (m_TestModel) {
       m_TestModel->SetLocalScale(0.01f);

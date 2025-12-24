@@ -31,6 +31,7 @@ enum class TokenType {
 
   // Keywords
   T_MODULE,
+  T_IMPORT,
   T_END,
   T_CLASS,
   T_METHOD,

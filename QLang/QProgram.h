@@ -27,6 +27,13 @@ public:
     return m_Classes;
   }
 
+  // Import handling
+  void AddImport(const std::string &moduleName) {
+    m_Imports.push_back(moduleName);
+  }
+
+  const std::vector<std::string> &GetImports() const { return m_Imports; }
+
   void CheckForErrors(std::shared_ptr<QErrorCollector> collector) override {
     for (const auto &cls : m_Classes) {
       if (cls)
@@ -39,6 +46,16 @@ public:
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "QProgram {" << std::endl;
+
+    // Print imports
+    if (!m_Imports.empty()) {
+      PrintIndent(indent + 1);
+      std::cout << "Imports:" << std::endl;
+      for (const auto &imp : m_Imports) {
+        PrintIndent(indent + 2);
+        std::cout << imp << std::endl;
+      }
+    }
 
     // Print classes
     if (!m_Classes.empty()) {
@@ -58,4 +75,5 @@ public:
 private:
   std::shared_ptr<QCode> m_Code;
   std::vector<std::shared_ptr<QClass>> m_Classes;
+  std::vector<std::string> m_Imports;
 };
