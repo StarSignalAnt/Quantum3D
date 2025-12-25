@@ -269,6 +269,12 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
                     << std::endl;
           Advance();
         }
+      } else if (next.type == TokenType::T_LBRACKET) {
+        // Indexed assignment: var[expr] = value;
+        auto assign = ParseAssign();
+        if (assign) {
+          code->AddNode(assign);
+        }
       } else if (next.type == TokenType::T_OPERATOR && next.value == "=") {
         // Simple variable assignment: var = value;
         auto assign = ParseAssign();
@@ -531,7 +537,9 @@ bool Parser::IsTypeToken(TokenType type) const {
   return type == TokenType::T_INT32 || type == TokenType::T_INT64 ||
          type == TokenType::T_FLOAT32 || type == TokenType::T_FLOAT64 ||
          type == TokenType::T_SHORT || type == TokenType::T_STRING_TYPE ||
-         type == TokenType::T_BOOL || type == TokenType::T_CPTR;
+         type == TokenType::T_BOOL || type == TokenType::T_CPTR ||
+         type == TokenType::T_IPTR || type == TokenType::T_FPTR ||
+         type == TokenType::T_BYTE || type == TokenType::T_BPTR;
 }
 
 std::shared_ptr<QVariableDecl> Parser::ParseVariableDecl() {
@@ -1379,6 +1387,43 @@ std::shared_ptr<QAssign> Parser::ParseAssign() {
             << std::endl;
 #endif
 
+  auto assign = std::make_shared<QAssign>(nameToken.value);
+
+  // Check for index expression: var[expr] = value
+  if (Check(TokenType::T_LBRACKET)) {
+    Advance(); // consume '['
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseAssign() - parsing index expression"
+              << std::endl;
+#endif
+
+    // Parse index expression until we hit ']'
+    auto indexExpr = std::make_shared<QExpression>();
+    int bracketDepth = 1;
+    while (!IsAtEnd() && bracketDepth > 0) {
+      Token current = Peek();
+      if (current.type == TokenType::T_LBRACKET) {
+        bracketDepth++;
+        indexExpr->AddElement(current);
+        Advance();
+      } else if (current.type == TokenType::T_RBRACKET) {
+        bracketDepth--;
+        if (bracketDepth > 0) {
+          indexExpr->AddElement(current);
+        }
+        Advance();
+      } else {
+        indexExpr->AddElement(current);
+        Advance();
+      }
+    }
+    assign->SetIndexExpression(indexExpr);
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseAssign() - index parsed with "
+              << indexExpr->GetElements().size() << " elements" << std::endl;
+#endif
+  }
+
   // Expect '='
   if (!Check(TokenType::T_OPERATOR) || Peek().value != "=") {
     ReportError("expected '='");
@@ -1397,9 +1442,7 @@ std::shared_ptr<QAssign> Parser::ParseAssign() {
                 QErrorSeverity::Warning);
   }
 
-  auto assign = std::make_shared<QAssign>(nameToken.value);
-
-  // Parse expression
+  // Parse value expression
   auto expr = ParseExpression();
   assign->SetValueExpression(expr);
 

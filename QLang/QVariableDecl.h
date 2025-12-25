@@ -85,6 +85,14 @@ private:
       return "bool";
     case TokenType::T_CPTR:
       return "cptr";
+    case TokenType::T_IPTR:
+      return "iptr";
+    case TokenType::T_FPTR:
+      return "fptr";
+    case TokenType::T_BYTE:
+      return "byte";
+    case TokenType::T_BPTR:
+      return "bptr";
     default:
       return "unknown";
     }

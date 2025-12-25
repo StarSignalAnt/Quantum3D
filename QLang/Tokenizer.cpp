@@ -168,6 +168,18 @@ void Tokenizer::PrintTokens() const {
     case TokenType::T_VOID:
       typeStr = "T_VOID";
       break;
+    case TokenType::T_IPTR:
+      typeStr = "T_IPTR";
+      break;
+    case TokenType::T_FPTR:
+      typeStr = "T_FPTR";
+      break;
+    case TokenType::T_BYTE:
+      typeStr = "T_BYTE";
+      break;
+    case TokenType::T_BPTR:
+      typeStr = "T_BPTR";
+      break;
     }
 #if QLANG_DEBUG
     std::cout << "Token(" << typeStr << ", '" << token.value
@@ -330,6 +342,14 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_WEND;
   } else if (value == "cptr") {
     type = TokenType::T_CPTR;
+  } else if (value == "iptr") {
+    type = TokenType::T_IPTR;
+  } else if (value == "fptr") {
+    type = TokenType::T_FPTR;
+  } else if (value == "byte") {
+    type = TokenType::T_BYTE;
+  } else if (value == "bptr") {
+    type = TokenType::T_BPTR;
   } else if (value == "null") {
     type = TokenType::T_NULL;
   }

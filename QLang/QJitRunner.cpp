@@ -72,6 +72,14 @@ llvm::Type *QJitRunner::GetLLVMType(int tokenType,
     return llvm::Type::getInt16Ty(context);
   case TokenType::T_CPTR:
     return llvm::PointerType::getUnqual(context); // void* pointer
+  case TokenType::T_IPTR:
+    return llvm::PointerType::getUnqual(context); // int32* pointer
+  case TokenType::T_FPTR:
+    return llvm::PointerType::getUnqual(context); // float32* pointer
+  case TokenType::T_BYTE:
+    return llvm::Type::getInt8Ty(context); // unsigned 8-bit
+  case TokenType::T_BPTR:
+    return llvm::PointerType::getUnqual(context); // byte* pointer
   case TokenType::T_STRING_TYPE:
     return llvm::PointerType::getUnqual(context);
   case TokenType::T_IDENTIFIER:
@@ -440,11 +448,88 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
     // Regular variable access
     auto it = m_LocalVariables.find(varName);
     if (it != m_LocalVariables.end()) {
-      // Check if this is a class instance - if so, return the pointer directly
-      // (don't load the struct value)
+      // Check for indexed access: var[expr]
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_LBRACKET) {
+        pos++; // consume '['
+
+        std::cout << "[DEBUG] QJitRunner: Parsing indexed access " << varName
+                  << "[...]" << std::endl;
+
+        // Parse index expression until ']'
+        auto indexExpr = std::make_shared<QExpression>();
+        int bracketDepth = 1;
+        while (pos < tokens.size() && bracketDepth > 0) {
+          if (tokens[pos].type == TokenType::T_LBRACKET) {
+            bracketDepth++;
+            indexExpr->AddElement(tokens[pos]);
+          } else if (tokens[pos].type == TokenType::T_RBRACKET) {
+            bracketDepth--;
+            if (bracketDepth > 0) {
+              indexExpr->AddElement(tokens[pos]);
+            }
+          } else {
+            indexExpr->AddElement(tokens[pos]);
+          }
+          pos++;
+        }
+
+        // Load base pointer from alloca
+        llvm::Value *basePtr =
+            builder.CreateLoad(llvm::PointerType::getUnqual(QLVM::GetContext()),
+                               it->second, varName + ".base");
+
+        // Compile index expression
+        llvm::Value *indexVal =
+            CompileExpression(indexExpr, builder.getInt64Ty());
+        if (!indexVal) {
+          std::cerr << "[ERROR] QJitRunner: Failed to compile index expression"
+                    << std::endl;
+          return nullptr;
+        }
+
+        // Ensure index is i64 for GEP
+        if (indexVal->getType()->isIntegerTy(32)) {
+          indexVal = builder.CreateSExt(indexVal, builder.getInt64Ty());
+        }
+
+        // Determine element type based on pointer type (iptr->i32, fptr->float,
+        // bptr->i8) Look up the pointer type from m_VariableTypes
+        llvm::Type *elementType = builder.getInt32Ty(); // Default to int32
+        std::string elemTypeName = "int32";
+        auto typeIt = m_VariableTypes.find(varName);
+        if (typeIt != m_VariableTypes.end()) {
+          if (typeIt->second == "fptr") {
+            elementType = builder.getFloatTy();
+            elemTypeName = "float";
+          } else if (typeIt->second == "bptr") {
+            elementType = builder.getInt8Ty();
+            elemTypeName = "byte";
+          }
+        }
+        std::cout << "[DEBUG] QJitRunner: Indexed read element type: "
+                  << elemTypeName << std::endl;
+
+        // GEP to get element pointer
+        llvm::Value *elemPtr = builder.CreateGEP(elementType, basePtr, indexVal,
+                                                 varName + ".elem");
+
+        // Load and return the value
+        return builder.CreateLoad(elementType, elemPtr, varName + ".val");
+      }
+
+      // Check if this is a class instance OR a pointer type
       auto typeIt = m_VariableTypes.find(varName);
       if (typeIt != m_VariableTypes.end()) {
-        // It's a class instance - return the pointer
+        // Check if it's a pointer type (iptr/fptr/bptr) - load the pointer
+        // value
+        if (typeIt->second == "iptr" || typeIt->second == "fptr" ||
+            typeIt->second == "bptr") {
+          // Load and return the pointer value from the alloca
+          return builder.CreateLoad(
+              llvm::PointerType::getUnqual(QLVM::GetContext()), it->second,
+              varName + ".ptrval");
+        }
+        // It's a class instance - return the alloca (pointer to struct)
         if (outClassName)
           *outClassName = typeIt->second;
         return it->second;
@@ -794,6 +879,85 @@ void QJitRunner::CompileVariableDecl(std::shared_ptr<QVariableDecl> varDecl) {
   }
 
   if (varDecl->HasInitializer()) {
+    auto expr = varDecl->GetInitializer();
+    const auto &elements = expr->GetElements();
+
+    // Check for array allocation: new int32[N], new float32[N], or new byte[N]
+    // Pattern: T_NEW, (T_INT32|T_FLOAT32|T_BYTE), T_LBRACKET, T_INTEGER,
+    // T_RBRACKET
+    if ((varDecl->GetVarType() == TokenType::T_IPTR ||
+         varDecl->GetVarType() == TokenType::T_FPTR ||
+         varDecl->GetVarType() == TokenType::T_BPTR) &&
+        elements.size() >= 5 && elements[0].type == TokenType::T_NEW &&
+        (elements[1].type == TokenType::T_INT32 ||
+         elements[1].type == TokenType::T_FLOAT32 ||
+         elements[1].type == TokenType::T_BYTE) &&
+        elements[2].type == TokenType::T_LBRACKET &&
+        elements[3].type == TokenType::T_INTEGER &&
+        elements[4].type == TokenType::T_RBRACKET) {
+
+      // Extract array size
+      int arraySize = std::stoi(elements[3].value);
+
+      // Determine element size: 1 for byte, 4 for int32/float32
+      int elementSize = (elements[1].type == TokenType::T_BYTE) ? 1 : 4;
+      std::string elementTypeName;
+      if (elements[1].type == TokenType::T_INT32)
+        elementTypeName = "int32";
+      else if (elements[1].type == TokenType::T_FLOAT32)
+        elementTypeName = "float32";
+      else
+        elementTypeName = "byte";
+
+      int totalBytes = arraySize * elementSize;
+
+      std::cout << "[DEBUG] QJitRunner: Allocating array: new "
+                << elementTypeName << "[" << arraySize << "] (" << totalBytes
+                << " bytes)" << std::endl;
+
+      // Get or declare malloc function
+      llvm::Function *mallocFunc = m_LVMContext->GetLLVMFunc("malloc");
+      if (!mallocFunc) {
+        mallocFunc = QLVM::GetModule()->getFunction("malloc");
+        if (!mallocFunc) {
+          std::vector<llvm::Type *> args = {
+              llvm::Type::getInt64Ty(QLVM::GetContext())};
+          llvm::FunctionType *mallocType = llvm::FunctionType::get(
+              llvm::PointerType::getUnqual(QLVM::GetContext()), args, false);
+          mallocFunc = llvm::Function::Create(mallocType,
+                                              llvm::Function::ExternalLinkage,
+                                              "malloc", QLVM::GetModule());
+        }
+      }
+
+      if (mallocFunc) {
+        llvm::Value *sizeVal = llvm::ConstantInt::get(
+            llvm::Type::getInt64Ty(QLVM::GetContext()), totalBytes);
+        llvm::Value *ptr =
+            builder.CreateCall(mallocFunc, {sizeVal}, varName + ".ptr");
+        builder.CreateStore(ptr, alloca);
+
+        // Register the pointer type for indexed access (iptr, fptr, or bptr)
+        std::string ptrType;
+        if (varDecl->GetVarType() == TokenType::T_IPTR)
+          ptrType = "iptr";
+        else if (varDecl->GetVarType() == TokenType::T_FPTR)
+          ptrType = "fptr";
+        else
+          ptrType = "bptr";
+        m_VariableTypes[varName] = ptrType;
+
+        std::cout << "[DEBUG] QJitRunner: Array allocated for '" << varName
+                  << "' (type: " << ptrType << ")" << std::endl;
+      } else {
+        std::cerr << "[ERROR] QJitRunner: malloc not found for array allocation"
+                  << std::endl;
+      }
+
+      return; // Array allocation handled, skip normal initializer processing
+    }
+
+    // Normal initializer processing
     llvm::Value *initValue =
         CompileExpression(varDecl->GetInitializer(), varType);
     if (initValue) {
@@ -802,8 +966,6 @@ void QJitRunner::CompileVariableDecl(std::shared_ptr<QVariableDecl> varDecl) {
       // Deduce class name if unknown
       if (varDecl->GetVarType() == TokenType::T_UNKNOWN ||
           varDecl->GetVarType() == TokenType::T_IDENTIFIER) {
-        auto expr = varDecl->GetInitializer();
-        const auto &elements = expr->GetElements();
         if (!elements.empty() && elements[0].type == TokenType::T_NEW) {
           if (elements.size() > 1 &&
               elements[1].type == TokenType::T_IDENTIFIER) {
@@ -1536,6 +1698,97 @@ void QJitRunner::CompileAssign(std::shared_ptr<QAssign> assign) {
         return;
       }
     }
+  }
+
+  // Check for indexed assignment: ptr[index] = value
+  if (assign->HasIndex()) {
+    std::cout << "[DEBUG] QJitRunner: Compiling indexed assignment " << varName
+              << "[...]" << std::endl;
+
+    auto it = m_LocalVariables.find(varName);
+    if (it == m_LocalVariables.end()) {
+      std::cerr << "[ERROR] QJitRunner: Undefined variable for indexed assign: "
+                << varName << std::endl;
+      return;
+    }
+
+    llvm::AllocaInst *alloca = it->second;
+
+    // Load the base pointer from the alloca (iptr/fptr store a pointer)
+    llvm::Value *basePtr =
+        builder.CreateLoad(llvm::PointerType::getUnqual(QLVM::GetContext()),
+                           alloca, varName + ".base");
+
+    // Compile the index expression
+    llvm::Value *indexVal =
+        CompileExpression(assign->GetIndexExpression(), builder.getInt64Ty());
+    if (!indexVal) {
+      std::cerr << "[ERROR] QJitRunner: Failed to compile index expression"
+                << std::endl;
+      return;
+    }
+
+    // Ensure index is i64 for GEP
+    if (indexVal->getType()->isIntegerTy(32)) {
+      indexVal = builder.CreateSExt(indexVal, builder.getInt64Ty());
+    }
+
+    // Determine element type based on pointer type (iptr->i32, fptr->float,
+    // bptr->i8) Look up the pointer type from m_VariableTypes
+    llvm::Type *elementType = builder.getInt32Ty(); // Default to int32
+    std::string elemTypeName = "int32";
+    auto typeIt = m_VariableTypes.find(varName);
+    if (typeIt != m_VariableTypes.end()) {
+      if (typeIt->second == "fptr") {
+        elementType = builder.getFloatTy();
+        elemTypeName = "float";
+      } else if (typeIt->second == "bptr") {
+        elementType = builder.getInt8Ty();
+        elemTypeName = "byte";
+      }
+    }
+
+    std::cout << "[DEBUG] QJitRunner: Indexed assign element type: "
+              << elemTypeName << std::endl;
+
+    // Use GEP to get element pointer
+    llvm::Value *elemPtr =
+        builder.CreateGEP(elementType, basePtr, indexVal, varName + ".elem");
+
+    // Compile the value expression (don't pass expected type so we get the
+    // natural type)
+    llvm::Value *value = CompileExpression(assign->GetValueExpression());
+    if (!value) {
+      std::cerr << "[ERROR] QJitRunner: Failed to compile value for indexed "
+                   "assignment"
+                << std::endl;
+      return;
+    }
+
+    // Automatic type conversion based on element type
+    if (elemTypeName == "float" && value->getType()->isIntegerTy()) {
+      // Converting int to float
+      value = builder.CreateSIToFP(value, builder.getFloatTy(), "itof");
+      std::cout << "[DEBUG] QJitRunner: Auto-cast int to float" << std::endl;
+    } else if (elemTypeName != "float" &&
+               value->getType()->isFloatingPointTy()) {
+      // Converting float to int/byte
+      value = builder.CreateFPToSI(value, elementType, "ftoi");
+      std::cout << "[DEBUG] QJitRunner: Auto-cast float to int" << std::endl;
+    } else if (elemTypeName == "byte" && value->getType()->isIntegerTy() &&
+               value->getType()->getIntegerBitWidth() > 8) {
+      // Truncate larger int to i8
+      value = builder.CreateTrunc(value, builder.getInt8Ty(), "trunc8");
+      std::cout << "[DEBUG] QJitRunner: Truncate to byte" << std::endl;
+    } else if (elemTypeName == "int32" && value->getType()->isIntegerTy(8)) {
+      // Extend i8 to i32 (zero-extend since byte is unsigned)
+      value = builder.CreateZExt(value, builder.getInt32Ty(), "zext32");
+      std::cout << "[DEBUG] QJitRunner: Zero-extend byte to int32" << std::endl;
+    }
+
+    builder.CreateStore(value, elemPtr);
+    std::cout << "[DEBUG] QJitRunner: Indexed assignment complete" << std::endl;
+    return;
   }
 
   // Regular local variable assignment
@@ -2477,7 +2730,14 @@ std::shared_ptr<QJitProgram> QJitRunner::RunScript(const std::string &path) {
   m_LVMContext->ResetCache();
 
   // Compile
-  return CompileProgram(program);
+  auto program_result = CompileProgram(program);
+
+  // Execute top-level code if compilation succeeded
+  if (program_result) {
+    program_result->Run();
+  }
+
+  return program_result;
 }
 
 bool QJitRunner::BuildModule(const std::string &path) {
