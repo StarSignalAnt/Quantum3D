@@ -105,6 +105,17 @@ private:
   llvm::Value *m_CurrentInstance = nullptr;
   std::string m_CurrentClassName;
 
+  // Generic class templates (not yet compiled, waiting for specialization)
+  std::unordered_map<std::string, std::shared_ptr<QClass>>
+      m_GenericClassTemplates;
+
+  // Track specialized generics that have been compiled (e.g.,
+  // "Test_int32_string")
+  std::unordered_set<std::string> m_CompiledSpecializations;
+
+  // Current type mapping for generic class compilation (T -> int32, etc.)
+  std::unordered_map<std::string, std::string> m_CurrentTypeMap;
+
   // Reusable compilation methods
   void CompileCodeBlock(std::shared_ptr<QCode> code);
   void CompileNode(std::shared_ptr<QNode> node);
@@ -115,6 +126,11 @@ private:
 
   // Class compilation
   void CompileClass(std::shared_ptr<QClass> classNode);
+  void CompileGenericClass(const std::string &baseName,
+                           std::shared_ptr<QClass> classTemplate,
+                           const std::vector<std::string> &typeArgs);
+  std::string GetSpecializedClassName(const std::string &baseName,
+                                      const std::vector<std::string> &typeArgs);
   void CompileInstanceDecl(std::shared_ptr<QInstanceDecl> instDecl);
   void CompileMemberAssign(std::shared_ptr<QMemberAssign> memberAssign);
   void CompileMethod(const std::string &className,

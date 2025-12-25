@@ -57,6 +57,41 @@ llvm::Type *QJitRunner::GetLLVMType(int tokenType,
   auto &context = QLVM::GetContext();
   TokenType tt = static_cast<TokenType>(tokenType);
 
+  // Check for generic type parameter substitution (e.g., T -> int32)
+  if (!typeName.empty() && !m_CurrentTypeMap.empty()) {
+    auto subIt = m_CurrentTypeMap.find(typeName);
+    if (subIt != m_CurrentTypeMap.end()) {
+      std::string concreteType = subIt->second;
+      std::cout << "[DEBUG] QJitRunner: Type substitution " << typeName
+                << " -> " << concreteType << std::endl;
+
+      // Map concrete type name to LLVM type
+      if (concreteType == "int32") {
+        return llvm::Type::getInt32Ty(context);
+      } else if (concreteType == "int64") {
+        return llvm::Type::getInt64Ty(context);
+      } else if (concreteType == "float32") {
+        return llvm::Type::getFloatTy(context);
+      } else if (concreteType == "float64") {
+        return llvm::Type::getDoubleTy(context);
+      } else if (concreteType == "string") {
+        return llvm::PointerType::getUnqual(context);
+      } else if (concreteType == "bool") {
+        return llvm::Type::getInt1Ty(context);
+      } else if (concreteType == "byte") {
+        return llvm::Type::getInt8Ty(context);
+      } else if (concreteType == "iptr" || concreteType == "fptr" ||
+                 concreteType == "bptr" || concreteType == "cptr") {
+        return llvm::PointerType::getUnqual(context);
+      }
+      // Could be a class type
+      auto classIt = m_CompiledClasses.find(concreteType);
+      if (classIt != m_CompiledClasses.end()) {
+        return llvm::PointerType::getUnqual(context);
+      }
+    }
+  }
+
   switch (tt) {
   case TokenType::T_INT32:
     return llvm::Type::getInt32Ty(context);
@@ -1600,6 +1635,15 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
     return;
   }
 
+  // Check if this is a generic class template (has type parameters)
+  if (classNode->IsGeneric()) {
+    std::cout << "[DEBUG] QJitRunner: Storing generic template '" << className
+              << "' with " << classNode->GetTypeParameters().size()
+              << " type parameters" << std::endl;
+    m_GenericClassTemplates[className] = classNode;
+    return; // Don't compile template directly, wait for specialization
+  }
+
   // Handle inheritance - compile parent class first if it exists
   std::string parentClassName;
   if (classNode->HasParent()) {
@@ -1750,6 +1794,156 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   for (const auto &method : classNode->GetMethods()) {
     CompileMethod(className, method);
   }
+}
+
+// ============================================================================
+// Generic Class Specialization
+// ============================================================================
+
+std::string
+QJitRunner::GetSpecializedClassName(const std::string &baseName,
+                                    const std::vector<std::string> &typeArgs) {
+  std::string result = baseName;
+  for (const auto &arg : typeArgs) {
+    result += "_" + arg;
+  }
+  return result;
+}
+
+void QJitRunner::CompileGenericClass(const std::string &baseName,
+                                     std::shared_ptr<QClass> classTemplate,
+                                     const std::vector<std::string> &typeArgs) {
+  if (!classTemplate)
+    return;
+
+  std::string specializedName = GetSpecializedClassName(baseName, typeArgs);
+
+  // Check if already compiled
+  if (m_CompiledSpecializations.find(specializedName) !=
+      m_CompiledSpecializations.end()) {
+    std::cout << "[DEBUG] QJitRunner: Specialization '" << specializedName
+              << "' already compiled" << std::endl;
+    return;
+  }
+
+  std::cout << "[DEBUG] QJitRunner: Compiling generic specialization '"
+            << specializedName << "'" << std::endl;
+
+  m_CompiledSpecializations.insert(specializedName);
+
+  // Build type parameter to concrete type mapping
+  const auto &typeParams = classTemplate->GetTypeParameters();
+  std::unordered_map<std::string, std::string> typeMap;
+  for (size_t i = 0; i < typeParams.size() && i < typeArgs.size(); i++) {
+    typeMap[typeParams[i]] = typeArgs[i];
+    std::cout << "[DEBUG]   Type mapping: " << typeParams[i] << " -> "
+              << typeArgs[i] << std::endl;
+  }
+
+  auto &context = QLVM::GetContext();
+
+  // Create specialized struct type
+  llvm::StructType *structType =
+      llvm::StructType::create(context, specializedName);
+
+  CompiledClass classInfo;
+  classInfo.structType = structType;
+  classInfo.isStatic = classTemplate->IsStatic();
+
+  // Process members with type substitution
+  std::vector<llvm::Type *> memberLLVMTypes;
+  for (const auto &member : classTemplate->GetMembers()) {
+    std::string memberTypeName = member->GetTypeName();
+    TokenType memberType = member->GetVarType();
+
+    // Check if member type is a type parameter that needs substitution
+    if (typeMap.find(memberTypeName) != typeMap.end()) {
+      std::string concreteType = typeMap[memberTypeName];
+      std::cout << "[DEBUG]   Member '" << member->GetName()
+                << "' type substitution: " << memberTypeName << " -> "
+                << concreteType << std::endl;
+
+      // Convert concrete type name to LLVM type
+      llvm::Type *llvmType = nullptr;
+      if (concreteType == "int32") {
+        llvmType = llvm::Type::getInt32Ty(context);
+        memberType = TokenType::T_INT32;
+      } else if (concreteType == "int64") {
+        llvmType = llvm::Type::getInt64Ty(context);
+        memberType = TokenType::T_INT64;
+      } else if (concreteType == "float32") {
+        llvmType = llvm::Type::getFloatTy(context);
+        memberType = TokenType::T_FLOAT32;
+      } else if (concreteType == "float64") {
+        llvmType = llvm::Type::getDoubleTy(context);
+        memberType = TokenType::T_FLOAT64;
+      } else if (concreteType == "string") {
+        llvmType = llvm::PointerType::getUnqual(context);
+        memberType = TokenType::T_STRING_TYPE;
+      } else if (concreteType == "bool") {
+        llvmType = llvm::Type::getInt1Ty(context);
+        memberType = TokenType::T_BOOL;
+      } else if (concreteType == "byte") {
+        llvmType = llvm::Type::getInt8Ty(context);
+        memberType = TokenType::T_BYTE;
+      } else if (concreteType == "iptr") {
+        llvmType = llvm::PointerType::getUnqual(context);
+        memberType = TokenType::T_IPTR;
+      } else if (concreteType == "fptr") {
+        llvmType = llvm::PointerType::getUnqual(context);
+        memberType = TokenType::T_FPTR;
+      } else if (concreteType == "bptr") {
+        llvmType = llvm::PointerType::getUnqual(context);
+        memberType = TokenType::T_BPTR;
+      } else if (concreteType == "cptr") {
+        llvmType = llvm::PointerType::getUnqual(context);
+        memberType = TokenType::T_CPTR;
+      } else {
+        // Assume it's a class type
+        llvmType = llvm::PointerType::getUnqual(context);
+        memberType = TokenType::T_IDENTIFIER;
+      }
+
+      memberLLVMTypes.push_back(llvmType);
+      classInfo.memberTypes.push_back(llvmType);
+      classInfo.memberTypeTokens.push_back(static_cast<int>(memberType));
+      classInfo.memberTypeNames.push_back(concreteType);
+    } else {
+      // Not a type parameter, use original type
+      llvm::Type *llvmType =
+          GetLLVMType(static_cast<int>(memberType), memberTypeName);
+      memberLLVMTypes.push_back(llvmType);
+      classInfo.memberTypes.push_back(llvmType);
+      classInfo.memberTypeTokens.push_back(static_cast<int>(memberType));
+      classInfo.memberTypeNames.push_back(memberTypeName);
+    }
+
+    classInfo.memberNames.push_back(member->GetName());
+    std::cout << "[DEBUG]   Specialized member: " << member->GetName()
+              << std::endl;
+  }
+
+  // Set struct body
+  structType->setBody(memberLLVMTypes);
+
+  // Register the specialized class
+  m_CompiledClasses[specializedName] = classInfo;
+
+  // Set current type map for method compilation (for parameter type
+  // substitution)
+  m_CurrentTypeMap = typeMap;
+
+  // Compile methods with specialized class name
+  for (const auto &method : classTemplate->GetMethods()) {
+    CompileMethod(specializedName, method);
+  }
+
+  // Clear type map after compilation
+  m_CurrentTypeMap.clear();
+
+  std::cout << "[DEBUG] QJitRunner: Specialization '" << specializedName
+            << "' compiled with " << classInfo.memberNames.size() << " members"
+            << std::endl;
 }
 
 void QJitRunner::CompileMethod(const std::string &className,
@@ -2361,10 +2555,24 @@ QJitRunner::FindConstructor(const CompiledClass &classInfo,
     llvm::Function *func = it->second;
     // Check argument count (subtract 1 for 'this' pointer)
     if (func->arg_size() - 1 == args.size()) {
-      // TODO: Add type matching for overloaded constructors
       return func;
     }
   }
+
+  // For specialized generic classes (e.g., Test_int32_string), try the base
+  // class name (e.g., Test) as the constructor name
+  size_t underscorePos = className.find('_');
+  if (underscorePos != std::string::npos) {
+    std::string baseName = className.substr(0, underscorePos);
+    auto baseIt = classInfo.methods.find(baseName);
+    if (baseIt != classInfo.methods.end()) {
+      llvm::Function *func = baseIt->second;
+      if (func->arg_size() - 1 == args.size()) {
+        return func;
+      }
+    }
+  }
+
   return nullptr;
 }
 
@@ -2379,7 +2587,30 @@ void QJitRunner::CompileInstanceDecl(std::shared_ptr<QInstanceDecl> instDecl) {
   std::cout << "[DEBUG] QJitRunner: Creating instance '" << instanceName
             << "' of class '" << className << "'" << std::endl;
 
-  // Find compiled class
+  // Check if this is a generic class instantiation (e.g., Test<int32,string>)
+  if (instDecl->HasTypeArguments()) {
+    const auto &typeArgs = instDecl->GetTypeArguments();
+    std::cout << "[DEBUG] QJitRunner: Instance has " << typeArgs.size()
+              << " type arguments" << std::endl;
+
+    // Look up generic template
+    auto templateIt = m_GenericClassTemplates.find(className);
+    if (templateIt != m_GenericClassTemplates.end()) {
+      // Compile specialization if not already done
+      CompileGenericClass(className, templateIt->second, typeArgs);
+
+      // Use specialized class name
+      className = GetSpecializedClassName(className, typeArgs);
+      std::cout << "[DEBUG] QJitRunner: Using specialized class '" << className
+                << "'" << std::endl;
+    } else {
+      std::cerr << "[ERROR] QJitRunner: Generic template '" << className
+                << "' not found" << std::endl;
+      return;
+    }
+  }
+
+  // Find compiled class (now might be the specialized version)
   auto it = m_CompiledClasses.find(className);
   if (it == m_CompiledClasses.end()) {
     std::cerr << "[ERROR] QJitRunner: Class '" << className << "' not found"
