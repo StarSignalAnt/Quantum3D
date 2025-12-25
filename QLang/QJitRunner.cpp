@@ -171,6 +171,78 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
     return llvm::ConstantInt::getFalse(QLVM::GetContext());
 
   case TokenType::T_NEW: {
+    // Check for array allocation: new int32[N], new float32[N], new byte[N]
+    if (pos < tokens.size() && (tokens[pos].type == TokenType::T_INT32 ||
+                                tokens[pos].type == TokenType::T_FLOAT32 ||
+                                tokens[pos].type == TokenType::T_BYTE)) {
+      TokenType elemType = tokens[pos].type;
+      pos++; // consume element type
+
+      // Expect '['
+      if (pos >= tokens.size() || tokens[pos].type != TokenType::T_LBRACKET) {
+        std::cerr << "[ERROR] QJitRunner: Expected '[' after type in new"
+                  << std::endl;
+        return nullptr;
+      }
+      pos++; // consume '['
+
+      // Parse array size (expect integer constant for now)
+      if (pos >= tokens.size() || tokens[pos].type != TokenType::T_INTEGER) {
+        std::cerr << "[ERROR] QJitRunner: Expected integer array size"
+                  << std::endl;
+        return nullptr;
+      }
+      int arraySize = std::stoi(tokens[pos].value);
+      pos++; // consume size
+
+      // Expect ']'
+      if (pos >= tokens.size() || tokens[pos].type != TokenType::T_RBRACKET) {
+        std::cerr << "[ERROR] QJitRunner: Expected ']' after array size"
+                  << std::endl;
+        return nullptr;
+      }
+      pos++; // consume ']'
+
+      // Calculate element size
+      int elemSize = (elemType == TokenType::T_BYTE) ? 1 : 4;
+      int totalBytes = arraySize * elemSize;
+
+      std::cout << "[DEBUG] QJitRunner: Allocating array: new "
+                << (elemType == TokenType::T_INT32     ? "int32"
+                    : elemType == TokenType::T_FLOAT32 ? "float32"
+                                                       : "byte")
+                << "[" << arraySize << "] (" << totalBytes << " bytes)"
+                << std::endl;
+
+      // Get or declare malloc
+      llvm::Function *mallocFunc = m_LVMContext->GetLLVMFunc("malloc");
+      if (!mallocFunc) {
+        mallocFunc = QLVM::GetModule()->getFunction("malloc");
+        if (!mallocFunc) {
+          std::vector<llvm::Type *> args = {
+              llvm::Type::getInt64Ty(QLVM::GetContext())};
+          llvm::FunctionType *mallocType = llvm::FunctionType::get(
+              llvm::PointerType::getUnqual(QLVM::GetContext()), args, false);
+          mallocFunc = llvm::Function::Create(mallocType,
+                                              llvm::Function::ExternalLinkage,
+                                              "malloc", QLVM::GetModule());
+        }
+      }
+
+      if (!mallocFunc) {
+        std::cerr << "[ERROR] QJitRunner: malloc not available" << std::endl;
+        return nullptr;
+      }
+
+      llvm::Value *sizeVal = llvm::ConstantInt::get(
+          llvm::Type::getInt64Ty(QLVM::GetContext()), totalBytes);
+      llvm::Value *ptr =
+          builder.CreateCall(mallocFunc, {sizeVal}, "array.heap");
+
+      return ptr;
+    }
+
+    // Class instantiation: new ClassName()
     if (pos >= tokens.size() || tokens[pos].type != TokenType::T_IDENTIFIER) {
       std::cerr << "[ERROR] QJitRunner: Expected class name after 'new'"
                 << std::endl;
@@ -228,10 +300,40 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
     llvm::Value *mallocPtr =
         builder.CreateCall(mallocFunc, {sizeVal}, "new." + className + ".heap");
 
-    // Call constructor
+    // Call parent constructor first (if class has a parent)
+    std::cerr << "[TRACE] new " << className << " - checking for parent..."
+              << std::endl;
+    if (!classIt->second.parentClassName.empty()) {
+      const std::string &parentName = classIt->second.parentClassName;
+      std::cerr << "[TRACE] Found parent class: " << parentName << std::endl;
+      auto parentMethIt = classIt->second.methods.find(parentName);
+      if (parentMethIt != classIt->second.methods.end()) {
+        std::cerr << "[TRACE] Calling parent constructor '" << parentName << "'"
+                  << std::endl;
+        builder.CreateCall(parentMethIt->second, {mallocPtr});
+      } else {
+        std::cerr << "[TRACE] Parent constructor '" << parentName
+                  << "' NOT FOUND in methods!" << std::endl;
+        std::cerr << "[TRACE] Available methods: ";
+        for (const auto &m : classIt->second.methods) {
+          std::cerr << m.first << " ";
+        }
+        std::cerr << std::endl;
+      }
+    } else {
+      std::cerr << "[TRACE] No parent class" << std::endl;
+    }
+
+    // Then call child's own constructor (if it exists and has same name as
+    // class)
     auto methIt = classIt->second.methods.find(className);
     if (methIt != classIt->second.methods.end()) {
+      std::cerr << "[TRACE] Calling child constructor '" << className << "'"
+                << std::endl;
       builder.CreateCall(methIt->second, {mallocPtr});
+    } else {
+      std::cerr << "[TRACE] Child constructor '" << className << "' not found"
+                << std::endl;
     }
 
     if (outClassName)
@@ -550,6 +652,91 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
                 classInfo.structType, m_CurrentInstance,
                 static_cast<unsigned>(memberIdx), "this." + varName + ".ptr");
 
+            // Check if this is an indexed access on a pointer member (ages[0])
+            if (pos < tokens.size() &&
+                tokens[pos].type == TokenType::T_LBRACKET) {
+              pos++; // consume '['
+
+              // Parse index expression
+              auto indexExpr = std::make_shared<QExpression>();
+              int depth = 0;
+              while (pos < tokens.size()) {
+                if (tokens[pos].type == TokenType::T_LBRACKET)
+                  depth++;
+                else if (tokens[pos].type == TokenType::T_RBRACKET) {
+                  if (depth == 0)
+                    break;
+                  depth--;
+                }
+                indexExpr->AddElement(tokens[pos]);
+                pos++;
+              }
+
+              if (pos < tokens.size() &&
+                  tokens[pos].type == TokenType::T_RBRACKET) {
+                pos++; // consume ']'
+              }
+
+              std::cout << "[DEBUG] QJitRunner: Indexed read on member pointer "
+                        << varName << std::endl;
+
+              // Load the pointer from the member
+              llvm::Value *basePtr = builder.CreateLoad(
+                  llvm::PointerType::getUnqual(QLVM::GetContext()), memberPtr,
+                  "this." + varName + ".base");
+
+              // Compile index expression
+              llvm::Value *indexVal =
+                  CompileExpression(indexExpr, builder.getInt64Ty());
+              if (!indexVal) {
+                std::cerr << "[ERROR] QJitRunner: Failed to compile index"
+                          << std::endl;
+                return nullptr;
+              }
+
+              // Ensure index is i64 for GEP
+              if (indexVal->getType()->isIntegerTy(32)) {
+                indexVal = builder.CreateSExt(indexVal, builder.getInt64Ty());
+              }
+
+              // Determine element type based on member type token
+              llvm::Type *elementType =
+                  builder.getInt32Ty(); // Default to int32
+              std::string elemTypeName = "int32";
+              if (memberIdx <
+                  static_cast<int>(classInfo.memberTypeTokens.size())) {
+                int token = classInfo.memberTypeTokens[memberIdx];
+                std::cout << "[DEBUG] QJitRunner: Member " << varName
+                          << " type token = " << token
+                          << " (T_IPTR=" << static_cast<int>(TokenType::T_IPTR)
+                          << ", T_FPTR=" << static_cast<int>(TokenType::T_FPTR)
+                          << ", T_BPTR=" << static_cast<int>(TokenType::T_BPTR)
+                          << ")" << std::endl;
+                if (token == static_cast<int>(TokenType::T_FPTR)) {
+                  elementType = builder.getFloatTy();
+                  elemTypeName = "float32";
+                } else if (token == static_cast<int>(TokenType::T_BPTR)) {
+                  elementType = builder.getInt8Ty();
+                  elemTypeName = "byte";
+                } else if (token == static_cast<int>(TokenType::T_IPTR)) {
+                  elementType = builder.getInt32Ty();
+                  elemTypeName = "int32";
+                }
+              }
+              std::cout
+                  << "[DEBUG] QJitRunner: Indexed read using element type: "
+                  << elemTypeName << std::endl;
+
+              // GEP to get element pointer
+              llvm::Value *elemPtr = builder.CreateGEP(
+                  elementType, basePtr, indexVal, "this." + varName + ".elem");
+
+              // Load and return the value
+              return builder.CreateLoad(elementType, elemPtr,
+                                        "this." + varName + ".val");
+            }
+
+            // Simple member read (no index)
             return builder.CreateLoad(classInfo.memberTypes[memberIdx],
                                       memberPtr, "this." + varName);
           }
@@ -1413,6 +1600,22 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
     return;
   }
 
+  // Handle inheritance - compile parent class first if it exists
+  std::string parentClassName;
+  if (classNode->HasParent()) {
+    parentClassName = classNode->GetParentClassName();
+    std::cout << "[DEBUG] QJitRunner: Class '" << className
+              << "' inherits from '" << parentClassName << "'" << std::endl;
+
+    // Check if parent is compiled
+    if (m_CompiledClasses.find(parentClassName) == m_CompiledClasses.end()) {
+      std::cerr << "[ERROR] QJitRunner: Parent class '" << parentClassName
+                << "' not compiled yet. Skipping '" << className << "'."
+                << std::endl;
+      return;
+    }
+  }
+
   // Get or create struct type (don't create duplicate with suffix like .1)
   llvm::StructType *structType =
       llvm::StructType::getTypeByName(context, className);
@@ -1426,6 +1629,25 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   std::vector<int> memberTypeTokens;
   std::vector<std::string> memberTypeNames;
 
+  // First: include parent class members (if any)
+  if (!parentClassName.empty()) {
+    const CompiledClass &parentInfo = m_CompiledClasses[parentClassName];
+    std::cout << "[DEBUG] QJitRunner: Inheriting "
+              << parentInfo.memberNames.size() << " members from parent '"
+              << parentClassName << "'" << std::endl;
+
+    // Copy parent members first
+    for (size_t i = 0; i < parentInfo.memberNames.size(); i++) {
+      memberTypes.push_back(parentInfo.memberTypes[i]);
+      memberNames.push_back(parentInfo.memberNames[i]);
+      memberTypeTokens.push_back(parentInfo.memberTypeTokens[i]);
+      memberTypeNames.push_back(parentInfo.memberTypeNames[i]);
+      std::cout << "[DEBUG]   Inherited member: " << parentInfo.memberNames[i]
+                << std::endl;
+    }
+  }
+
+  // Then: include child class's own members
   for (const auto &member : classNode->GetMembers()) {
     llvm::Type *memberType = GetLLVMType(static_cast<int>(member->GetVarType()),
                                          member->GetTypeName());
@@ -1434,8 +1656,9 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
       memberNames.push_back(member->GetName());
       memberTypeTokens.push_back(static_cast<int>(member->GetVarType()));
       memberTypeNames.push_back(member->GetTypeName());
-      std::cout << "[DEBUG]   Member: " << member->GetName() << " (type index "
-                << static_cast<int>(member->GetVarType()) << ")" << std::endl;
+      std::cout << "[DEBUG]   Own member: " << member->GetName()
+                << " (type index " << static_cast<int>(member->GetVarType())
+                << ")" << std::endl;
     }
   }
 
@@ -1450,6 +1673,20 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   classInfo.memberTypeTokens = memberTypeTokens;
   classInfo.memberTypeNames = memberTypeNames;
   classInfo.isStatic = classNode->IsStatic();
+  classInfo.parentClassName = parentClassName; // Store inheritance info
+
+  // Inherit parent methods if applicable
+  if (!parentClassName.empty()) {
+    const CompiledClass &parentInfo = m_CompiledClasses[parentClassName];
+    for (const auto &method : parentInfo.methods) {
+      classInfo.methods[method.first] = method.second;
+      std::cout << "[DEBUG]   Inherited method: " << method.first << std::endl;
+    }
+    for (const auto &retType : parentInfo.methodReturnTypes) {
+      classInfo.methodReturnTypes[retType.first] = retType.second;
+    }
+  }
+
   m_CompiledClasses[className] = classInfo;
 
   if (classNode->IsStatic()) {
@@ -1495,6 +1732,11 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
     llvm::Function *func = llvm::cast<llvm::Function>(
         module->getOrInsertFunction(fullName, funcType).getCallee());
 
+    // Check if this method overrides an inherited one
+    if (classInfo.methods.find(methodName) != classInfo.methods.end()) {
+      std::cout << "[DEBUG]   Method '" << methodName
+                << "' OVERRIDES parent method" << std::endl;
+    }
     classInfo.methods[methodName] = func;
     if (method->GetReturnType() == TokenType::T_IDENTIFIER) {
       classInfo.methodReturnTypes[methodName] = method->GetReturnTypeName();
@@ -1681,6 +1923,112 @@ void QJitRunner::CompileAssign(std::shared_ptr<QAssign> assign) {
                   << varName << std::endl;
 
         llvm::Type *memberType = classInfo.memberTypes[memberIdx];
+        llvm::Value *memberPtr = builder.CreateStructGEP(
+            classInfo.structType, m_CurrentInstance,
+            static_cast<unsigned>(memberIdx), "this." + varName + ".ptr");
+
+        // Check for indexed access on a pointer member (ages[0] = 25)
+        if (assign->HasIndex()) {
+          std::cout << "[DEBUG] QJitRunner: Member is indexed pointer access"
+                    << std::endl;
+
+          // Load the pointer from the member
+          llvm::Value *basePtr = builder.CreateLoad(
+              llvm::PointerType::getUnqual(QLVM::GetContext()), memberPtr,
+              "this." + varName + ".base");
+
+          // Compile the index expression
+          llvm::Value *indexVal = CompileExpression(
+              assign->GetIndexExpression(), builder.getInt64Ty());
+          if (!indexVal) {
+            std::cerr
+                << "[ERROR] QJitRunner: Failed to compile index expression"
+                << std::endl;
+            return;
+          }
+
+          // Ensure index is i64 for GEP
+          if (indexVal->getType()->isIntegerTy(32)) {
+            indexVal = builder.CreateSExt(indexVal, builder.getInt64Ty());
+          }
+
+          // Determine element type based on member type name (look up from
+          // memberTypeNames)
+          llvm::Type *elementType = builder.getInt32Ty(); // Default to int32
+          std::string elemTypeName = "int32";
+          if (memberIdx < static_cast<int>(classInfo.memberTypeNames.size())) {
+            std::string typeNameStr = classInfo.memberTypeNames[memberIdx];
+            if (typeNameStr == "fptr" || typeNameStr == "float32") {
+              elementType = builder.getFloatTy();
+              elemTypeName = "float32";
+            } else if (typeNameStr == "bptr" || typeNameStr == "byte") {
+              elementType = builder.getInt8Ty();
+              elemTypeName = "byte";
+            }
+          }
+          // Also check memberTypeTokens
+          if (memberIdx < static_cast<int>(classInfo.memberTypeTokens.size())) {
+            int token = classInfo.memberTypeTokens[memberIdx];
+            if (token == static_cast<int>(TokenType::T_FPTR)) {
+              elementType = builder.getFloatTy();
+              elemTypeName = "float32";
+            } else if (token == static_cast<int>(TokenType::T_BPTR)) {
+              elementType = builder.getInt8Ty();
+              elemTypeName = "byte";
+            }
+          }
+
+          std::cout << "[DEBUG] QJitRunner: Indexed member element type: "
+                    << elemTypeName << std::endl;
+
+          // Use GEP to get element pointer
+          llvm::Value *elemPtr = builder.CreateGEP(
+              elementType, basePtr, indexVal, "this." + varName + ".elem");
+
+          // Compile the value expression
+          llvm::Value *value = CompileExpression(assign->GetValueExpression());
+          if (!value) {
+            std::cerr
+                << "[ERROR] QJitRunner: Failed to compile value for indexed "
+                   "member assignment"
+                << std::endl;
+            return;
+          }
+
+          // Cast value to element type if needed
+          if (value->getType()->isIntegerTy() &&
+              elementType->isFloatingPointTy()) {
+            value = builder.CreateSIToFP(value, elementType);
+          } else if (value->getType()->isFloatingPointTy() &&
+                     elementType->isIntegerTy()) {
+            value = builder.CreateFPToSI(value, elementType);
+          } else if (value->getType()->isFloatingPointTy() &&
+                     elementType->isFloatingPointTy() &&
+                     value->getType() != elementType) {
+            // Float size conversion (double <-> float)
+            if (value->getType()->isDoubleTy() && elementType->isFloatTy()) {
+              value = builder.CreateFPTrunc(value, elementType);
+            } else if (value->getType()->isFloatTy() &&
+                       elementType->isDoubleTy()) {
+              value = builder.CreateFPExt(value, elementType);
+            }
+          } else if (value->getType()->isIntegerTy() &&
+                     elementType->isIntegerTy() &&
+                     value->getType()->getIntegerBitWidth() !=
+                         elementType->getIntegerBitWidth()) {
+            if (value->getType()->getIntegerBitWidth() >
+                elementType->getIntegerBitWidth()) {
+              value = builder.CreateTrunc(value, elementType);
+            } else {
+              value = builder.CreateSExt(value, elementType);
+            }
+          }
+
+          builder.CreateStore(value, elemPtr);
+          return;
+        }
+
+        // Simple member assignment (no index)
         llvm::Value *value =
             CompileExpression(assign->GetValueExpression(), memberType);
         if (!value) {
@@ -1689,10 +2037,6 @@ void QJitRunner::CompileAssign(std::shared_ptr<QAssign> assign) {
                     << std::endl;
           return;
         }
-
-        llvm::Value *memberPtr = builder.CreateStructGEP(
-            classInfo.structType, m_CurrentInstance,
-            static_cast<unsigned>(memberIdx), "this." + varName + ".ptr");
 
         builder.CreateStore(value, memberPtr);
         return;
@@ -1916,6 +2260,21 @@ QJitRunner::CompileMethodCall(std::shared_ptr<QMethodCall> methodCall) {
   if (instanceName == "this" || instanceName.empty()) {
     instancePtr = m_CurrentInstance;
     className = m_CurrentClassName;
+  } else if (instanceName == "super") {
+    // super::MethodName() - call parent class method with current instance
+    instancePtr = m_CurrentInstance;
+    // Get parent class name from current class
+    auto classIt = m_CompiledClasses.find(m_CurrentClassName);
+    if (classIt != m_CompiledClasses.end() &&
+        !classIt->second.parentClassName.empty()) {
+      className = classIt->second.parentClassName;
+      std::cout << "[DEBUG] QJitRunner: super:: call to parent class '"
+                << className << "'" << std::endl;
+    } else {
+      std::cerr << "[ERROR] QJitRunner: Cannot use super:: - class '"
+                << m_CurrentClassName << "' has no parent" << std::endl;
+      return nullptr;
+    }
   } else {
     auto varIt = m_LocalVariables.find(instanceName);
     if (varIt == m_LocalVariables.end()) {
@@ -2124,13 +2483,29 @@ void QJitRunner::CompileInstanceDecl(std::shared_ptr<QInstanceDecl> instDecl) {
   // Find matching constructor
   llvm::Function *constructor =
       FindConstructor(classInfo, className, constructorArgs);
+
+  // Load instance pointer from alloca for constructor calls
+  llvm::Value *currentInstancePtr =
+      builder.CreateLoad(ptrType, ptrAlloca, instanceName + ".ptr");
+
+  // Call parent constructor first (if class has a parent)
+  if (!classInfo.parentClassName.empty()) {
+    const std::string &parentName = classInfo.parentClassName;
+    std::cout << "[DEBUG] QJitRunner: Calling parent constructor " << parentName
+              << "_" << parentName << std::endl;
+    auto parentMethIt = classInfo.methods.find(parentName);
+    if (parentMethIt != classInfo.methods.end()) {
+      builder.CreateCall(parentMethIt->second, {currentInstancePtr});
+    } else {
+      std::cerr << "[WARNING] Parent constructor '" << parentName
+                << "' not found!" << std::endl;
+    }
+  }
+
+  // Then call child's own constructor
   if (constructor) {
     std::cout << "[DEBUG] QJitRunner: Calling constructor " << className << "_"
               << className << std::endl;
-
-    // Load instance pointer from alloca (in case it was updated)
-    llvm::Value *currentInstancePtr =
-        builder.CreateLoad(ptrType, ptrAlloca, instanceName + ".ptr");
 
     // Build call args: this pointer + constructor args
     std::vector<llvm::Value *> callArgs;

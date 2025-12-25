@@ -208,8 +208,45 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
       if (returnStmt) {
         code->AddNode(returnStmt);
       }
-      // Check for variable declaration (starts with type token)
-    } else if (IsTypeToken(current.type)) {
+    }
+    // Check for super::MethodName() call
+    else if (current.type == TokenType::T_SUPER) {
+      Advance(); // consume 'super'
+      if (Check(TokenType::T_SCOPE)) {
+        Advance(); // consume '::'
+        if (Check(TokenType::T_IDENTIFIER)) {
+          std::string methodName = Peek().value;
+          Advance(); // consume method name
+
+          // Create a special method call node for super
+          auto superCall = std::make_shared<QMethodCall>("super", methodName);
+
+          // Parse parameters if any
+          if (Check(TokenType::T_LPAREN)) {
+            Advance(); // consume '('
+            // Parse argument expressions if not immediately closing
+            while (!Check(TokenType::T_RPAREN) && !IsAtEnd()) {
+              auto params = ParseParameters();
+              if (params) {
+                superCall->SetArguments(params);
+              }
+              break;
+            }
+            if (Check(TokenType::T_RPAREN)) {
+              Advance(); // consume ')'
+            }
+          }
+
+          code->AddNode(superCall);
+        } else {
+          ReportError("expected method name after 'super::'");
+        }
+      } else {
+        ReportError("expected '::' after 'super'");
+      }
+    }
+    // Check for variable declaration (starts with type token)
+    else if (IsTypeToken(current.type)) {
       auto varDecl = ParseVariableDecl();
       if (varDecl) {
         code->AddNode(varDecl);
@@ -927,6 +964,21 @@ std::shared_ptr<QMethod> Parser::ParseMethod() {
                 << method->GetParameters().size() << std::endl;
 #endif
     }
+  }
+
+  // Check for 'virtual' or 'override' keywords after parameters
+  if (Check(TokenType::T_VIRTUAL)) {
+    Advance(); // consume 'virtual'
+    method->SetVirtual(true);
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseMethod() - method is VIRTUAL" << std::endl;
+#endif
+  } else if (Check(TokenType::T_OVERRIDE)) {
+    Advance(); // consume 'override'
+    method->SetOverride(true);
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseMethod() - method is OVERRIDE" << std::endl;
+#endif
   }
 
   // Parse method body until 'end'

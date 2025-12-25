@@ -50,6 +50,8 @@ enum class TokenType {
   T_WEND,
   T_NULL,   // null keyword
   T_STATIC, // static class keyword
+  T_SUPER,  // super keyword for parent class access
+  T_SCOPE,  // :: scope resolution operator
 
   // Types
   T_INT32,
@@ -60,11 +62,13 @@ enum class TokenType {
   T_STRING_TYPE,
   T_BOOL,
   T_VOID,
-  T_CPTR, // C pointer (void*) for C++/script interop
-  T_IPTR, // int32 pointer (int32*)
-  T_FPTR, // float32 pointer (float32*)
-  T_BYTE, // unsigned 8-bit integer (0-255)
-  T_BPTR  // byte pointer (byte*)
+  T_CPTR,    // C pointer (void*) for C++/script interop
+  T_IPTR,    // int32 pointer (int32*)
+  T_FPTR,    // float32 pointer (float32*)
+  T_BYTE,    // unsigned 8-bit integer (0-255)
+  T_BPTR,    // byte pointer (byte*)
+  T_VIRTUAL, // virtual method keyword
+  T_OVERRIDE // override method keyword
 };
 
 class QErrorCollector;

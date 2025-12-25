@@ -48,8 +48,9 @@ struct CompiledClass {
   std::vector<std::string> memberTypeNames; // For serialization
   std::unordered_map<std::string, llvm::Function *> methods;
   std::unordered_map<std::string, std::string>
-      methodReturnTypes; // For chained ops
-  bool isStatic = false; // True if this is a static class (singleton)
+      methodReturnTypes;       // For chained ops
+  bool isStatic = false;       // True if this is a static class (singleton)
+  std::string parentClassName; // Parent class for inheritance
 };
 
 class QJitRunner {

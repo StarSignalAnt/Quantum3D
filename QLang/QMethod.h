@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-
 // Forward declaration
 class QExpression;
 
@@ -66,9 +65,20 @@ public:
       if (i < m_Parameters.size() - 1)
         std::cout << ", ";
     }
-    std::cout << ")" << std::endl;
+    std::cout << ")";
+    if (m_IsVirtual)
+      std::cout << " virtual";
+    if (m_IsOverride)
+      std::cout << " override";
+    std::cout << std::endl;
     m_Body->Print(indent + 1);
   }
+
+  // Virtual method support
+  void SetVirtual(bool isVirtual) { m_IsVirtual = isVirtual; }
+  bool IsVirtual() const { return m_IsVirtual; }
+  void SetOverride(bool isOverride) { m_IsOverride = isOverride; }
+  bool IsOverride() const { return m_IsOverride; }
 
 private:
   std::string m_Name;
@@ -76,6 +86,8 @@ private:
   std::string m_ReturnTypeName;
   std::vector<QMethodParam> m_Parameters;
   std::shared_ptr<QCode> m_Body;
+  bool m_IsVirtual = false;  // True if method is virtual
+  bool m_IsOverride = false; // True if method overrides a parent method
 
   std::string GetTypeName(TokenType type) const {
     switch (type) {

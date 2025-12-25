@@ -180,6 +180,12 @@ void Tokenizer::PrintTokens() const {
     case TokenType::T_BPTR:
       typeStr = "T_BPTR";
       break;
+    case TokenType::T_VIRTUAL:
+      typeStr = "T_VIRTUAL";
+      break;
+    case TokenType::T_OVERRIDE:
+      typeStr = "T_OVERRIDE";
+      break;
     }
 #if QLANG_DEBUG
     std::cout << "Token(" << typeStr << ", '" << token.value
@@ -350,6 +356,12 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_BYTE;
   } else if (value == "bptr") {
     type = TokenType::T_BPTR;
+  } else if (value == "virtual") {
+    type = TokenType::T_VIRTUAL;
+  } else if (value == "override") {
+    type = TokenType::T_OVERRIDE;
+  } else if (value == "super") {
+    type = TokenType::T_SUPER;
   } else if (value == "null") {
     type = TokenType::T_NULL;
   }
@@ -486,7 +498,13 @@ void Tokenizer::ScanOperatorOrPunctuation() {
     type = TokenType::T_DOT;
     break;
   case ':':
-    type = TokenType::T_COLON;
+    // Check for :: (scope resolution)
+    if (Peek() == ':') {
+      value += Advance(); // consume second :
+      type = TokenType::T_SCOPE;
+    } else {
+      type = TokenType::T_COLON;
+    }
     break;
   case '(':
     type = TokenType::T_LPAREN;
