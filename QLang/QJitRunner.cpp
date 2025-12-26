@@ -588,6 +588,64 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
         }
       }
 
+      // Special case: string variable.ToInt() / ToFloat() - convert string to
+      // number
+      if ((memberName == "ToInt" || memberName == "ToInt32" ||
+           memberName == "ToInt64" || memberName == "ToFloat" ||
+           memberName == "ToFloat32" || memberName == "ToFloat64") &&
+          pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
+        auto varIt = m_LocalVariables.find(varName);
+        auto typeIt = m_VariableTypes.find(varName);
+
+        // Check if this is a string variable (pointer type in LLVM)
+        if (varIt != m_LocalVariables.end() &&
+            (typeIt == m_VariableTypes.end() || typeIt->second == "string")) {
+          llvm::Type *varType = varIt->second->getAllocatedType();
+
+          // String variables are stored as pointers (i8*)
+          if (varType->isPointerTy()) {
+            pos++; // consume '('
+            if (pos < tokens.size() &&
+                tokens[pos].type == TokenType::T_RPAREN) {
+              pos++; // consume ')'
+
+              // Load the string pointer
+              llvm::Value *strPtr =
+                  builder.CreateLoad(varType, varIt->second, varName);
+
+              // Determine which helper to call based on method name
+              std::string helperName;
+              if (memberName == "ToInt" || memberName == "ToInt32") {
+                helperName = "__string_to_int32";
+              } else if (memberName == "ToInt64") {
+                helperName = "__string_to_int64";
+              } else if (memberName == "ToFloat" || memberName == "ToFloat32") {
+                helperName = "__string_to_float32";
+              } else if (memberName == "ToFloat64") {
+                helperName = "__string_to_float64";
+              }
+
+              llvm::Function *helperFunc =
+                  m_LVMContext->GetLLVMFunc(helperName);
+              if (!helperFunc) {
+                helperFunc = QLVM::GetModule()->getFunction(helperName);
+              }
+
+              if (helperFunc) {
+                std::cout << "[DEBUG] QJitRunner: String." << memberName
+                          << "() calling " << helperName << std::endl;
+                return builder.CreateCall(helperFunc, {strPtr},
+                                          varName + ".num");
+              } else {
+                std::cerr << "[ERROR] QJitRunner: Helper function "
+                          << helperName << " not found" << std::endl;
+                return nullptr;
+              }
+            }
+          }
+        }
+      }
+
       // Check if this is a method call (instance.method())
       if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
         auto methodCall = std::make_shared<QMethodCall>(varName, memberName);

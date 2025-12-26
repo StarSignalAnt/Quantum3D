@@ -63,6 +63,31 @@ extern "C" char *LV_bool_to_string(int8_t value) {
   return value ? _strdup("true") : _strdup("false");
 }
 
+// String-to-number conversion functions (for ToInt/ToFloat methods)
+extern "C" int32_t LV_string_to_int32(const char *str) {
+  if (!str)
+    return 0;
+  return (int32_t)atoi(str);
+}
+
+extern "C" int64_t LV_string_to_int64(const char *str) {
+  if (!str)
+    return 0;
+  return (int64_t)atoll(str);
+}
+
+extern "C" float LV_string_to_float32(const char *str) {
+  if (!str)
+    return 0.0f;
+  return (float)atof(str);
+}
+
+extern "C" double LV_string_to_float64(const char *str) {
+  if (!str)
+    return 0.0;
+  return atof(str);
+}
+
 // ============================================================================
 // QLVMContext Implementation
 // ============================================================================
@@ -118,6 +143,29 @@ void QLVMContext::RegisterBuiltinFunctions() {
       llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
                               {llvm::Type::getInt1Ty(context)}, false);
   AddFunc("__bool_to_string", (void *)LV_bool_to_string, boolToStrType);
+
+  // String-to-number conversion functions (ToInt/ToFloat methods)
+  auto *strToInt32Type =
+      llvm::FunctionType::get(llvm::Type::getInt32Ty(context),
+                              {llvm::PointerType::getUnqual(context)}, false);
+  AddFunc("__string_to_int32", (void *)LV_string_to_int32, strToInt32Type);
+
+  auto *strToInt64Type =
+      llvm::FunctionType::get(llvm::Type::getInt64Ty(context),
+                              {llvm::PointerType::getUnqual(context)}, false);
+  AddFunc("__string_to_int64", (void *)LV_string_to_int64, strToInt64Type);
+
+  auto *strToFloat32Type =
+      llvm::FunctionType::get(llvm::Type::getFloatTy(context),
+                              {llvm::PointerType::getUnqual(context)}, false);
+  AddFunc("__string_to_float32", (void *)LV_string_to_float32,
+          strToFloat32Type);
+
+  auto *strToFloat64Type =
+      llvm::FunctionType::get(llvm::Type::getDoubleTy(context),
+                              {llvm::PointerType::getUnqual(context)}, false);
+  AddFunc("__string_to_float64", (void *)LV_string_to_float64,
+          strToFloat64Type);
 }
 
 void QLVMContext::AddFunc(const std::string &name, void *funcPtr,
