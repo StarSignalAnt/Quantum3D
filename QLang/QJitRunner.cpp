@@ -285,6 +285,13 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
     return llvm::ConstantInt::getFalse(QLVM::GetContext());
   }
 
+  case TokenType::T_NULL: {
+    // Return a null pointer constant for class instance variables
+    std::cout << "[DEBUG] QJitRunner: Null literal" << std::endl;
+    return llvm::ConstantPointerNull::get(
+        llvm::PointerType::getUnqual(QLVM::GetContext()));
+  }
+
   case TokenType::T_NEW: {
     // Check for array allocation: new int32[N], new float32[N], new byte[N]
     if (pos < tokens.size() && (tokens[pos].type == TokenType::T_INT32 ||
@@ -912,10 +919,13 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
               llvm::PointerType::getUnqual(QLVM::GetContext()), it->second,
               varName + ".ptrval");
         }
-        // It's a class instance - return the alloca (pointer to struct)
+        // It's a class instance - load the pointer value from the alloca
+        // (not returning the alloca itself, which is the stack address)
         if (outClassName)
           *outClassName = typeIt->second;
-        return it->second;
+        return builder.CreateLoad(
+            llvm::PointerType::getUnqual(QLVM::GetContext()), it->second,
+            varName + ".instanceptr");
       }
       // Primitive type - load the value
       llvm::Value *loadedVal = builder.CreateLoad(
@@ -1319,9 +1329,10 @@ llvm::Value *QJitRunner::CompileExprTokensRecursive(
 
     if (!usedOverload) {
       // Don't try to do arithmetic on pointer types (class instances)
+      // But allow comparison (== != for null checks) and string concat (+)
       if (result->getType()->isPointerTy() && right->getType()->isPointerTy()) {
-        // Check if this is string concatenation (allowed)
-        if (op != "+") {
+        // Allow: + (string concat), == != (null/pointer comparison)
+        if (op != "+" && op != "==" && op != "=" && op != "!=" && op != "<>") {
           std::cerr << "[ERROR] QJitRunner: Cannot apply operator '" << op
                     << "' to class instances without overload" << std::endl;
           return nullptr;
@@ -3023,11 +3034,51 @@ void QJitRunner::CompileInstanceDecl(std::shared_ptr<QInstanceDecl> instDecl) {
   llvm::AllocaInst *ptrAlloca =
       builder.CreateAlloca(ptrType, nullptr, instanceName);
 
-  // Allocate memory on heap
-  // Allocate memory on heap using malloc and call constructor
+  // Store instance alloca in local variables FIRST (needed for expressions)
+  m_LocalVariables[instanceName] = ptrAlloca;
+  m_VariableTypes[instanceName] = className;
+
+  // Check if there's an initializer expression (e.g., = new TestClass() or =
+  // null)
+  if (auto initExpr = instDecl->GetInitializerExpression()) {
+    std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName
+              << "' has initializer expression" << std::endl;
+    llvm::Value *initValue = CompileExpression(initExpr, ptrType);
+    if (initValue) {
+      builder.CreateStore(initValue, ptrAlloca);
+    }
+    std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName
+              << "' initialized" << std::endl;
+    return;
+  }
+
+  // Check if there's a "= new" constructor call (even with empty args)
+  // GetConstructorArgs() returns non-null when "= new ClassName()" was parsed
+  auto params = instDecl->GetConstructorArgs();
+  bool hasNewExpression = (params != nullptr);
+
+  std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName
+            << "' hasNewExpression=" << hasNewExpression << std::endl;
+
+  // If no initializer and no "= new" expression, default to null
+  if (!hasNewExpression) {
+    std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName
+              << "' DEFAULTING TO NULL (no initializer, no args)" << std::endl;
+    llvm::Value *nullPtr = llvm::ConstantPointerNull::get(
+        llvm::PointerType::getUnqual(builder.getContext()));
+    builder.CreateStore(nullPtr, ptrAlloca);
+    std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName
+              << "' stored null and returning" << std::endl;
+    return;
+  }
+
+  // Has constructor args - allocate memory and call constructor
+  std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName
+            << "' allocating with constructor args" << std::endl;
+
+  // Allocate memory on heap using malloc
   llvm::Function *mallocFunc = m_LVMContext->GetLLVMFunc("malloc");
   if (!mallocFunc) {
-    // Fallback: try to find or declare in current module
     mallocFunc = QLVM::GetModule()->getFunction("malloc");
     if (!mallocFunc) {
       std::vector<llvm::Type *> args = {
@@ -3080,22 +3131,8 @@ void QJitRunner::CompileInstanceDecl(std::shared_ptr<QInstanceDecl> instDecl) {
     }
   }
 
-  // Store instance alloca in local variables
-  m_LocalVariables[instanceName] = ptrAlloca;
-  m_VariableTypes[instanceName] = className;
-
   std::cout << "[DEBUG] QJitRunner: Instance '" << instanceName << "' created"
             << std::endl;
-
-  // Call constructor if one exists, but ONLY if we don't have an initializer
-  // expression (e.g., Vec3 pos = obj.GetValue())
-  if (auto initExpr = instDecl->GetInitializerExpression()) {
-    llvm::Value *initValue = CompileExpression(initExpr, ptrType);
-    if (initValue) {
-      builder.CreateStore(initValue, ptrAlloca);
-    }
-    return;
-  }
 
   // Compile constructor arguments
   std::vector<llvm::Value *> constructorArgs;
