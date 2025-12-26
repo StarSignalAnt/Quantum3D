@@ -77,7 +77,7 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Quantum\Quantum3D\QLang;C:\Quantum\Quantum3D\QuantumEngine\glm;$(VULKAN_SDK)\Include;C:\Quantum\Quantum3D\QuantumEngine;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Quantum\QLang\QLang;C:\Quantum\Quantum3D\QuantumEngine\glm;$(VULKAN_SDK)\Include;C:\Quantum\Quantum3D\QuantumEngine;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

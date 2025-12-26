@@ -91,6 +91,7 @@ class Matrix
         float32 rz = m31 * v.X + m32 * v.Y + m33 * v.Z + m34;
         // w component is ignored but assumed 1.0 for position
         return new Vec3(rx, ry, rz);
+        
     end
 
     method Matrix Plus(Matrix b)

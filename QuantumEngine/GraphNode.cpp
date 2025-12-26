@@ -8,6 +8,7 @@
 #include <cmath>
 #include <variant>
 
+
 namespace Quantum {
 
 GraphNode::GraphNode(const std::string &name)
@@ -314,17 +315,24 @@ void GraphNode::Turn(glm::vec3 rot) {
   m_WorldMatrixDirty = true;
 }
 
-void GraphNode::AddScript(std::shared_ptr<QJClassInstance> cls) {
+void GraphNode::AddScript(ScriptPair* cls) {
 
   m_QClasses.push_back(cls);
+  cls->ClsInstance->SetPtrMember("NodePtr", (void*)this);
+  
+  m_QClasses.push_back(cls);
+
+
 }
 
 void GraphNode::OnPlay() {
 
   for (auto cls : m_QClasses) {
 
-    // QValue result = runner.CallMethod(node1, "Update", updateArgs);
-//    QLangDomain::m_QLang->RunMethod(cls, "OnPlay");
+      cls->ClsProgram->CallMethod(cls->ClsInstance, "Play", {});
+
+     //QValue result = runner.CallMethod(node1, "Update", updateArgs);
+    //QLangDomain::m_QLang->RunMethod(cls, "OnPlay");
   }
   int b = 5;
 }
@@ -338,6 +346,7 @@ void GraphNode::OnUpdate(float dt)
   //std::vector<QValue> updateArgs = {dt};
 
   for (auto cls : m_QClasses) {
+      cls->ClsProgram->CallMethod(cls->ClsInstance, "OnUpdate", {dt});
 
     // QValue result = runner.CallMethod(node1, "Update", updateArgs);
   //  QLangDomain::m_QLang->RunMethod(cls, "OnUpdate", updateArgs);

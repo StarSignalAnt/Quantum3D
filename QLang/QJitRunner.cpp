@@ -373,15 +373,73 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
     std::string className = tokens[pos].value;
     pos++; // consume class name
 
-    // Consume parentheses if any
+    // Parse constructor arguments
+    std::vector<llvm::Value *> ctorArgs;
+    std::vector<std::string> argTypeNames;
+
     if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
-      pos++; // (
-      int depth = 1;
-      while (pos < tokens.size() && depth > 0) {
-        if (tokens[pos].type == TokenType::T_LPAREN)
-          depth++;
-        else if (tokens[pos].type == TokenType::T_RPAREN)
-          depth--;
+      pos++; // consume '('
+
+      // Parse arguments until closing paren
+      while (pos < tokens.size() && tokens[pos].type != TokenType::T_RPAREN) {
+        // Find end of this argument (comma or closing paren)
+        size_t argStart = pos;
+        int depth = 0;
+        while (pos < tokens.size()) {
+          if (tokens[pos].type == TokenType::T_LPAREN)
+            depth++;
+          else if (tokens[pos].type == TokenType::T_RPAREN) {
+            if (depth == 0)
+              break;
+            depth--;
+          } else if (tokens[pos].type == TokenType::T_COMMA && depth == 0)
+            break;
+          pos++;
+        }
+
+        // Extract argument tokens
+        std::vector<Token> argTokens(tokens.begin() + argStart,
+                                     tokens.begin() + pos);
+
+        if (!argTokens.empty()) {
+          // Create a temporary expression for this argument
+          auto argExpr = std::make_shared<QExpression>();
+          for (const auto &t : argTokens) {
+            argExpr->AddElement(t);
+          }
+
+          llvm::Value *argVal = CompileExpression(argExpr);
+          if (argVal) {
+            ctorArgs.push_back(argVal);
+
+            // Determine type name for mangling
+            llvm::Type *argType = argVal->getType();
+            if (argType->isFloatTy()) {
+              argTypeNames.push_back("float32");
+            } else if (argType->isDoubleTy()) {
+              argTypeNames.push_back("float64");
+            } else if (argType->isIntegerTy(32)) {
+              argTypeNames.push_back("int32");
+            } else if (argType->isIntegerTy(64)) {
+              argTypeNames.push_back("int64");
+            } else if (argType->isIntegerTy(1)) {
+              argTypeNames.push_back("bool");
+            } else if (argType->isPointerTy()) {
+              argTypeNames.push_back("ptr");
+            } else {
+              argTypeNames.push_back("unknown");
+            }
+          }
+        }
+
+        // Skip comma if present
+        if (pos < tokens.size() && tokens[pos].type == TokenType::T_COMMA) {
+          pos++;
+        }
+      }
+
+      // Consume closing paren
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_RPAREN) {
         pos++;
       }
     }
@@ -422,39 +480,76 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
     llvm::Value *mallocPtr =
         builder.CreateCall(mallocFunc, {sizeVal}, "new." + className + ".heap");
 
-    // Call parent constructor first (if class has a parent)
-    std::cerr << "[TRACE] new " << className << " - checking for parent..."
-              << std::endl;
-    if (!classIt->second.parentClassName.empty()) {
-      const std::string &parentName = classIt->second.parentClassName;
-      std::cerr << "[TRACE] Found parent class: " << parentName << std::endl;
-      auto parentMethIt = classIt->second.methods.find(parentName);
-      if (parentMethIt != classIt->second.methods.end()) {
-        std::cerr << "[TRACE] Calling parent constructor '" << parentName << "'"
-                  << std::endl;
-        builder.CreateCall(parentMethIt->second, {mallocPtr});
-      } else {
-        std::cerr << "[TRACE] Parent constructor '" << parentName
-                  << "' NOT FOUND in methods!" << std::endl;
-        std::cerr << "[TRACE] Available methods: ";
-        for (const auto &m : classIt->second.methods) {
-          std::cerr << m.first << " ";
-        }
-        std::cerr << std::endl;
+    // Build mangled constructor name based on argument types
+    std::string ctorName = className;
+    if (!argTypeNames.empty()) {
+      for (const auto &typeName : argTypeNames) {
+        ctorName += "$" + typeName;
       }
-    } else {
-      std::cerr << "[TRACE] No parent class" << std::endl;
     }
 
-    // Then call child's own constructor (if it exists and has same name as
-    // class)
-    auto methIt = classIt->second.methods.find(className);
-    if (methIt != classIt->second.methods.end()) {
-      std::cerr << "[TRACE] Calling child constructor '" << className << "'"
-                << std::endl;
-      builder.CreateCall(methIt->second, {mallocPtr});
+    // Try to find the constructor with matching signature
+    std::string fullCtorName = className + "_" + ctorName;
+    std::cout << "[DEBUG] T_NEW: Looking for constructor '" << fullCtorName
+              << "'" << std::endl;
+    llvm::Function *ctorFunc = QLVM::GetModule()->getFunction(fullCtorName);
+
+    // If not found and we have float64 args, try with float32 (common case:
+    // literals are double, params are float)
+    if (!ctorFunc && !argTypeNames.empty()) {
+      std::string altCtorName = className;
+      for (const auto &typeName : argTypeNames) {
+        if (typeName == "float64") {
+          altCtorName += "$float32";
+        } else {
+          altCtorName += "$" + typeName;
+        }
+      }
+      std::string altFullCtorName = className + "_" + altCtorName;
+      std::cout << "[DEBUG] T_NEW: Trying float32 alternative '"
+                << altFullCtorName << "'" << std::endl;
+      ctorFunc = QLVM::GetModule()->getFunction(altFullCtorName);
+      if (ctorFunc) {
+        fullCtorName = altFullCtorName;
+        std::cout << "[DEBUG] T_NEW: Found float32 alternative!" << std::endl;
+      }
+    }
+
+    if (!ctorFunc) {
+      // Fallback to default constructor if mangled not found
+      fullCtorName = className + "_" + className;
+      std::cout << "[DEBUG] T_NEW: Falling back to default constructor '"
+                << fullCtorName << "'" << std::endl;
+      ctorFunc = QLVM::GetModule()->getFunction(fullCtorName);
+      // Clear args since we're using default constructor
+      ctorArgs.clear();
+    }
+
+    if (ctorFunc) {
+      std::vector<llvm::Value *> callArgs;
+      callArgs.push_back(mallocPtr); // 'this' pointer
+
+      // Only add constructor arguments if function can accept them
+      size_t expectedArgs = ctorFunc->arg_size(); // includes 'this'
+
+      for (size_t i = 0; i < ctorArgs.size() && i + 1 < expectedArgs; i++) {
+        llvm::Value *arg = ctorArgs[i];
+
+        // Type conversion if needed (e.g., double literal to float param)
+        llvm::Type *paramType = ctorFunc->getArg(i + 1)->getType();
+        if (paramType->isFloatTy() && arg->getType()->isDoubleTy()) {
+          arg = builder.CreateFPTrunc(arg, builder.getFloatTy(), "fptrunc");
+        } else if (paramType->isDoubleTy() && arg->getType()->isFloatTy()) {
+          arg = builder.CreateFPExt(arg, builder.getDoubleTy(), "fpext");
+        }
+        callArgs.push_back(arg);
+      }
+
+      std::cout << "[TRACE] Calling constructor '" << fullCtorName << "' with "
+                << callArgs.size() - 1 << " args" << std::endl;
+      builder.CreateCall(ctorFunc, callArgs);
     } else {
-      std::cerr << "[TRACE] Child constructor '" << className << "' not found"
+      std::cerr << "[WARNING] Constructor '" << fullCtorName << "' not found"
                 << std::endl;
     }
 
@@ -1128,6 +1223,14 @@ llvm::Value *QJitRunner::ApplyBinaryOp(const std::string &op, llvm::Value *left,
     left = builder.CreateSIToFP(left, right->getType(), "promotetmp");
   }
 
+  // Promote if both are floating point but different precision (float32 <->
+  // float64)
+  if (left->getType()->isFloatTy() && right->getType()->isDoubleTy()) {
+    left = builder.CreateFPExt(left, right->getType(), "fpext");
+  } else if (left->getType()->isDoubleTy() && right->getType()->isFloatTy()) {
+    right = builder.CreateFPExt(right, left->getType(), "fpext");
+  }
+
   bool isFloat = left->getType()->isFloatingPointTy() ||
                  right->getType()->isFloatingPointTy();
 
@@ -1378,6 +1481,11 @@ llvm::Value *QJitRunner::CompileExpression(std::shared_ptr<QExpression> expr,
     } else if (expectedType->isIntegerTy() &&
                val->getType()->isFloatingPointTy()) {
       return builder.CreateFPToSI(val, expectedType, "cast_tmp");
+    } else if (expectedType->isPointerTy() && val->getType()->isPointerTy()) {
+      // Cast pointer types (e.g. i8* from malloc to Class*)
+      if (val->getType() != expectedType) {
+        return builder.CreateBitCast(val, expectedType, "ptr_cast_tmp");
+      }
     }
   }
 
@@ -1861,8 +1969,18 @@ void QJitRunner::CompileStatement(std::shared_ptr<QStatement> stmt) {
             static_cast<unsigned>(i));
       }
 
+      const auto &argTokens = exprs[i]->GetElements();
+      if (!argTokens.empty()) {
+        std::cout << "[DEBUG] Compiling Arg " << i
+                  << " First Token: " << argTokens[0].value << std::endl;
+      }
+
       llvm::Value *argValue = CompileExpression(exprs[i], paramType);
       if (argValue) {
+        std::cout << "[DEBUG] Compiling Arg " << i
+                  << " generated Value: " << argValue->getName().str() << " ("
+                  << (void *)argValue << ")" << std::endl;
+
         // Vararg promotion: float -> double
         if (!paramType && argValue->getType()->isFloatTy()) {
           argValue = builder.CreateFPExt(argValue, builder.getDoubleTy());
@@ -2123,6 +2241,12 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
           GetLLVMType(static_cast<int>(param.type), param.typeName);
       if (paramType) {
         paramTypes.push_back(paramType);
+      } else {
+        std::cerr << "[ERROR] QJitRunner: Failed to resolve parameter type '"
+                  << param.typeName << "' for method '" << methodName << "'"
+                  << std::endl;
+        // Skip this method to avoid creating a malformed function
+        continue;
       }
     }
 
@@ -2167,6 +2291,51 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   // Pass 2: Compile method bodies
   for (const auto &method : classNode->GetMethods()) {
     CompileMethod(className, method);
+  }
+
+  // Pass 3: Create aliases for inherited methods that weren't overridden
+  // This ensures CallMethod can find "Child_ParentMethod" resolving to
+  // "Parent_ParentMethod"
+  for (const auto &mp : classInfo.methods) {
+    std::string mangledName = mp.first;
+    llvm::Function *func = mp.second;
+    std::string funcName = func->getName().str();
+
+    // If function name doesn't start with current class name, it's inherited
+    std::string prefix = className + "_";
+    if (funcName.find(prefix) != 0) {
+      // Inherited!
+      std::string aliasName = prefix + mangledName;
+
+      // Alias function (Mangled -> Mangled)
+      if (!module->getNamedValue(aliasName)) {
+        llvm::GlobalAlias::create(llvm::GlobalValue::ExternalLinkage, aliasName,
+                                  func);
+      }
+
+      // Alias wrapper (Unmangled -> Unmangled)
+      // Wrappers use UNMANGLED method names: Class_Method__wrap
+      // We need to extract the unmangled method name from our local map key
+      // (which matches function suffix)
+      std::string unmangledMethodName = mangledName;
+      size_t dollarPos = mangledName.find('$');
+      if (dollarPos != std::string::npos) {
+        unmangledMethodName = mangledName.substr(0, dollarPos);
+      }
+
+      if (!classInfo.parentClassName.empty()) {
+        std::string parentWrap =
+            classInfo.parentClassName + "_" + unmangledMethodName + "__wrap";
+        std::string childWrap =
+            className + "_" + unmangledMethodName + "__wrap";
+
+        llvm::Function *pWrap = module->getFunction(parentWrap);
+        if (pWrap && !module->getNamedValue(childWrap)) {
+          llvm::GlobalAlias::create(llvm::GlobalValue::ExternalLinkage,
+                                    childWrap, pWrap);
+        }
+      }
+    }
   }
 }
 
@@ -2423,6 +2592,11 @@ void QJitRunner::CompileMethod(const std::string &className,
   // Other parameters
   int paramIdx = 0;
   for (const auto &param : method->GetParameters()) {
+    if (argIt == func->arg_end()) {
+      std::cerr << "[CRITICAL ERROR] QJitRunner: Parameter count mismatch for "
+                << fullName << std::endl;
+      return;
+    }
     llvm::Value *argVal = &*argIt;
     argVal->setName(param.name);
 
@@ -2444,6 +2618,68 @@ void QJitRunner::CompileMethod(const std::string &className,
 
     argIt++;
     paramIdx++;
+  }
+
+  // Auto-call parent constructor if this is a constructor method
+  if (methodName == className && !classInfo.parentClassName.empty()) {
+    std::string parentName = classInfo.parentClassName;
+    auto parentClassIt = m_CompiledClasses.find(parentName);
+
+    if (parentClassIt != m_CompiledClasses.end()) {
+      const auto &parentInfo = parentClassIt->second;
+      // Look for default constructor in parent
+      // Use mangled name for constructor: ClassName_ClassName
+      // But methods map uses mangled names. The default constructor mangled
+      // name is usually just ClassName if no args, or ClassName_Args...
+      // Actually, logic in CompileClass Pass 1 generates mangled names.
+      // For default constructor: MangleMethodName("Parent", method) -> "Parent"
+      // (if no args). Let's look up "ParentName" in parent methods.
+
+      // We need to find the compatible parent constructor.
+      // For now, we only support default constructor chaining.
+      // TODO: Support super(...) calls.
+
+      // Try to find default constructor "ParentName"
+      // But wait, MangleMethodName might change it?
+      // If Parent() has no args, mangled name is "Parent".
+      // BUT strict lookup might be tricky.
+
+      // Let's iterate parent methods to find one that matches ParentName and
+      // has 0 args (except 'this')
+      llvm::Function *parentCtor = nullptr;
+
+      for (const auto &pm : parentInfo.methods) {
+        // Check if this is the constructor (starts with ParentName)
+        // And check arg count. 'this' is arg 0.
+        if (pm.first.find(parentName) == 0) { // Simple check
+          if (pm.second->arg_size() == 1) {   // Only 'this'
+            parentCtor = pm.second;
+            break;
+          }
+        }
+      }
+
+      if (parentCtor) {
+        std::cout
+            << "[DEBUG] QJitRunner: Injecting parent constructor call to '"
+            << parentName << "'" << std::endl;
+        // Cast 'this' to parent type
+        // Parent type is struct pointer. Child struct includes Parent struct as
+        // first member? Or bitcast? LLVM struct inheritance usually implies
+        // pointer cast is safe if layout compatible. If we use Opaque Pointers,
+        // no cast needed. If Typed Pointers, we need bitcast to Parent*.
+
+        llvm::Value *parentThis = thisPtr;
+        llvm::Type *parentPtrTy =
+            llvm::PointerType::getUnqual(parentInfo.structType->getContext());
+        if (thisPtr->getType() != parentPtrTy) {
+          parentThis =
+              builder.CreateBitCast(thisPtr, parentPtrTy, "parent.this");
+        }
+
+        builder.CreateCall(parentCtor, {parentThis});
+      }
+    }
   }
 
   // Compile method body
@@ -3573,6 +3809,10 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
     return nullptr;
   }
 
+  // IMPORTANT: Capture DataLayout BEFORE taking the module, as TakeModule
+  // transfers ownership and invalidates 'module' pointer
+  const llvm::DataLayout &dataLayout = module->getDataLayout();
+
   auto jitProgram = std::make_shared<QJitProgram>(QLVM::TakeModule());
 
   // Register all compiled classes with the JIT program for runtime
@@ -3581,8 +3821,7 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
     const std::string &className = pair.first;
     const CompiledClass &classInfo = pair.second;
 
-    uint64_t size =
-        module->getDataLayout().getTypeAllocSize(classInfo.structType);
+    uint64_t size = dataLayout.getTypeAllocSize(classInfo.structType);
     std::string ctorName = className + "_" + className;
 
     jitProgram->RegisterClass(className, classInfo.structType, size, ctorName,
@@ -3590,12 +3829,11 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
 
     // Register members with offset info for runtime get/set access
     const llvm::StructLayout *layout =
-        module->getDataLayout().getStructLayout(classInfo.structType);
+        dataLayout.getStructLayout(classInfo.structType);
     for (size_t i = 0; i < classInfo.memberNames.size(); i++) {
       const std::string &memberName = classInfo.memberNames[i];
       size_t offset = layout->getElementOffset(i);
-      size_t memberSize =
-          module->getDataLayout().getTypeAllocSize(classInfo.memberTypes[i]);
+      size_t memberSize = dataLayout.getTypeAllocSize(classInfo.memberTypes[i]);
       int typeToken = classInfo.memberTypeTokens[i];
       std::string typeName = i < classInfo.memberTypeNames.size()
                                  ? classInfo.memberTypeNames[i]
@@ -3787,9 +4025,10 @@ bool QJitRunner::CompileModule(const std::string &moduleName,
               << "' importing: " << importName << std::endl;
 
     if (!ImportModule(importName)) {
-      std::cerr << "[WARNING] QJitRunner: Failed to import module '"
-                << importName << "' for module '" << moduleName << "'"
+      std::cerr << "[ERROR] QJitRunner: Failed to import module '" << importName
+                << "' for module '" << moduleName << "'. Aborting."
                 << std::endl;
+      return false;
     }
   }
 

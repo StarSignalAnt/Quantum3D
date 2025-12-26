@@ -44,6 +44,8 @@ public:
   QJitProgram(std::unique_ptr<llvm::Module> module);
   ~QJitProgram();
 
+  static QJitProgram *Instance() { return s_Instance; }
+
   void Run();
 
   // Get address of a JIT-compiled function by name
@@ -71,6 +73,15 @@ public:
   // Get the singleton instance of a static class
   std::shared_ptr<QJClassInstance>
   GetStaticInstance(const std::string &className);
+
+  // Get class info for manual instance creation (wrapping pointers)
+  const RuntimeClassInfo *GetClassInfo(const std::string &className) const {
+    auto it = m_RegisteredClasses.find(className);
+    if (it != m_RegisteredClasses.end()) {
+      return &it->second;
+    }
+    return nullptr;
+  }
 
   // ==== Method Calling Options (slowest to fastest) ====
 
@@ -116,4 +127,5 @@ private:
 
   llvm::ExecutionEngine *m_Engine = nullptr;
   std::unordered_map<std::string, RuntimeClassInfo> m_RegisteredClasses;
+  static QJitProgram *s_Instance;
 };

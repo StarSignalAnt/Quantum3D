@@ -117,14 +117,12 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <DisableSpecificWarnings>4146;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
-
     <Link>
       <SubSystem>
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
-
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -146,7 +144,9 @@
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="QClassInstance.h" />
     <ClInclude Include="QDebug.h" />
+    <ClInclude Include="QJClassInstance.h" />
     <ClInclude Include="Tokenizer.h" />
     <ClInclude Include="QActionNode.h" />
     <ClInclude Include="QNode.h" />
@@ -175,6 +175,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="QJClassInstance.cpp" />
     <ClCompile Include="QLang.cpp" />
     <ClCompile Include="Tokenizer.cpp" />
     <ClCompile Include="Parser.cpp" />
@@ -184,7 +185,6 @@
     <ClCompile Include="QJitProgram.cpp" />
     <ClCompile Include="QModuleFile.cpp" />
   </ItemGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

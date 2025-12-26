@@ -7,11 +7,15 @@
 
 // Forward declaration for QLang (global namespace)
 class QJClassInstance;
+class QJitProgram;
 
 namespace Quantum {
 
 // Forward declaration
 class Mesh3D;
+
+
+class ScriptPair;
 
 /// <summary>
 /// A node in the scene graph hierarchy with transform properties.
@@ -89,11 +93,11 @@ public:
   size_t GetMeshCount() const { return m_Meshes.size(); }
   bool HasMeshes() const { return !m_Meshes.empty(); }
 
-  const std::vector<std::shared_ptr<QJClassInstance>> &GetScripts() const {
+  const std::vector<ScriptPair*> &GetScripts() const {
     return m_QClasses;
   }
 
-  void AddScript(std::shared_ptr<QJClassInstance> cls);
+  void AddScript(ScriptPair* cls);
 
   void Turn(glm::vec3 value);
 
@@ -143,7 +147,7 @@ private:
   std::string m_SourcePath;
 
   // scripts
-  std::vector<std::shared_ptr<QJClassInstance>> m_QClasses;
+  std::vector<ScriptPair*> m_QClasses;
 
   void SetParent(GraphNode *parent);
   void InvalidateChildTransforms();

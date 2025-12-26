@@ -14,7 +14,14 @@
 #include "QLVMContext.h"
 #include "QStaticRegistry.h"
 
+namespace Quantum {
+    class ScriptPair {
+    public:
+        std::shared_ptr<QJClassInstance> ClsInstance;
+        std::shared_ptr<QJitProgram> ClsProgram;
 
+    };
+}
 
 class QLangDomain {
 public:
@@ -23,7 +30,7 @@ public:
   std::shared_ptr<QJitRunner> GetRunner() { return m_Runner; }
 
   static std::string GetScriptClassName(std::shared_ptr<QJClassInstance> script);
-  void CompileScript(std::string file);
+  Quantum::ScriptPair* CompileScript(std::string file);
 
   static QLangDomain *m_QLang;
 

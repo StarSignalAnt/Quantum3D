@@ -17,8 +17,8 @@ struct MemberInfo {
 // Provides access to member variables and methods
 class QJClassInstance {
 public:
-  QJClassInstance(const std::string &className, void *instancePtr)
-      : m_ClassName(className), m_InstancePtr(instancePtr) {}
+  // Constructor looks up member info from QJitProgram::Instance() if available
+  QJClassInstance(const std::string &className, void *instancePtr);
 
   ~QJClassInstance() = default;
 
@@ -43,90 +43,23 @@ public:
 
   // Get a member value by name
   // Usage: int32_t age = instance->GetMember<int32_t>("age");
-  template <typename T> T GetMember(const std::string &name) const {
-    auto it = m_Members.find(name);
-    if (it == m_Members.end() || !m_InstancePtr) {
-      return T{}; // Return default if member not found
-    }
-
-    const MemberInfo &info = it->second;
-    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
-
-    T result{};
-    memcpy(&result, ptr, sizeof(T));
-    return result;
-  }
+  template <typename T> T GetMember(const std::string &name) const;
 
   // Get string member (special case - stored as char*)
-  std::string GetStringMember(const std::string &name) const {
-    auto it = m_Members.find(name);
-    if (it == m_Members.end() || !m_InstancePtr) {
-      return "";
-    }
-
-    const MemberInfo &info = it->second;
-    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
-
-    // String is stored as char* pointer
-    const char *strPtr = *reinterpret_cast<const char **>(ptr);
-    return strPtr ? std::string(strPtr) : "";
-  }
+  std::string GetStringMember(const std::string &name) const;
 
   // Set a member value by name
   // Usage: instance->SetMember<int32_t>("age", 30);
-  template <typename T> void SetMember(const std::string &name, T value) {
-    auto it = m_Members.find(name);
-    if (it == m_Members.end() || !m_InstancePtr) {
-      return;
-    }
-
-    const MemberInfo &info = it->second;
-    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
-
-    memcpy(ptr, &value, sizeof(T));
-  }
+  template <typename T> void SetMember(const std::string &name, T value);
 
   // Set string member (special case)
-  void SetStringMember(const std::string &name, const char *value) {
-    auto it = m_Members.find(name);
-    if (it == m_Members.end() || !m_InstancePtr) {
-      return;
-    }
-
-    const MemberInfo &info = it->second;
-    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
-
-    // Store the pointer directly
-    *reinterpret_cast<const char **>(ptr) = value;
-  }
+  void SetStringMember(const std::string &name, const char *value);
 
   // Get cptr member (void* pointer)
-  void *GetPtrMember(const std::string &name) const {
-    auto it = m_Members.find(name);
-    if (it == m_Members.end() || !m_InstancePtr) {
-      return nullptr;
-    }
-
-    const MemberInfo &info = it->second;
-    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
-
-    // Return the stored pointer
-    return *reinterpret_cast<void **>(ptr);
-  }
+  void *GetPtrMember(const std::string &name) const;
 
   // Set cptr member (void* pointer)
-  void SetPtrMember(const std::string &name, void *value) {
-    auto it = m_Members.find(name);
-    if (it == m_Members.end() || !m_InstancePtr) {
-      return;
-    }
-
-    const MemberInfo &info = it->second;
-    char *ptr = static_cast<char *>(m_InstancePtr) + info.offset;
-
-    // Store the pointer
-    *reinterpret_cast<void **>(ptr) = value;
-  }
+  void SetPtrMember(const std::string &name, void *value);
 
   // Get the members map (for debugging)
   const std::unordered_map<std::string, MemberInfo> &GetMembers() const {
