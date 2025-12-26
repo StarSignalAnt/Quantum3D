@@ -3,6 +3,7 @@
 #include "QActionNode.h"
 #include "QClass.h"
 #include "QCode.h"
+#include "QEnum.h"
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -25,6 +26,12 @@ public:
 
   const std::vector<std::shared_ptr<QClass>> &GetClasses() const {
     return m_Classes;
+  }
+
+  void AddEnum(std::shared_ptr<QEnum> enumDef) { m_Enums.push_back(enumDef); }
+
+  const std::vector<std::shared_ptr<QEnum>> &GetEnums() const {
+    return m_Enums;
   }
 
   // Import handling
@@ -75,5 +82,6 @@ public:
 private:
   std::shared_ptr<QCode> m_Code;
   std::vector<std::shared_ptr<QClass>> m_Classes;
+  std::vector<std::shared_ptr<QEnum>> m_Enums;
   std::vector<std::string> m_Imports;
 };

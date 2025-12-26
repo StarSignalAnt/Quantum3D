@@ -28,6 +28,8 @@ public:
   void ResetCache();
 
 private:
+  // Register all built-in functions automatically
+  void RegisterBuiltinFunctions();
   mutable std::unordered_map<std::string, llvm::Function *> m_LLVMFunctions;
   std::unordered_map<std::string, llvm::FunctionType *> m_FunctionTypes;
   std::unordered_map<std::string, void *> m_FunctionPtrs;

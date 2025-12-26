@@ -44,6 +44,18 @@ public:
       m_IndexExpression->CheckForErrors(collector);
   }
 
+  // Array initializer support for ptr = {1, 2, 3, 4, 5}
+  void
+  SetArrayInitializer(const std::vector<std::shared_ptr<QExpression>> &exprs) {
+    m_ArrayInitializer = exprs;
+  }
+
+  const std::vector<std::shared_ptr<QExpression>> &GetArrayInitializer() const {
+    return m_ArrayInitializer;
+  }
+
+  bool HasArrayInitializer() const { return !m_ArrayInitializer.empty(); }
+
   void Print(int indent = 0) const override {
     PrintIndent(indent);
     std::cout << "Assign: " << m_VariableName;
@@ -56,7 +68,9 @@ public:
       std::cout << "]";
     }
     std::cout << " = ";
-    if (m_ValueExpression) {
+    if (HasArrayInitializer()) {
+      std::cout << "{" << m_ArrayInitializer.size() << " elements}";
+    } else if (m_ValueExpression) {
       const auto &elems = m_ValueExpression->GetElements();
       for (const auto &e : elems) {
         std::cout << e.value << " ";
@@ -69,4 +83,5 @@ private:
   std::string m_VariableName;
   std::shared_ptr<QExpression> m_ValueExpression;
   std::shared_ptr<QExpression> m_IndexExpression; // For ptr[index] = value
+  std::vector<std::shared_ptr<QExpression>> m_ArrayInitializer; // For {1,2,3}
 };

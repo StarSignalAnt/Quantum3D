@@ -2,6 +2,7 @@
 #include "QAssign.h"
 #include "QClass.h"
 #include "QCode.h"
+#include "QEnum.h"
 #include "QError.h"
 #include "QExpression.h"
 #include "QFor.h"
@@ -180,6 +181,28 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
   switch (token.type) {
   case TokenType::T_INTEGER: {
     int64_t value = std::stoll(token.value);
+
+    // Check for .ToString() on integer literal: 12.ToString()
+    if (pos < tokens.size() && tokens[pos].type == TokenType::T_DOT) {
+      size_t savedPos = pos;
+      pos++; // consume '.'
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_IDENTIFIER &&
+          tokens[pos].value == "ToString") {
+        pos++; // consume 'ToString'
+        if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
+          pos++; // consume '('
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_RPAREN) {
+            pos++; // consume ')'
+            std::cout << "[DEBUG] QJitRunner: Integer.ToString() "
+                      << token.value << " = \"" << token.value << "\""
+                      << std::endl;
+            return builder.CreateGlobalStringPtr(token.value);
+          }
+        }
+      }
+      pos = savedPos; // restore if not a valid ToString() call
+    }
+
     if (expectedType && expectedType->isFloatingPointTy()) {
       return llvm::ConstantFP::get(expectedType, static_cast<double>(value));
     }
@@ -189,6 +212,27 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
 
   case TokenType::T_FLOAT: {
     double value = std::stod(token.value);
+
+    // Check for .ToString() on float literal: 3.14.ToString()
+    if (pos < tokens.size() && tokens[pos].type == TokenType::T_DOT) {
+      size_t savedPos = pos;
+      pos++; // consume '.'
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_IDENTIFIER &&
+          tokens[pos].value == "ToString") {
+        pos++; // consume 'ToString'
+        if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
+          pos++; // consume '('
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_RPAREN) {
+            pos++; // consume ')'
+            std::cout << "[DEBUG] QJitRunner: Float.ToString() " << token.value
+                      << " = \"" << token.value << "\"" << std::endl;
+            return builder.CreateGlobalStringPtr(token.value);
+          }
+        }
+      }
+      pos = savedPos;
+    }
+
     if (expectedType && expectedType->isIntegerTy()) {
       return llvm::ConstantInt::get(expectedType, static_cast<int64_t>(value));
     }
@@ -199,11 +243,47 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
   case TokenType::T_STRING:
     return builder.CreateGlobalStringPtr(token.value);
 
-  case TokenType::T_TRUE:
+  case TokenType::T_TRUE: {
+    // Check for .ToString(): true.ToString()
+    if (pos < tokens.size() && tokens[pos].type == TokenType::T_DOT) {
+      size_t savedPos = pos;
+      pos++;
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_IDENTIFIER &&
+          tokens[pos].value == "ToString") {
+        pos++;
+        if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
+          pos++;
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_RPAREN) {
+            pos++;
+            return builder.CreateGlobalStringPtr("true");
+          }
+        }
+      }
+      pos = savedPos;
+    }
     return llvm::ConstantInt::getTrue(QLVM::GetContext());
+  }
 
-  case TokenType::T_FALSE:
+  case TokenType::T_FALSE: {
+    // Check for .ToString(): false.ToString()
+    if (pos < tokens.size() && tokens[pos].type == TokenType::T_DOT) {
+      size_t savedPos = pos;
+      pos++;
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_IDENTIFIER &&
+          tokens[pos].value == "ToString") {
+        pos++;
+        if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
+          pos++;
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_RPAREN) {
+            pos++;
+            return builder.CreateGlobalStringPtr("false");
+          }
+        }
+      }
+      pos = savedPos;
+    }
     return llvm::ConstantInt::getFalse(QLVM::GetContext());
+  }
 
   case TokenType::T_NEW: {
     // Check for array allocation: new int32[N], new float32[N], new byte[N]
@@ -444,6 +524,70 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
       std::string memberName = tokens[pos].value;
       pos++; // consume member name
 
+      // Special case: primitive variable.ToString() - intercept before method
+      // call handling
+      if (memberName == "ToString" && pos < tokens.size() &&
+          tokens[pos].type == TokenType::T_LPAREN) {
+        // Check if this is a primitive variable (not a class instance)
+        auto varIt = m_LocalVariables.find(varName);
+        auto typeIt = m_VariableTypes.find(varName);
+
+        // If variable exists and is NOT a class instance, handle ToString
+        if (varIt != m_LocalVariables.end() &&
+            (typeIt == m_VariableTypes.end() || typeIt->second == "iptr" ||
+             typeIt->second == "fptr" || typeIt->second == "bptr")) {
+          pos++; // consume '('
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_RPAREN) {
+            pos++; // consume ')'
+
+            // Load the variable value
+            llvm::Value *loadedVal = builder.CreateLoad(
+                varIt->second->getAllocatedType(), varIt->second, varName);
+
+            // Determine which helper to call based on variable type
+            llvm::Type *varType = varIt->second->getAllocatedType();
+            std::string helperName;
+            llvm::Value *argVal = loadedVal;
+
+            if (varType->isIntegerTy(32)) {
+              helperName = "__int32_to_string";
+            } else if (varType->isIntegerTy(64)) {
+              helperName = "__int64_to_string";
+            } else if (varType->isFloatTy()) {
+              helperName = "__float32_to_string";
+            } else if (varType->isDoubleTy()) {
+              helperName = "__float64_to_string";
+            } else if (varType->isIntegerTy(1)) {
+              helperName = "__bool_to_string";
+            } else if (varType->isIntegerTy(8)) {
+              helperName = "__int32_to_string";
+              argVal = builder.CreateZExt(loadedVal, builder.getInt32Ty());
+            } else {
+              std::cerr << "[ERROR] QJitRunner: ToString() not supported for "
+                           "this type"
+                        << std::endl;
+              return nullptr;
+            }
+
+            llvm::Function *helperFunc = m_LVMContext->GetLLVMFunc(helperName);
+            if (!helperFunc) {
+              helperFunc = QLVM::GetModule()->getFunction(helperName);
+            }
+
+            if (helperFunc) {
+              std::cout
+                  << "[DEBUG] QJitRunner: PrimitiveVar.ToString() calling "
+                  << helperName << std::endl;
+              return builder.CreateCall(helperFunc, {argVal}, varName + ".str");
+            } else {
+              std::cerr << "[ERROR] QJitRunner: Helper function " << helperName
+                        << " not found" << std::endl;
+              return nullptr;
+            }
+          }
+        }
+      }
+
       // Check if this is a method call (instance.method())
       if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
         auto methodCall = std::make_shared<QMethodCall>(varName, memberName);
@@ -530,6 +674,50 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
 
         return builder.CreateLoad(classInfo.memberTypes[memberIdx], memberPtr,
                                   varName + "." + memberName);
+      }
+
+      // Check if varName is an ENUM (not a class or variable)
+      auto enumIt = m_CompiledEnums.find(varName);
+      if (enumIt != m_CompiledEnums.end()) {
+        // This is an enum - look up the value
+        auto valueIt = enumIt->second.find(memberName);
+        if (valueIt != enumIt->second.end()) {
+          int enumValue = valueIt->second;
+
+          // Check for .ToString() chain: Api.OpenGL.ToString()
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_DOT) {
+            size_t savedPos = pos;
+            pos++; // consume '.'
+            if (pos < tokens.size() &&
+                tokens[pos].type == TokenType::T_IDENTIFIER &&
+                tokens[pos].value == "ToString") {
+              pos++; // consume 'ToString'
+              // Check for ()
+              if (pos < tokens.size() &&
+                  tokens[pos].type == TokenType::T_LPAREN) {
+                pos++; // consume '('
+                if (pos < tokens.size() &&
+                    tokens[pos].type == TokenType::T_RPAREN) {
+                  pos++; // consume ')'
+                  std::cout << "[DEBUG] QJitRunner: Enum ToString " << varName
+                            << "." << memberName << " = \"" << memberName
+                            << "\"" << std::endl;
+                  return builder.CreateGlobalStringPtr(memberName);
+                }
+              }
+            }
+            // Not a valid ToString() call, restore position
+            pos = savedPos;
+          }
+
+          std::cout << "[DEBUG] QJitRunner: Enum access " << varName << "."
+                    << memberName << " = " << enumValue << std::endl;
+          return llvm::ConstantInt::get(builder.getInt32Ty(), enumValue);
+        } else {
+          std::cerr << "[ERROR] QJitRunner: Enum value '" << memberName
+                    << "' not found in enum '" << varName << "'" << std::endl;
+          return nullptr;
+        }
       }
 
       // Look up instance (regular variable)
@@ -672,8 +860,73 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
         return it->second;
       }
       // Primitive type - load the value
-      return builder.CreateLoad(it->second->getAllocatedType(), it->second,
-                                varName);
+      llvm::Value *loadedVal = builder.CreateLoad(
+          it->second->getAllocatedType(), it->second, varName);
+
+      // Check for .ToString() on primitive variable
+      if (pos < tokens.size() && tokens[pos].type == TokenType::T_DOT) {
+        size_t savedPos = pos;
+        pos++; // consume '.'
+        if (pos < tokens.size() &&
+            tokens[pos].type == TokenType::T_IDENTIFIER &&
+            tokens[pos].value == "ToString") {
+          pos++; // consume 'ToString'
+          if (pos < tokens.size() && tokens[pos].type == TokenType::T_LPAREN) {
+            pos++; // consume '('
+            if (pos < tokens.size() &&
+                tokens[pos].type == TokenType::T_RPAREN) {
+              pos++; // consume ')'
+
+              // Determine which helper to call based on variable type
+              llvm::Type *varType = it->second->getAllocatedType();
+              std::string helperName;
+              llvm::Value *argVal = loadedVal;
+
+              if (varType->isIntegerTy(32)) {
+                helperName = "__int32_to_string";
+              } else if (varType->isIntegerTy(64)) {
+                helperName = "__int64_to_string";
+              } else if (varType->isFloatTy()) {
+                helperName = "__float32_to_string";
+              } else if (varType->isDoubleTy()) {
+                helperName = "__float64_to_string";
+              } else if (varType->isIntegerTy(1)) {
+                helperName = "__bool_to_string";
+              } else if (varType->isIntegerTy(8)) {
+                // Byte - treat as int32
+                helperName = "__int32_to_string";
+                argVal = builder.CreateZExt(loadedVal, builder.getInt32Ty());
+              } else {
+                std::cerr << "[ERROR] QJitRunner: ToString() not supported for "
+                             "this type"
+                          << std::endl;
+                return nullptr;
+              }
+
+              // Get or declare the helper function
+              llvm::Function *helperFunc =
+                  m_LVMContext->GetLLVMFunc(helperName);
+              if (!helperFunc) {
+                helperFunc = QLVM::GetModule()->getFunction(helperName);
+              }
+
+              if (helperFunc) {
+                std::cout << "[DEBUG] QJitRunner: Variable.ToString() calling "
+                          << helperName << std::endl;
+                return builder.CreateCall(helperFunc, {argVal},
+                                          varName + ".str");
+              } else {
+                std::cerr << "[ERROR] QJitRunner: Helper function "
+                          << helperName << " not found" << std::endl;
+                return nullptr;
+              }
+            }
+          }
+        }
+        pos = savedPos; // restore if not a valid ToString() call
+      }
+
+      return loadedVal;
     } else {
       // Try implicit member access (this.varName)
       if (m_CurrentInstance && !m_CurrentClassName.empty()) {
@@ -1562,6 +1815,19 @@ void QJitRunner::CompileNode(std::shared_ptr<QNode> node) {
     return;
   }
 
+  if (auto enumNode = std::dynamic_pointer_cast<QEnum>(node)) {
+    // Compile enum definition - store in m_CompiledEnums
+    std::string enumName = enumNode->GetName();
+    std::unordered_map<std::string, int> valueMap;
+    for (const auto &valueName : enumNode->GetValues()) {
+      valueMap[valueName] = enumNode->GetValueIndex(valueName);
+    }
+    m_CompiledEnums[enumName] = valueMap;
+    std::cout << "[DEBUG] QJitRunner: Compiled inline enum '" << enumName
+              << "' with " << valueMap.size() << " values" << std::endl;
+    return;
+  }
+
   if (auto instDecl = std::dynamic_pointer_cast<QInstanceDecl>(node)) {
     CompileInstanceDecl(instDecl);
     return;
@@ -2339,6 +2605,79 @@ void QJitRunner::CompileAssign(std::shared_ptr<QAssign> assign) {
 
   std::string className;
   llvm::AllocaInst *alloca = it->second;
+
+  // Check for array initializer: ptr = {1, 2, 3, 4, 5}
+  if (assign->HasArrayInitializer()) {
+    std::cout << "[DEBUG] QJitRunner: Compiling array initializer with "
+              << assign->GetArrayInitializer().size() << " elements"
+              << std::endl;
+
+    // Load the base pointer
+    llvm::Value *basePtr =
+        builder.CreateLoad(llvm::PointerType::getUnqual(QLVM::GetContext()),
+                           alloca, varName + ".base");
+
+    // Determine element type based on pointer type
+    llvm::Type *elementType = builder.getInt32Ty(); // Default to int32
+    auto typeIt = m_VariableTypes.find(varName);
+    if (typeIt != m_VariableTypes.end()) {
+      if (typeIt->second == "fptr") {
+        elementType = builder.getFloatTy();
+      } else if (typeIt->second == "bptr") {
+        elementType = builder.getInt8Ty();
+      }
+    }
+
+    // Store each element
+    const auto &initExprs = assign->GetArrayInitializer();
+    for (size_t i = 0; i < initExprs.size(); i++) {
+      // Compile element value
+      llvm::Value *elemVal = CompileExpression(initExprs[i], elementType);
+      if (!elemVal) {
+        std::cerr << "[ERROR] QJitRunner: Failed to compile array initializer "
+                     "element "
+                  << i << std::endl;
+        continue;
+      }
+
+      // Cast if needed (e.g., int to float, double to float)
+      if (elemVal->getType() != elementType) {
+        if (elemVal->getType()->isIntegerTy() &&
+            elementType->isFloatingPointTy()) {
+          elemVal = builder.CreateSIToFP(elemVal, elementType);
+        } else if (elemVal->getType()->isFloatingPointTy() &&
+                   elementType->isIntegerTy()) {
+          elemVal = builder.CreateFPToSI(elemVal, elementType);
+        } else if (elemVal->getType()->isDoubleTy() &&
+                   elementType->isFloatTy()) {
+          elemVal = builder.CreateFPTrunc(elemVal, elementType);
+        } else if (elemVal->getType()->isIntegerTy() &&
+                   elementType->isIntegerTy() &&
+                   elemVal->getType()->getIntegerBitWidth() !=
+                       elementType->getIntegerBitWidth()) {
+          if (elemVal->getType()->getIntegerBitWidth() >
+              elementType->getIntegerBitWidth()) {
+            elemVal = builder.CreateTrunc(elemVal, elementType);
+          } else {
+            elemVal = builder.CreateSExt(elemVal, elementType);
+          }
+        }
+      }
+
+      // Calculate element pointer
+      llvm::Value *indexVal = llvm::ConstantInt::get(builder.getInt64Ty(), i);
+      llvm::Value *elemPtr =
+          builder.CreateGEP(elementType, basePtr, indexVal,
+                            varName + ".elem" + std::to_string(i));
+
+      // Store the value
+      builder.CreateStore(elemVal, elemPtr);
+    }
+
+    std::cout << "[DEBUG] QJitRunner: Array initializer stored" << std::endl;
+    return;
+  }
+
   llvm::Value *value = CompileExpression(
       assign->GetValueExpression(), alloca->getAllocatedType(), &className);
   if (!value) {
@@ -2917,6 +3256,20 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
   llvm::BasicBlock *entryBlock =
       llvm::BasicBlock::Create(context, "entry", entryFunc);
   builder.SetInsertPoint(entryBlock);
+
+  // Compile all enum definitions first (before code uses them)
+  for (const auto &enumDef : program->GetEnums()) {
+    if (enumDef) {
+      std::string enumName = enumDef->GetName();
+      std::unordered_map<std::string, int> valueMap;
+      for (const auto &valueName : enumDef->GetValues()) {
+        valueMap[valueName] = enumDef->GetValueIndex(valueName);
+      }
+      m_CompiledEnums[enumName] = valueMap;
+      std::cout << "[DEBUG] QJitRunner: Compiled enum '" << enumName
+                << "' with " << valueMap.size() << " values" << std::endl;
+    }
+  }
 
   // Compile all class definitions first (before code uses them)
   for (const auto &classNode : program->GetClasses()) {

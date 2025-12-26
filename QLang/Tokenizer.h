@@ -62,13 +62,14 @@ enum class TokenType {
   T_STRING_TYPE,
   T_BOOL,
   T_VOID,
-  T_CPTR,    // C pointer (void*) for C++/script interop
-  T_IPTR,    // int32 pointer (int32*)
-  T_FPTR,    // float32 pointer (float32*)
-  T_BYTE,    // unsigned 8-bit integer (0-255)
-  T_BPTR,    // byte pointer (byte*)
-  T_VIRTUAL, // virtual method keyword
-  T_OVERRIDE // override method keyword
+  T_CPTR,     // C pointer (void*) for C++/script interop
+  T_IPTR,     // int32 pointer (int32*)
+  T_FPTR,     // float32 pointer (float32*)
+  T_BYTE,     // unsigned 8-bit integer (0-255)
+  T_BPTR,     // byte pointer (byte*)
+  T_VIRTUAL,  // virtual method keyword
+  T_OVERRIDE, // override method keyword
+  T_ENUM      // enum keyword
 };
 
 class QErrorCollector;

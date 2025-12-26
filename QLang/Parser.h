@@ -2,6 +2,7 @@
 
 #include "QAssign.h"
 #include "QClass.h"
+#include "QEnum.h"
 #include "QError.h"
 #include "QExpression.h"
 #include "QFor.h"
@@ -22,6 +23,7 @@
 #include <set>
 #include <string>
 #include <vector>
+
 
 // Parser class
 class Parser {
@@ -53,6 +55,7 @@ private:
   std::vector<Token> m_Tokens;
   int m_Current = 0;
   std::set<std::string> m_ClassNames; // Track known class names
+  std::set<std::string> m_EnumNames;  // Track known enum names
   std::set<std::string>
       m_DeclaredVariables; // Track declared variables in current scope
   std::set<std::string>
@@ -76,6 +79,7 @@ private:
   std::shared_ptr<QStatement> ParseStatement();
   std::shared_ptr<QVariableDecl> ParseVariableDecl();
   std::shared_ptr<QClass> ParseClass();
+  std::shared_ptr<QEnum> ParseEnum();
   std::shared_ptr<QMethod> ParseMethod();
   std::shared_ptr<QInstanceDecl> ParseInstanceDecl();
   std::shared_ptr<QMethodCall> ParseMethodCall();

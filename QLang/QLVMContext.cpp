@@ -1,13 +1,124 @@
 #include "QLVMContext.h"
 #include "QLVM.h"
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/Support/DynamicLibrary.h>
 
-QLVMContext::QLVMContext() {}
+// ============================================================================
+// Built-in Native Functions for QLang
+// ============================================================================
+
+// Native printf for QLang scripts
+extern "C" void LV_printf(const char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  vprintf(fmt, args);
+  va_end(args);
+  printf("\n");
+}
+
+// String concatenation for QLang
+extern "C" char *LV_str_concat(const char *s1, const char *s2) {
+  if (!s1)
+    s1 = "";
+  if (!s2)
+    s2 = "";
+  char *result = (char *)malloc(strlen(s1) + strlen(s2) + 1);
+  strcpy(result, s1);
+  strcat(result, s2);
+  return result;
+}
+
+// ToString helper functions for runtime conversion
+extern "C" char *LV_int32_to_string(int32_t value) {
+  char *result = (char *)malloc(16);
+  snprintf(result, 16, "%d", value);
+  return result;
+}
+
+extern "C" char *LV_int64_to_string(int64_t value) {
+  char *result = (char *)malloc(24);
+  snprintf(result, 24, "%lld", value);
+  return result;
+}
+
+extern "C" char *LV_float32_to_string(float value) {
+  char *result = (char *)malloc(24);
+  snprintf(result, 24, "%g", value);
+  return result;
+}
+
+extern "C" char *LV_float64_to_string(double value) {
+  char *result = (char *)malloc(32);
+  snprintf(result, 32, "%g", value);
+  return result;
+}
+
+extern "C" char *LV_bool_to_string(int8_t value) {
+  return value ? _strdup("true") : _strdup("false");
+}
+
+// ============================================================================
+// QLVMContext Implementation
+// ============================================================================
+
+QLVMContext::QLVMContext() {
+  // Auto-register all built-in functions
+  RegisterBuiltinFunctions();
+}
 
 QLVMContext::~QLVMContext() {}
+
+void QLVMContext::RegisterBuiltinFunctions() {
+  auto &context = QLVM::GetContext();
+
+  // qprintf - variadic printf for QLang
+  auto *qprintfType =
+      llvm::FunctionType::get(llvm::Type::getVoidTy(context),
+                              {llvm::PointerType::getUnqual(context)}, true);
+  AddFunc("qprintf", (void *)LV_printf, qprintfType);
+
+  // string_concat - concatenate two strings
+  auto *strConcatType =
+      llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
+                              {llvm::PointerType::getUnqual(context),
+                               llvm::PointerType::getUnqual(context)},
+                              false);
+  AddFunc("string_concat", (void *)LV_str_concat, strConcatType);
+
+  // ToString helper functions for runtime numeric/bool to string conversion
+  auto *int32ToStrType =
+      llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
+                              {llvm::Type::getInt32Ty(context)}, false);
+  AddFunc("__int32_to_string", (void *)LV_int32_to_string, int32ToStrType);
+
+  auto *int64ToStrType =
+      llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
+                              {llvm::Type::getInt64Ty(context)}, false);
+  AddFunc("__int64_to_string", (void *)LV_int64_to_string, int64ToStrType);
+
+  auto *float32ToStrType =
+      llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
+                              {llvm::Type::getFloatTy(context)}, false);
+  AddFunc("__float32_to_string", (void *)LV_float32_to_string,
+          float32ToStrType);
+
+  auto *float64ToStrType =
+      llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
+                              {llvm::Type::getDoubleTy(context)}, false);
+  AddFunc("__float64_to_string", (void *)LV_float64_to_string,
+          float64ToStrType);
+
+  auto *boolToStrType =
+      llvm::FunctionType::get(llvm::PointerType::getUnqual(context),
+                              {llvm::Type::getInt1Ty(context)}, false);
+  AddFunc("__bool_to_string", (void *)LV_bool_to_string, boolToStrType);
+}
 
 void QLVMContext::AddFunc(const std::string &name, void *funcPtr,
                           llvm::FunctionType *funcType) {

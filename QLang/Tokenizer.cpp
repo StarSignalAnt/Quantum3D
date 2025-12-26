@@ -186,6 +186,9 @@ void Tokenizer::PrintTokens() const {
     case TokenType::T_OVERRIDE:
       typeStr = "T_OVERRIDE";
       break;
+    case TokenType::T_ENUM:
+      typeStr = "T_ENUM";
+      break;
     }
 #if QLANG_DEBUG
     std::cout << "Token(" << typeStr << ", '" << token.value
@@ -364,6 +367,8 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_SUPER;
   } else if (value == "null") {
     type = TokenType::T_NULL;
+  } else if (value == "enum") {
+    type = TokenType::T_ENUM;
   }
 
   // Construct manually to keep start column

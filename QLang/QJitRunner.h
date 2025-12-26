@@ -27,6 +27,7 @@ class QMethodCall;
 class QLVMContext;
 class QErrorCollector;
 class QJitProgram;
+class QEnum;
 struct Token;
 
 namespace llvm {
@@ -115,6 +116,10 @@ private:
 
   // Current type mapping for generic class compilation (T -> int32, etc.)
   std::unordered_map<std::string, std::string> m_CurrentTypeMap;
+
+  // Compiled enum registry: EnumName -> {ValueName -> IntValue}
+  std::unordered_map<std::string, std::unordered_map<std::string, int>>
+      m_CompiledEnums;
 
   // Reusable compilation methods
   void CompileCodeBlock(std::shared_ptr<QCode> code);

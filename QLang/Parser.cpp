@@ -132,6 +132,14 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
         m_ClassNames.insert(cls->GetName());
         program->AddClass(cls);
       }
+    } else if (current.type == TokenType::T_ENUM) {
+      auto enumDef = ParseEnum();
+      if (enumDef) {
+        m_EnumNames.insert(enumDef->GetName());
+        program->AddEnum(enumDef);
+        std::cout << "[DEBUG] Parser: Parsed enum '" << enumDef->GetName()
+                  << "'" << std::endl;
+      }
     } else if (current.type == TokenType::T_EOF) {
       break;
     } else if (current.type == TokenType::T_END_OF_LINE) {
@@ -207,6 +215,17 @@ void Parser::ParseCode(std::shared_ptr<QCode> code) {
       auto returnStmt = ParseReturn();
       if (returnStmt) {
         code->AddNode(returnStmt);
+      }
+    }
+    // Check for enum definition (can appear anywhere in file)
+    else if (current.type == TokenType::T_ENUM) {
+      auto enumDef = ParseEnum();
+      if (enumDef) {
+        m_EnumNames.insert(enumDef->GetName());
+        // Store in code block as a node - JIT will handle it
+        code->AddNode(enumDef);
+        std::cout << "[DEBUG] Parser: Parsed inline enum '"
+                  << enumDef->GetName() << "'" << std::endl;
       }
     }
     // Check for super::MethodName() call
@@ -856,6 +875,90 @@ std::shared_ptr<QClass> Parser::ParseClass() {
   return cls;
 }
 
+std::shared_ptr<QEnum> Parser::ParseEnum() {
+#if QLANG_DEBUG
+  std::cout << "[DEBUG] ParseEnum() - parsing enum definition" << std::endl;
+#endif
+
+  // Consume 'enum' keyword
+  Advance();
+
+  // Expect enum name (identifier)
+  if (!Check(TokenType::T_IDENTIFIER)) {
+    ReportError("Expected enum name after 'enum'");
+    return nullptr;
+  }
+
+  Token nameToken = Advance();
+#if QLANG_DEBUG
+  std::cout << "[DEBUG] ParseEnum() - enum name: " << nameToken.value
+            << std::endl;
+#endif
+
+  auto enumDef = std::make_shared<QEnum>(nameToken.value);
+
+  // Skip optional newline after enum name
+  while (Check(TokenType::T_END_OF_LINE)) {
+    Advance();
+  }
+
+  // Parse enum values until 'end'
+  // Values can be comma-separated on a single line or multiple lines
+  // Supports explicit values: ValueName = IntValue
+  while (!IsAtEnd() && !Check(TokenType::T_END)) {
+    Token current = Peek();
+
+    if (current.type == TokenType::T_IDENTIFIER) {
+      std::string valueName = current.value;
+      Advance(); // consume value name
+
+      // Check for explicit value assignment: ValueName = IntValue
+      if (Check(TokenType::T_OPERATOR) && Peek().value == "=") {
+        Advance(); // consume '='
+        if (Check(TokenType::T_INTEGER)) {
+          int explicitValue = std::stoi(Peek().value);
+          enumDef->AddValueWithInt(valueName, explicitValue);
+#if QLANG_DEBUG
+          std::cout << "[DEBUG] ParseEnum() - added value: " << valueName
+                    << " = " << explicitValue << std::endl;
+#endif
+          Advance(); // consume integer
+        } else {
+          ReportError("Expected integer value after '=' in enum");
+        }
+      } else {
+        // No explicit value - use auto-increment
+        enumDef->AddValue(valueName);
+#if QLANG_DEBUG
+        std::cout << "[DEBUG] ParseEnum() - added value: " << valueName
+                  << " (auto)" << std::endl;
+#endif
+      }
+
+      // Check for comma (more values) or end of line
+      if (Check(TokenType::T_COMMA)) {
+        Advance(); // consume ','
+      }
+    } else if (current.type == TokenType::T_END_OF_LINE) {
+      Advance(); // skip newlines
+    } else if (current.type == TokenType::T_END) {
+      break;
+    } else {
+      ReportError("Unexpected token in enum: '" + current.value + "'");
+      Advance();
+    }
+  }
+
+  // Consume 'end'
+  if (Check(TokenType::T_END)) {
+    Advance();
+  } else {
+    ReportError("Expected 'end' to close enum");
+  }
+
+  return enumDef;
+}
+
 std::shared_ptr<QMethod> Parser::ParseMethod() {
 #if QLANG_DEBUG
   std::cout << "[DEBUG] ParseMethod() - parsing method" << std::endl;
@@ -1494,9 +1597,47 @@ std::shared_ptr<QAssign> Parser::ParseAssign() {
                 QErrorSeverity::Warning);
   }
 
-  // Parse value expression
-  auto expr = ParseExpression();
-  assign->SetValueExpression(expr);
+  // Check for array initializer: var = {1, 2, 3, 4, 5}
+  if (Check(TokenType::T_LBRACE)) {
+    Advance(); // consume '{'
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseAssign() - parsing array initializer"
+              << std::endl;
+#endif
+
+    std::vector<std::shared_ptr<QExpression>> initExprs;
+    while (!IsAtEnd() && !Check(TokenType::T_RBRACE)) {
+      // Parse each element as an expression until comma or }
+      auto elemExpr = std::make_shared<QExpression>();
+      while (!IsAtEnd() && !Check(TokenType::T_COMMA) &&
+             !Check(TokenType::T_RBRACE)) {
+        Token current = Peek();
+        elemExpr->AddElement(current);
+        Advance();
+      }
+      initExprs.push_back(elemExpr);
+
+      // Consume comma if present
+      if (Check(TokenType::T_COMMA)) {
+        Advance();
+      }
+    }
+
+    // Consume '}'
+    if (Check(TokenType::T_RBRACE)) {
+      Advance();
+    }
+
+    assign->SetArrayInitializer(initExprs);
+#if QLANG_DEBUG
+    std::cout << "[DEBUG] ParseAssign() - array initializer with "
+              << initExprs.size() << " elements" << std::endl;
+#endif
+  } else {
+    // Parse value expression (normal case)
+    auto expr = ParseExpression();
+    assign->SetValueExpression(expr);
+  }
 
   // Consume semicolon
   if (Check(TokenType::T_END_OF_LINE)) {
