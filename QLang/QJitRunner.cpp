@@ -1766,51 +1766,78 @@ void QJitRunner::CompileStatement(std::shared_ptr<QStatement> stmt) {
     if (m_CurrentInstance && !m_CurrentClassName.empty()) {
       auto classIt = m_CompiledClasses.find(m_CurrentClassName);
       if (classIt != m_CompiledClasses.end()) {
-        if (classIt->second.methods.count(funcName)) {
+        // Compile arguments first to determine their types for overload
+        // resolution
+        std::vector<llvm::Value *> compiledArgs;
+        if (auto params = stmt->GetParameters()) {
+          const auto &exprs = params->GetParameters();
+          for (size_t i = 0; i < exprs.size(); ++i) {
+            llvm::Value *argValue = CompileExpression(exprs[i]);
+            if (argValue) {
+              compiledArgs.push_back(argValue);
+            } else {
+              std::cerr << "[ERROR] QJitRunner: Failed to compile argument "
+                        << i << " for implicit method call " << funcName
+                        << std::endl;
+            }
+          }
+        }
+
+        // Use FindMethodOverload to find the best matching overload
+        llvm::Function *methodFunc =
+            FindMethodOverload(classIt->second, funcName, compiledArgs);
+        if (methodFunc) {
           std::cout << "[DEBUG] QJitRunner: Found implicit method call for "
                     << funcName << std::endl;
-          // Convert QStatement to QMethodCall-like behavior
 
-          // Need to manually create arguments since we don't have a QMethodCall
-          // node But we can just call CompileMethodCall logic inline or
-          // CreateCall directly
-
-          llvm::Function *methodFunc = classIt->second.methods[funcName];
+          // Build call arguments with 'this' pointer and type conversions
           std::vector<llvm::Value *> callArgs;
           callArgs.push_back(m_CurrentInstance); // this
 
-          if (auto params = stmt->GetParameters()) {
-            llvm::FunctionType *ft = methodFunc->getFunctionType();
-            // We need to match arguments to parameters, skipping 'this' (param
-            // 0) Method parameters start at index 1
+          llvm::FunctionType *ft = methodFunc->getFunctionType();
+          for (size_t i = 0; i < compiledArgs.size(); ++i) {
+            llvm::Value *argValue = compiledArgs[i];
 
-            const auto &exprs = params->GetParameters();
-            for (size_t i = 0; i < exprs.size(); ++i) {
-              // Check if we have enough parameters in function definition
-              if (i + 1 < ft->getNumParams()) {
-                llvm::Type *paramType =
-                    ft->getParamType(static_cast<unsigned>(i + 1));
-                llvm::Value *argValue = CompileExpression(exprs[i], paramType);
-                if (argValue) {
-                  callArgs.push_back(argValue);
-                } else {
-                  std::cerr << "[ERROR] QJitRunner: Failed to compile argument "
-                            << i << " for implicit method call " << funcName
-                            << std::endl;
-                }
-              } else {
-                // Varargs or error?
-                llvm::Value *argValue = CompileExpression(exprs[i]);
-                if (argValue) {
-                  // Vararg promotion: float -> double
-                  if (argValue->getType()->isFloatTy()) {
-                    argValue =
-                        builder.CreateFPExt(argValue, builder.getDoubleTy());
-                  }
-                  callArgs.push_back(argValue);
+            // Apply type conversions if needed
+            if (i + 1 < ft->getNumParams()) {
+              llvm::Type *paramType =
+                  ft->getParamType(static_cast<unsigned>(i + 1));
+
+              // Integer type conversion
+              if (paramType->isIntegerTy() &&
+                  argValue->getType()->isIntegerTy()) {
+                if (argValue->getType()->getIntegerBitWidth() <
+                    paramType->getIntegerBitWidth()) {
+                  argValue = builder.CreateSExt(argValue, paramType);
+                } else if (argValue->getType()->getIntegerBitWidth() >
+                           paramType->getIntegerBitWidth()) {
+                  argValue = builder.CreateTrunc(argValue, paramType);
                 }
               }
+              // Float type conversion
+              else if (paramType->isFloatingPointTy() &&
+                       argValue->getType()->isFloatingPointTy()) {
+                if (argValue->getType()->isFloatTy() &&
+                    paramType->isDoubleTy()) {
+                  argValue = builder.CreateFPExt(argValue, paramType);
+                } else if (argValue->getType()->isDoubleTy() &&
+                           paramType->isFloatTy()) {
+                  argValue = builder.CreateFPTrunc(argValue, paramType);
+                }
+              }
+              // Int to float
+              else if (paramType->isFloatingPointTy() &&
+                       argValue->getType()->isIntegerTy()) {
+                argValue = builder.CreateSIToFP(argValue, paramType);
+              }
+              // Float to int
+              else if (paramType->isIntegerTy() &&
+                       argValue->getType()->isFloatingPointTy()) {
+                argValue = builder.CreateFPToSI(argValue, paramType);
+              }
             }
+
+            callArgs.push_back(argValue);
           }
 
           builder.CreateCall(methodFunc, callArgs);
@@ -2081,7 +2108,10 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   auto &builder = QLVM::GetBuilder();
   for (const auto &method : classNode->GetMethods()) {
     std::string methodName = method->GetName();
-    std::string fullName = className + "_" + methodName;
+
+    // Generate mangled name for method overloading support
+    std::string mangledName = MangleMethodName(methodName, method);
+    std::string fullName = className + "_" + mangledName;
 
     std::vector<llvm::Type *> paramTypes;
     // Add 'this' pointer
@@ -2111,14 +2141,23 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
     llvm::Function *func = llvm::cast<llvm::Function>(
         module->getOrInsertFunction(fullName, funcType).getCallee());
 
-    // Check if this method overrides an inherited one
-    if (classInfo.methods.find(methodName) != classInfo.methods.end()) {
+    // Check if this method overrides an inherited one (only for non-mangled
+    // names) Overloading: same class, different signatures -> different mangled
+    // names Overriding: child class redefines parent method -> same mangled
+    // name exists in parent
+    if (!parentClassName.empty() &&
+        classInfo.methods.find(mangledName) != classInfo.methods.end()) {
       std::cout << "[DEBUG]   Method '" << methodName
                 << "' OVERRIDES parent method" << std::endl;
+    } else if (mangledName != methodName) {
+      std::cout << "[DEBUG]   Method '" << methodName
+                << "' overload registered as '" << mangledName << "'"
+                << std::endl;
     }
-    classInfo.methods[methodName] = func;
+
+    classInfo.methods[mangledName] = func;
     if (method->GetReturnType() == TokenType::T_IDENTIFIER) {
-      classInfo.methodReturnTypes[methodName] = method->GetReturnTypeName();
+      classInfo.methodReturnTypes[mangledName] = method->GetReturnTypeName();
     }
   }
 
@@ -2291,7 +2330,10 @@ void QJitRunner::CompileMethod(const std::string &className,
   auto *module = QLVM::GetModule();
 
   std::string methodName = method->GetName();
-  std::string fullName = className + "_" + methodName;
+
+  // Generate mangled name for method overloading support
+  std::string mangledName = MangleMethodName(methodName, method);
+  std::string fullName = className + "_" + mangledName;
 
   std::cout << "[DEBUG] QJitRunner: Compiling method '" << fullName << "'"
             << std::endl;
@@ -2333,7 +2375,7 @@ void QJitRunner::CompileMethod(const std::string &className,
 
     // Store return type name for class method tracking
     if (method->GetReturnType() == TokenType::T_IDENTIFIER) {
-      classInfo.methodReturnTypes[methodName] = method->GetReturnTypeName();
+      classInfo.methodReturnTypes[mangledName] = method->GetReturnTypeName();
     }
 
     // Create function type and function
@@ -2343,6 +2385,14 @@ void QJitRunner::CompileMethod(const std::string &className,
                                   fullName, module);
   } else {
     returnType = func->getReturnType();
+
+    // Safety check: if the function already has basic blocks, it was already
+    // compiled (e.g., from an imported module). Skip recompilation.
+    if (!func->empty()) {
+      std::cout << "[DEBUG] QJitRunner: Method '" << fullName
+                << "' already has a body, skipping recompilation" << std::endl;
+      return;
+    }
   }
 
   // Create entry block
@@ -2417,8 +2467,8 @@ void QJitRunner::CompileMethod(const std::string &className,
     builder.SetInsertPoint(savedInsertPoint);
   }
 
-  // Store method in class info
-  classInfo.methods[methodName] = func;
+  // Store method in class info using mangled name
+  classInfo.methods[mangledName] = func;
   m_CompiledClasses[className] = classInfo; // Update the map entry
 
   std::cout << "[DEBUG] QJitRunner: Method '" << fullName << "' compiled"
@@ -2913,36 +2963,15 @@ QJitRunner::CompileMethodCall(std::shared_ptr<QMethodCall> methodCall) {
   }
 
   CompiledClass &classInfo = classIt->second;
-  auto methIt = classInfo.methods.find(methodName);
-  if (methIt == classInfo.methods.end()) {
-    std::cerr << "[ERROR] QJitRunner: Method '" << methodName
-              << "' not found in class '" << className << "'" << std::endl;
-    return nullptr;
-  }
 
-  llvm::Function *targetFunc = methIt->second;
-
-  // Compile arguments
-  std::vector<llvm::Value *> callArgs;
-  callArgs.push_back(instancePtr); // 'this' pointer
-
+  // Compile arguments first to determine their types for overload resolution
+  std::vector<llvm::Value *> compiledArgs;
   if (auto args = methodCall->GetArguments()) {
     const auto &params = args->GetParameters();
     for (size_t i = 0; i < params.size(); ++i) {
-      // +1 because first param is 'this'
-      llvm::Type *paramType = nullptr;
-      if (i + 1 < targetFunc->getFunctionType()->getNumParams()) {
-        paramType = targetFunc->getFunctionType()->getParamType(
-            static_cast<unsigned>(i + 1));
-      }
-
-      llvm::Value *argVal = CompileExpression(params[i], paramType);
+      llvm::Value *argVal = CompileExpression(params[i]);
       if (argVal) {
-        // Vararg promotion: float -> double
-        if (!paramType && argVal->getType()->isFloatTy()) {
-          argVal = builder.CreateFPExt(argVal, builder.getDoubleTy());
-        }
-        callArgs.push_back(argVal);
+        compiledArgs.push_back(argVal);
       } else {
         std::cerr << "[ERROR] QJitRunner: Failed to compile argument " << i
                   << " for " << methodName << std::endl;
@@ -2950,21 +2979,173 @@ QJitRunner::CompileMethodCall(std::shared_ptr<QMethodCall> methodCall) {
     }
   }
 
+  // Use FindMethodOverload to find the best matching overload
+  llvm::Function *targetFunc =
+      FindMethodOverload(classInfo, methodName, compiledArgs);
+  if (!targetFunc) {
+    std::cerr << "[ERROR] QJitRunner: Method '" << methodName
+              << "' not found in class '" << className
+              << "' (or no matching overload for " << compiledArgs.size()
+              << " arguments)" << std::endl;
+    return nullptr;
+  }
+
+  // Build final call arguments with 'this' pointer and type conversions
+  std::vector<llvm::Value *> callArgs;
+  callArgs.push_back(instancePtr); // 'this' pointer
+
+  llvm::FunctionType *ft = targetFunc->getFunctionType();
+  for (size_t i = 0; i < compiledArgs.size(); ++i) {
+    llvm::Value *argVal = compiledArgs[i];
+
+    // Apply type conversions if needed
+    if (i + 1 < ft->getNumParams()) {
+      llvm::Type *paramType = ft->getParamType(static_cast<unsigned>(i + 1));
+
+      // Integer type conversion
+      if (paramType->isIntegerTy() && argVal->getType()->isIntegerTy()) {
+        if (argVal->getType()->getIntegerBitWidth() <
+            paramType->getIntegerBitWidth()) {
+          argVal = builder.CreateSExt(argVal, paramType);
+        } else if (argVal->getType()->getIntegerBitWidth() >
+                   paramType->getIntegerBitWidth()) {
+          argVal = builder.CreateTrunc(argVal, paramType);
+        }
+      }
+      // Float type conversion
+      else if (paramType->isFloatingPointTy() &&
+               argVal->getType()->isFloatingPointTy()) {
+        if (argVal->getType()->isFloatTy() && paramType->isDoubleTy()) {
+          argVal = builder.CreateFPExt(argVal, paramType);
+        } else if (argVal->getType()->isDoubleTy() && paramType->isFloatTy()) {
+          argVal = builder.CreateFPTrunc(argVal, paramType);
+        }
+      }
+      // Int to float
+      else if (paramType->isFloatingPointTy() &&
+               argVal->getType()->isIntegerTy()) {
+        argVal = builder.CreateSIToFP(argVal, paramType);
+      }
+      // Float to int
+      else if (paramType->isIntegerTy() &&
+               argVal->getType()->isFloatingPointTy()) {
+        argVal = builder.CreateFPToSI(argVal, paramType);
+      }
+    }
+
+    callArgs.push_back(argVal);
+  }
+
   return builder.CreateCall(targetFunc, callArgs);
+}
+
+// ============================================================================
+// Method Overloading Helpers
+// ============================================================================
+
+std::string
+QJitRunner::MangleMethodName(const std::string &methodName,
+                             const std::vector<std::string> &paramTypeNames) {
+  if (paramTypeNames.empty()) {
+    return methodName; // No parameters, use base name
+  }
+
+  std::string mangled = methodName;
+  for (const auto &typeName : paramTypeNames) {
+    mangled += "$" + typeName;
+  }
+  return mangled;
+}
+
+std::string QJitRunner::MangleMethodName(const std::string &methodName,
+                                         std::shared_ptr<QMethod> method) {
+  std::vector<std::string> paramTypeNames;
+  for (const auto &param : method->GetParameters()) {
+    paramTypeNames.push_back(param.typeName.empty()
+                                 ? std::to_string(static_cast<int>(param.type))
+                                 : param.typeName);
+  }
+  return MangleMethodName(methodName, paramTypeNames);
+}
+
+llvm::Function *
+QJitRunner::FindMethodOverload(const CompiledClass &classInfo,
+                               const std::string &methodName,
+                               const std::vector<llvm::Value *> &args) {
+  // First try exact match (for non-overloaded methods or if we have complete
+  // type info)
+  auto exactIt = classInfo.methods.find(methodName);
+  if (exactIt != classInfo.methods.end()) {
+    llvm::Function *func = exactIt->second;
+    // Check argument count (subtract 1 for 'this' pointer in method calls)
+    if (func->arg_size() == args.size() + 1) {
+      return func;
+    }
+  }
+
+  // Search for overloads by iterating through all methods
+  // Methods are stored as "MethodName$type1$type2..." for overloads
+  std::string prefix = methodName + "$";
+  llvm::Function *bestMatch = nullptr;
+  int bestScore = -1;
+
+  for (const auto &pair : classInfo.methods) {
+    // Check if this is an overload of our target method
+    // Either exact match or starts with "MethodName$"
+    bool isMatch = (pair.first == methodName) ||
+                   (pair.first.length() > prefix.length() &&
+                    pair.first.compare(0, prefix.length(), prefix) == 0);
+    if (!isMatch) {
+      continue;
+    }
+    llvm::Function *func = pair.second;
+
+    // Check argument count (method has 'this' as first param)
+    if (func->arg_size() != args.size() + 1) {
+      continue;
+    }
+
+    // Score this overload based on type compatibility
+    int score = 0;
+    bool compatible = true;
+    llvm::FunctionType *ft = func->getFunctionType();
+
+    for (size_t i = 0; i < args.size() && compatible; ++i) {
+      llvm::Type *paramType = ft->getParamType(static_cast<unsigned>(i + 1));
+      llvm::Type *argType = args[i]->getType();
+
+      if (paramType == argType) {
+        score += 10; // Perfect match
+      } else if (paramType->isFloatingPointTy() &&
+                 argType->isFloatingPointTy()) {
+        score += 5; // Float type conversion possible
+      } else if (paramType->isIntegerTy() && argType->isIntegerTy()) {
+        score += 5; // Integer type conversion possible
+      } else if (paramType->isPointerTy() && argType->isPointerTy()) {
+        score += 5; // Pointer types (class instances, etc.)
+      } else {
+        compatible = false;
+      }
+    }
+
+    if (compatible && score > bestScore) {
+      bestScore = score;
+      bestMatch = func;
+    }
+  }
+
+  return bestMatch;
 }
 
 llvm::Function *
 QJitRunner::FindConstructor(const CompiledClass &classInfo,
                             const std::string &className,
                             const std::vector<llvm::Value *> &args) {
-  // Constructor has same name as class
-  auto it = classInfo.methods.find(className);
-  if (it != classInfo.methods.end()) {
-    llvm::Function *func = it->second;
-    // Check argument count (subtract 1 for 'this' pointer)
-    if (func->arg_size() - 1 == args.size()) {
-      return func;
-    }
+  // Use FindMethodOverload which handles the iteration through overloads
+  // For constructors, the method name is the same as the class name
+  llvm::Function *result = FindMethodOverload(classInfo, className, args);
+  if (result) {
+    return result;
   }
 
   // For specialized generic classes (e.g., Test_int32_string), try the base
@@ -2972,12 +3153,9 @@ QJitRunner::FindConstructor(const CompiledClass &classInfo,
   size_t underscorePos = className.find('_');
   if (underscorePos != std::string::npos) {
     std::string baseName = className.substr(0, underscorePos);
-    auto baseIt = classInfo.methods.find(baseName);
-    if (baseIt != classInfo.methods.end()) {
-      llvm::Function *func = baseIt->second;
-      if (func->arg_size() - 1 == args.size()) {
-        return func;
-      }
+    result = FindMethodOverload(classInfo, baseName, args);
+    if (result) {
+      return result;
     }
   }
 
@@ -3324,6 +3502,11 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
   m_LoadedModules
       .clear(); // Ensure modules are re-linked into the new LLVM module
 
+  // Clear compiled classes to remove stale entries from previous runs (e.g.
+  // previous scripts) The auto-import loop below will re-populate it with
+  // clean, potentially updated classes from modules.
+  m_CompiledClasses.clear();
+
   // Automatically import all built modules to support the "Clean API"
   // persistence
   for (const auto &moduleName : m_AutoImportModules) {
@@ -3570,23 +3753,53 @@ bool QJitRunner::CompileModule(const std::string &moduleName,
   std::cout << "[INFO] QJitRunner: Compiling module '" << moduleName
             << "' to file " << binaryPath << std::endl;
 
-  // Save current state and clear for isolation
+  // Save current state for the temporary compilation module
   auto &builder = QLVM::GetBuilder();
   llvm::BasicBlock *oldBB = builder.GetInsertBlock();
   llvm::BasicBlock::iterator oldIP;
   if (oldBB)
     oldIP = builder.GetInsertPoint();
 
+  // Take the main module and create a fresh one for compilation
   auto oldModule = QLVM::TakeModule();
-  auto oldCompiledClasses = m_CompiledClasses;
+
+  // CRITICAL: Reset context cache immediately after TakeModule!
+  // The cached LLVM function pointers (like qprintf) point to the OLD module.
+  // With a fresh module, we need fresh function declarations.
+  // GetLLVMFunc will recreate them on demand using the stored function types.
+  m_LVMContext->ResetCache();
+
+  // Save loaded modules - we need to clear this for the temp module compilation
+  // so that ImportModule actually links (not just returns "already loaded")
+  auto oldLoadedModules = m_LoadedModules;
+  m_LoadedModules.clear();
+
+  // IMPORTANT: Save m_CompiledClasses - we'll use this for type lookup during
+  // compilation, but the original entries point to the MAIN module's types,
+  // not the temp module's. We need to clear and re-import for this compilation.
+  auto savedCompiledClasses = m_CompiledClasses;
   m_CompiledClasses.clear();
+
+  // Process imports BEFORE compiling classes
+  // This links dependencies into the TEMP module and creates their types there
+  for (const auto &importName : moduleProgram->GetImports()) {
+    std::cout << "[DEBUG] QJitRunner: Module '" << moduleName
+              << "' importing: " << importName << std::endl;
+
+    if (!ImportModule(importName)) {
+      std::cerr << "[WARNING] QJitRunner: Failed to import module '"
+                << importName << "' for module '" << moduleName << "'"
+                << std::endl;
+    }
+  }
 
   // Compile classes into the temporary LLVM module
   for (const auto &classNode : moduleProgram->GetClasses()) {
     CompileClass(classNode);
   }
 
-  // Gather class metadata for serialization
+  // Gather class metadata for serialization - ONLY for classes defined in this
+  // module
   std::vector<ModuleClassInfo> classInfos;
   for (const auto &classNode : moduleProgram->GetClasses()) {
     std::string className = classNode->GetName();
@@ -3614,11 +3827,23 @@ bool QJitRunner::CompileModule(const std::string &moduleName,
   bool success = moduleFile.SaveModule(moduleName, binaryPath,
                                        QLVM::GetModule(), classInfos);
 
-  // Restore global state
-  m_CompiledClasses = oldCompiledClasses;
+  // Restore LLVM module and builder state
   QLVM::SetModule(std::move(oldModule));
   if (oldBB)
     builder.SetInsertPoint(oldBB, oldIP);
+
+  // Reset context cache - cached LLVM function pointers from the temp module
+  // are now invalid. The context will recreate them on demand for the main
+  // module.
+  m_LVMContext->ResetCache();
+
+  // Restore m_LoadedModules so subsequent BuildModule calls don't skip imports
+  m_LoadedModules = oldLoadedModules;
+
+  // CRITICAL: Restore m_CompiledClasses - the temp module types are now invalid
+  // The ImportModule call in BuildModule will properly re-register classes
+  // with types from the MAIN module
+  m_CompiledClasses = savedCompiledClasses;
 
   if (!success) {
     std::cerr << "[ERROR] QJitRunner: Failed to save module: "
@@ -3635,7 +3860,12 @@ void QJitRunner::LinkModuleInto(llvm::Module *srcModule,
     return;
 
   // Clone the source module before linking (linkModules takes ownership)
-  if (llvm::Linker::linkModules(*dstModule, llvm::CloneModule(*srcModule))) {
+  // Use OverrideFromSrc flag to allow overwriting existing symbols
+  // This is needed because compiled modules may include their dependencies,
+  // and those dependencies may already exist in the destination module
+  unsigned flags = llvm::Linker::Flags::OverrideFromSrc;
+  if (llvm::Linker::linkModules(*dstModule, llvm::CloneModule(*srcModule),
+                                flags)) {
     std::cerr << "[ERROR] QJitRunner: Failed to link modules" << std::endl;
   }
 }
@@ -3785,6 +4015,10 @@ std::shared_ptr<QJitProgram> QJitRunner::RunScript(const std::string &path) {
 
   // Compile
   auto program_result = CompileProgram(program);
+  if (!program_result) {
+    std::cerr << "[ERROR] QJitRunner: Compilation failed" << std::endl;
+    return nullptr;
+  }
 
   // Execute top-level code if compilation succeeded
   if (program_result) {

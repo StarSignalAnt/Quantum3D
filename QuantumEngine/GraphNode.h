@@ -6,7 +6,7 @@
 #include <vector>
 
 // Forward declaration for QLang (global namespace)
-class QClassInstance;
+class QJClassInstance;
 
 namespace Quantum {
 
@@ -89,11 +89,11 @@ public:
   size_t GetMeshCount() const { return m_Meshes.size(); }
   bool HasMeshes() const { return !m_Meshes.empty(); }
 
-  const std::vector<std::shared_ptr<QClassInstance>> &GetScripts() const {
+  const std::vector<std::shared_ptr<QJClassInstance>> &GetScripts() const {
     return m_QClasses;
   }
 
-  void AddScript(std::shared_ptr<QClassInstance> cls);
+  void AddScript(std::shared_ptr<QJClassInstance> cls);
 
   void Turn(glm::vec3 value);
 
@@ -143,7 +143,7 @@ private:
   std::string m_SourcePath;
 
   // scripts
-  std::vector<std::shared_ptr<QClassInstance>> m_QClasses;
+  std::vector<std::shared_ptr<QJClassInstance>> m_QClasses;
 
   void SetParent(GraphNode *parent);
   void InvalidateChildTransforms();

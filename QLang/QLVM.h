@@ -27,4 +27,6 @@ private:
 
   static std::unique_ptr<LLVMState> s_State;
   static bool s_Initialized;
+  static std::string s_TargetTriple;
+  static std::string s_DataLayoutStr;
 };

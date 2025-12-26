@@ -5,6 +5,8 @@
 #include <QIcon>
 #include <QLoggingCategory>
 
+
+
 int main(int argc, char *argv[]) {
   // Enable Vulkan backend for Qt's RHI (Rendering Hardware Interface)
   qputenv("QSG_RHI_BACKEND", "vulkan");

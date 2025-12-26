@@ -67,6 +67,15 @@
     <ClCompile Include="ScriptEditorWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CodeEditor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="QLangHighlighter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="QLangSymbols.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="SceneGraphWidget.h">
@@ -90,6 +99,12 @@
     <QtMoc Include="ScriptEditorWindow.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="CodeEditor.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="QLangHighlighter.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -99,6 +114,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="EditorCamera.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="QLangSymbols.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CodeEditorTheme.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

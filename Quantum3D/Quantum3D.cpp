@@ -64,7 +64,7 @@ void Quantum3D::setupDockWidgets() {
   EngineGlobals::BrowserPanel = m_browserWidget;
 
   // Create Script Editor (a separate main window)
-  EngineGlobals::ScriptEditor = new Quantum::ScriptEditorWindow(this);
+//  EngineGlobals::ScriptEditor = new Quantum::ScriptEditorWindow(this);
 
   // Connect BrowserWidget model import signal to ViewportWidget slot
   connect(m_browserWidget, &BrowserWidget::ModelImported, m_viewportWidget,

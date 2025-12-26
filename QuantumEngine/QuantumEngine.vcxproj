@@ -112,7 +112,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;GLM_ENABLE_EXPERIMENTAL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;GLM_ENABLE_EXPERIMENTAL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -127,7 +127,7 @@
     </Link>
     <Lib>
       <AdditionalDependencies>glfw3.lib;vulkan-1.lib;assimp-vc143-mt.lib;QLang.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\Quantum\Quantum3D\x64\Debug;C:\Quantum\Assimp\lib\x64;C:\VulkanSDK\1.4.328.1\Lib;C:\Vivid3D\Vivid3D\packages\glfw.3.4.0\build\native\lib\static\v143\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\Quantum\Quantum3D\x64\Debug;C:\Quantum\Assimp\lib\x64;C:\VulkanSDK\1.4.328.1\Lib;C:\Quantum\Quantum3D\New folder;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -166,7 +166,6 @@
     <ClInclude Include="IWindow.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="QLangDomain.h" />
-    <ClInclude Include="SceneSerializer.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="stb_truetype.h" />
     <ClInclude Include="Texture2D.h" />
@@ -225,7 +224,6 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="SceneSerializer.cpp" />
     <ClCompile Include="stb_image_impl.cpp" />
     <ClCompile Include="stb_truetype_impl.cpp" />
     <ClCompile Include="Texture2D.cpp" />

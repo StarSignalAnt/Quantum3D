@@ -452,16 +452,19 @@ void SceneGraphWidget::dropEvent(QDropEvent *event) {
 
   // Load the class instance from QLangDomain
   if (EngineGlobals::m_QDomain) {
-    std::shared_ptr<QClassInstance> classInstance =
-        EngineGlobals::m_QDomain->LoadClass(scriptPath.toStdString(),
-                                            targetNode);
+      EngineGlobals::m_QDomain->CompileScript(scriptPath.toStdString());
+      // std::shared_ptr<QClassInstance> classInstance =
+    //    EngineGlobals::m_QDomain->LoadClass(scriptPath.toStdString(),
+    //                                        targetNode);
+      //****Script
+  //  if (classInstance) {
 
-    if (classInstance) {
-      targetNode->AddScript(classInstance);
+
+      //targetNode->AddScript(classInstance);
       qDebug() << "Script attached successfully";
-    } else {
+   // } else {
       qDebug() << "Failed to load script class from:" << scriptPath;
-    }
+    //}
   } else {
     qDebug() << "QLangDomain not initialized";
   }

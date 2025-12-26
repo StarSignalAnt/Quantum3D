@@ -26,106 +26,12 @@ void QuantumMenu::setupMenus() {
   // Open Scene
   m_openSceneAction = m_fileMenu->addAction(tr("&Open Scene..."));
   m_openSceneAction->setShortcut(QKeySequence::Open);
-  connect(m_openSceneAction, &QAction::triggered, []() {
-    if (!EngineGlobals::EditorScene)
-      return;
 
-    // Get default directory from browser widget
-    QString defaultDir = ".";
-    if (EngineGlobals::BrowserPanel) {
-      defaultDir =
-          QString::fromStdString(EngineGlobals::BrowserPanel->GetCurrentPath());
-    }
-
-    QString filepath = QFileDialog::getOpenFileName(
-        nullptr, tr("Open Scene"), defaultDir, tr("Scene Files (*.graph)"));
-
-    if (filepath.isEmpty())
-      return;
-
-    // Get content root
-    std::string contentRoot = ".";
-    if (EngineGlobals::BrowserPanel) {
-      contentRoot = EngineGlobals::BrowserPanel->GetContentRoot();
-    }
-
-    // Get Vulkan device and QLang domain
-    Vivid::VividDevice *device = nullptr;
-    if (EngineGlobals::Viewport) {
-      device = EngineGlobals::Viewport->GetDevice();
-    }
-
-    QLangDomain *domain = EngineGlobals::m_QDomain.get();
-
-    Quantum::SceneSerializer::LoadedCameraState cameraState;
-    if (Quantum::SceneSerializer::Load(*EngineGlobals::EditorScene,
-                                       filepath.toStdString(), contentRoot,
-                                       device, domain, &cameraState)) {
-      // Refresh UI
-      if (EngineGlobals::SceneGraphPanel) {
-        EngineGlobals::SceneGraphPanel->RefreshTree();
-      }
-      // Refresh material descriptor sets for newly loaded meshes
-      if (EngineGlobals::Viewport) {
-        EngineGlobals::Viewport->RefreshMaterials();
-      }
-      // Sync editor camera rotation with loaded yaw/pitch
-      if (EngineGlobals::Viewport && cameraState.hasData) {
-        EngineGlobals::Viewport->SetEditorCameraRotation(cameraState.pitch,
-                                                         cameraState.yaw);
-      }
-    } else {
-      QMessageBox::warning(nullptr, tr("Open Scene"),
-                           tr("Failed to open scene file."));
-    }
-  });
 
   // Save Scene
   m_saveSceneAction = m_fileMenu->addAction(tr("&Save Scene..."));
   m_saveSceneAction->setShortcut(QKeySequence::Save);
-  connect(m_saveSceneAction, &QAction::triggered, []() {
-    if (!EngineGlobals::EditorScene)
-      return;
-
-    // Get default directory from browser widget
-    QString defaultDir = ".";
-    if (EngineGlobals::BrowserPanel) {
-      defaultDir =
-          QString::fromStdString(EngineGlobals::BrowserPanel->GetCurrentPath());
-    }
-
-    QString filepath = QFileDialog::getSaveFileName(
-        nullptr, tr("Save Scene"), defaultDir, tr("Scene Files (*.graph)"));
-
-    if (filepath.isEmpty())
-      return;
-
-    // Ensure .graph extension
-    if (!filepath.endsWith(".graph", Qt::CaseInsensitive)) {
-      filepath += ".graph";
-    }
-
-    // Get content root
-    std::string contentRoot = ".";
-    if (EngineGlobals::BrowserPanel) {
-      contentRoot = EngineGlobals::BrowserPanel->GetContentRoot();
-    }
-
-    // Get editor camera yaw/pitch from viewport
-    float editorYaw = 0.0f, editorPitch = 0.0f;
-    if (EngineGlobals::Viewport) {
-      EngineGlobals::Viewport->GetEditorCameraRotation(editorPitch, editorYaw);
-    }
-
-    if (Quantum::SceneSerializer::Save(*EngineGlobals::EditorScene,
-                                       filepath.toStdString(), contentRoot,
-                                       editorYaw, editorPitch)) {
-      // Success
-    } else {
-      QMessageBox::warning(nullptr, tr("Save Scene"),
-                           tr("Failed to save scene file."));
-    }
-  });
+ 
 
   m_fileMenu->addSeparator();
 

@@ -26,6 +26,19 @@ QJitProgram::QJitProgram(std::unique_ptr<llvm::Module> module) {
   if (!m_Engine) {
     std::cerr << "[ERROR] QJitProgram: Failed to create ExecutionEngine: "
               << err << std::endl;
+
+    // Fallback to interpreter
+    std::cout << "[INFO] QJitProgram: Falling back to Interpreter..."
+              << std::endl;
+    builder.setEngineKind(llvm::EngineKind::Interpreter);
+    m_Engine = builder.create();
+    if (m_Engine) {
+      std::cout << "[INFO] QJitProgram: Interpreter created successfully."
+                << std::endl;
+    } else {
+      std::cerr << "[ERROR] QJitProgram: Interpreter creation also failed: "
+                << err << std::endl;
+    }
   } else {
     std::cout << "[INFO] QJitProgram: ExecutionEngine created successfully."
               << std::endl;

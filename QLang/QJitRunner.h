@@ -177,6 +177,15 @@ private:
                                   const std::string &className,
                                   const std::vector<llvm::Value *> &args);
 
+  // Method overloading helpers
+  std::string MangleMethodName(const std::string &methodName,
+                               const std::vector<std::string> &paramTypeNames);
+  std::string MangleMethodName(const std::string &methodName,
+                               std::shared_ptr<QMethod> method);
+  llvm::Function *FindMethodOverload(const CompiledClass &classInfo,
+                                     const std::string &methodName,
+                                     const std::vector<llvm::Value *> &args);
+
   void LinkModuleInto(llvm::Module *srcModule, llvm::Module *dstModule);
 
   // Generate wrapper function for dynamic method calling

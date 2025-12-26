@@ -63,6 +63,11 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
   </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
     <ClCompile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -78,7 +83,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;$(OutDir);$(ProjectDir)..\QuantumEngine\$(Platform)\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>vulkan-1.lib;QuantumEngine.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>Ws2_32.lib;Rpcrt4.lib;LLVMCore.lib;/WHOLEARCHIVE:LLVMMCJIT.lib;LLVMSupport.lib;/WHOLEARCHIVE:LLVMExecutionEngine.lib;LLVMRuntimeDyld.lib;LLVMObject.lib;LLVMBinaryFormat.lib;LLVMDemangle.lib;LLVMTarget.lib;LLVMCodeGen.lib;LLVMScalarOpts.lib;LLVMAnalysis.lib;LLVMTransformUtils.lib;LLVMBitReader.lib;LLVMMC.lib;LLVMMCParser.lib;LLVMInstCombine.lib;LLVMProfileData.lib;LLVMDebugInfoDWARF.lib;LLVMDebugInfoCodeView.lib;LLVMRemarks.lib;LLVMBitstreamReader.lib;LLVMTextAPI.lib;LLVMTargetParser.lib;LLVMIRReader.lib;LLVMAsmParser.lib;LLVMSelectionDAG.lib;LLVMGlobalISel.lib;/WHOLEARCHIVE:LLVMX86CodeGen.lib;LLVMX86Desc.lib;LLVMX86Info.lib;LLVMX86AsmParser.lib;LLVMX86Disassembler.lib;/WHOLEARCHIVE:LLVMInterpreter.lib;LLVMAsmPrinter.lib;LLVMObjCARCOpts.lib;LLVMCFGuard.lib;vulkan-1.lib;QuantumEngine.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <QtMoc>
       <PrependInclude>stdafx.h;%(PrependInclude)</PrependInclude>

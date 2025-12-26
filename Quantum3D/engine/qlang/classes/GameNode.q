@@ -1,59 +1,43 @@
+module Game
+
 class GameNode
 
     cptr NodePtr;
 
     method void GameNode()
 
-        printf("GameNod constructed");
-
-    end 
-
-
-    method Vec3 GetPosition()
-
-        return NodeGetPosition(NodePtr);
+        qprintf("GameNod constructed");
 
     end 
 
     method void OnPlay()
 
-        printf("GameNode.OnPlay");
+        qprintf("GameNode.OnPlay");
 
     end 
 
     method void OnUpdate(float32 dt)
 
-        printf("GameNode.OnUpdate");
+        qprintf("GameNode.OnUpdate");
 
     end
 
     method void OnRender()
 
-        printf("GameNode.OnRender");
+        qprintf("GameNode.OnRender");
 
     end 
 
     method void OnStop()
 
-        printf("GameNode.OnStop");
+        qprintf("GameNode.OnStop");
 
     end 
 
-    method void Turn(Vec3 rotation)
-
-        NodeTurn(NodePtr,rotation);
-
-    end 
-
-    method void SetPosition(Vec3 position)
-
-        NodeSetPosition(NodePtr,position);
-
-    end 
-
+   
 
 end 
 
 
-printf("Game Node Registered");
+qprintf("Game Node Registered");
 

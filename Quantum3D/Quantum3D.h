@@ -3,6 +3,10 @@
 #include "ui_Quantum3D.h"
 #include <QtWidgets/QDockWidget>
 #include <QtWidgets/QMainWindow>
+#include <iostream>
+
+
+
 
 class SceneGraphWidget;
 class PropertiesWidget;

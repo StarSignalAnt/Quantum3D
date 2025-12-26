@@ -109,6 +109,7 @@ void PropertiesWidget::RefreshProperties() {
   m_Fields.push_back(scaleField);
 
   // Scripts
+  /*
   for (auto script : m_CurrentNode->GetScripts()) {
     AddHeader(script->GetQClassName());
     auto classDef = script->GetClassDef();
@@ -291,7 +292,7 @@ void PropertiesWidget::RefreshProperties() {
       m_Fields.push_back(field);
     }
   }
-
+  */
   resizeEvent(nullptr);
   update();
 }

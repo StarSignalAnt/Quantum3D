@@ -1,3 +1,7 @@
+module Matrix
+import Vec3
+
+
 class Matrix
 
     float32 m11; float32 m12; float32 m13; float32 m14;
@@ -116,10 +120,10 @@ class Matrix
     end
 
     method void Print()
-        printf("[", m11, m12, m13, m14, "]");
-        printf("[", m21, m22, m23, m24, "]");
-        printf("[", m31, m32, m33, m34, "]");
-        printf("[", m41, m42, m43, m44, "]");
+        qprintf("[", m11, m12, m13, m14, "]");
+        qprintf("[", m21, m22, m23, m24, "]");
+        qprintf("[", m31, m32, m33, m34, "]");
+       qprintf("[", m41, m42, m43, m44, "]");
     end
 
 end

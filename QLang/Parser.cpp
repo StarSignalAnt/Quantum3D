@@ -436,6 +436,11 @@ std::shared_ptr<QParameters> Parser::ParseParameters() {
 #endif
   }
 
+  // Skip any leading newlines inside the parameter list
+  while (Check(TokenType::T_END_OF_LINE)) {
+    Advance();
+  }
+
   // Check for empty parameters ()
   if (Check(TokenType::T_RPAREN)) {
     Advance();
@@ -453,8 +458,24 @@ std::shared_ptr<QParameters> Parser::ParseParameters() {
   }
 
   // Parse remaining expressions separated by ','
-  while (Check(TokenType::T_COMMA)) {
+  // Skip newlines between parameters for multi-line function calls
+  while (true) {
+    // Skip newlines
+    while (Check(TokenType::T_END_OF_LINE)) {
+      Advance();
+    }
+
+    if (!Check(TokenType::T_COMMA)) {
+      break;
+    }
+
     Advance(); // consume ','
+
+    // Skip newlines after comma
+    while (Check(TokenType::T_END_OF_LINE)) {
+      Advance();
+    }
+
 #if QLANG_DEBUG
     std::cout << "[DEBUG] ParseParameters() - consumed ','" << std::endl;
 #endif
@@ -488,10 +509,21 @@ std::shared_ptr<QExpression> Parser::ParseExpression() {
 
   // Collect tokens until we hit ',' or ')' (at depth 0) or ';' or EOF
   // Also stop at 'to' and ':' for for-loop range parsing (for x = 0 to 10 : 1)
-  while (!IsAtEnd() && !Check(TokenType::T_END_OF_LINE) &&
-         !Check(TokenType::T_EOF) && !Check(TokenType::T_TO) &&
+  // Allow multi-line expressions when inside parentheses (parenDepth > 0)
+  while (!IsAtEnd() && !Check(TokenType::T_EOF) && !Check(TokenType::T_TO) &&
          !Check(TokenType::T_COLON)) {
     Token current = Peek();
+
+    // Only stop at end-of-line if we're NOT inside parentheses
+    if (current.type == TokenType::T_END_OF_LINE && parenDepth == 0) {
+      break;
+    }
+
+    // Skip newlines inside parentheses (multi-line expressions)
+    if (current.type == TokenType::T_END_OF_LINE && parenDepth > 0) {
+      Advance();
+      continue;
+    }
 
     // Track parenthesis depth
     if (current.type == TokenType::T_LPAREN) {
