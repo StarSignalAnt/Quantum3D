@@ -1,8 +1,6 @@
 #define NOMINMAX
 #include "PropertiesWidget.h"
-#include "../QLang/QClassInstance.h"
-#include "../QLang/QRunner.h"
-#include "../QLang/Tokenizer.h"
+// JIT types (QJClassInstance, QJitRunner, etc.) included via QLangDomain.h
 #include "../QuantumEngine/GraphNode.h"
 #include "../QuantumEngine/QLangDomain.h"
 #include "../QuantumEngine/SceneGraph.h"
@@ -28,6 +26,12 @@
 #include <iomanip>
 #include <sstream>
 #include <variant>
+
+// Undefine Windows GetClassName macro to avoid conflict with
+// QJClassInstance::GetClassName
+#ifdef GetClassName
+#undef GetClassName
+#endif
 
 using namespace Quantum;
 
@@ -108,191 +112,172 @@ void PropertiesWidget::RefreshProperties() {
   };
   m_Fields.push_back(scaleField);
 
-  // Scripts
-  /*
-  for (auto script : m_CurrentNode->GetScripts()) {
-    AddHeader(script->GetQClassName());
-    auto classDef = script->GetClassDef();
-    if (!classDef)
+  // Scripts (QLang JIT class member properties via ScriptPair)
+  for (auto *scriptPair : m_CurrentNode->GetScripts()) {
+    if (!scriptPair || !scriptPair->ClsInstance)
       continue;
 
+    auto clsInstance = scriptPair->ClsInstance;
+    std::string className = clsInstance->GetClassName();
+    AddHeader(className);
+
+    // DEBUG: Log member count
+    std::cout << "[DEBUG] PropertiesWidget: Class '" << className << "' has "
+              << clsInstance->GetMembers().size() << " registered members"
+              << std::endl;
+    for (const auto &m : clsInstance->GetMembers()) {
+      std::cout << "  - " << m.first << " (typeToken=" << m.second.typeToken
+                << ", typeName=" << m.second.typeName << ")" << std::endl;
+    }
+
     // Helper to check for GameNode inheritance
-    auto isGameNodeClass = [](const std::string &className) {
-      if (className == "GameNode")
+    auto isGameNodeClass = [](const std::string &checkClassName) {
+      if (checkClassName == "GameNode")
         return true;
-      auto cls = QLangDomain::m_QLang->GetRunner()->FindClass(className);
-      while (cls) {
-        if (cls->GetName() == "GameNode")
-          return true;
-        if (!cls->HasParent())
-          break;
-        cls = QLangDomain::m_QLang->GetRunner()->FindClass(
-            cls->GetParentClassName());
-      }
-      return false;
+      auto runner = QLangDomain::m_QLang->GetRunner();
+      if (!runner)
+        return false;
+      // Check inheritance chain via compiled classes
+      // For now simple check - consider any non-primitive type as potential
+      // GameNode
+      return true; // TODO: implement proper inheritance check via QJitRunner
     };
 
-    for (auto const &memberDecl : classDef->GetMembers()) {
-      std::string fieldName = memberDecl->GetName();
-      auto qVarType = memberDecl->GetVarType();
-      std::string typeName = memberDecl->GetTypeName();
+    // Iterate over registered members
+    for (const auto &memberPair : clsInstance->GetMembers()) {
+      const std::string &fieldName = memberPair.first;
+      const MemberInfo &memberInfo = memberPair.second;
 
       PropertyField field;
       field.Name = fieldName;
 
-      if (qVarType == TokenType::T_FLOAT32) {
-        field.Type = PropertyType::Float;
-        field.GetFloat = [script, fieldName]() {
-          auto val = script->GetMember(fieldName);
-          if (std::holds_alternative<float>(val))
-            return std::get<float>(val);
-          if (std::holds_alternative<int32_t>(val))
-            return (float)std::get<int32_t>(val);
-          if (std::holds_alternative<double>(val))
-            return (float)std::get<double>(val);
-          return 0.0f;
-        };
-        field.SetFloat = [script, fieldName](float val) {
-          script->SetMember(fieldName, val);
-        };
-      } else if (qVarType == TokenType::T_INT32) {
-        field.Type = PropertyType::Int;
-        field.GetInt = [script, fieldName]() {
-          auto val = script->GetMember(fieldName);
-          if (std::holds_alternative<int32_t>(val))
-            return (int)std::get<int32_t>(val);
-          if (std::holds_alternative<float>(val))
-            return (int)std::get<float>(val);
-          if (std::holds_alternative<double>(val))
-            return (int)std::get<double>(val);
-          return 0;
-        };
-        field.SetInt = [script, fieldName](int val) {
-          script->SetMember(fieldName, val);
-        };
-      } else if (qVarType == TokenType::T_STRING_TYPE) {
-        field.Type = PropertyType::String;
-        field.GetString = [script, fieldName]() {
-          auto val = script->GetMember(fieldName);
-          if (std::holds_alternative<std::string>(val))
-            return std::get<std::string>(val);
-          return std::string("");
-        };
-        field.SetString = [script, fieldName](const std::string &val) {
-          script->SetMember(fieldName, val);
-        };
-      } else if (qVarType == TokenType::T_BOOL) {
-        field.Type = PropertyType::Bool;
-        field.GetBool = [script, fieldName]() {
-          auto val = script->GetMember(fieldName);
-          if (std::holds_alternative<bool>(val))
-            return std::get<bool>(val);
-          if (std::holds_alternative<int32_t>(val))
-            return (bool)std::get<int32_t>(val);
-          return false;
-        };
-        field.SetBool = [script, fieldName](bool val) {
-          script->SetMember(fieldName, val);
-        };
-      } else if (typeName == "Vec3") {
-        auto nested = script->GetNestedInstance(fieldName);
-        if (!nested)
-          continue;
-        field.Type = PropertyType::Vec3;
-        field.GetVec3 = [nested]() {
-          auto extractFloat = [](const QInstanceValue &v) -> float {
-            if (std::holds_alternative<float>(v))
-              return std::get<float>(v);
-            if (std::holds_alternative<int32_t>(v))
-              return (float)std::get<int32_t>(v);
-            if (std::holds_alternative<double>(v))
-              return (float)std::get<double>(v);
-            return 0.0f;
-          };
-          float x = nested->HasMember("X")
-                        ? extractFloat(nested->GetMember("X"))
-                        : (nested->HasMember("x")
-                               ? extractFloat(nested->GetMember("x"))
-                               : 0.0f);
-          float y = nested->HasMember("Y")
-                        ? extractFloat(nested->GetMember("Y"))
-                        : (nested->HasMember("y")
-                               ? extractFloat(nested->GetMember("y"))
-                               : 0.0f);
-          float z = nested->HasMember("Z")
-                        ? extractFloat(nested->GetMember("Z"))
-                        : (nested->HasMember("z")
-                               ? extractFloat(nested->GetMember("z"))
-                               : 0.0f);
-          return glm::vec3(x, y, z);
-        };
-        field.SetVec3 = [nested](glm::vec3 val) {
-          auto setComp = [&](const char *c1, const char *c2, float v) {
-            if (nested->HasMember(c1))
-              nested->SetMember(c1, v);
-            else if (nested->HasMember(c2))
-              nested->SetMember(c2, v);
-          };
-          setComp("X", "x", val.x);
-          setComp("Y", "y", val.y);
-          setComp("Z", "z", val.z);
-        };
-      } else if (isGameNodeClass(typeName)) {
-        field.Type = PropertyType::Node;
-        field.TargetClass = typeName;
-        field.GetNodeName = [script, fieldName]() {
-          auto nested = script->GetNestedInstance(fieldName);
-          if (!nested)
-            return std::string("null");
-          auto nodePtrVal = nested->GetMember("NodePtr");
-          if (std::holds_alternative<void *>(nodePtrVal)) {
-            void *ptr = std::get<void *>(nodePtrVal);
-            if (ptr) {
-              return static_cast<GraphNode *>(ptr)->GetFullName();
-            }
-          }
-          return std::string("null");
-        };
-        field.ClearNode = [script, fieldName]() {
-          script->SetNestedInstance(fieldName, nullptr);
-        };
-        field.SetNode = [script, fieldName, typeName](GraphNode *newNode) {
-          if (!newNode) {
-            script->SetNestedInstance(fieldName, nullptr);
-            return;
-          }
-
-          std::shared_ptr<QClassInstance> targetInst = nullptr;
-
-          // 1. Try to find an existing script of the matching type on the node
-          for (auto &nodeScript : newNode->GetScripts()) {
-            if (nodeScript->GetQClassName() == typeName) {
-              targetInst = nodeScript;
-              break;
-            }
-          }
-
-          // 2. If no matching script found, and property is a base GameNode,
-          // create a new base instance
-          if (!targetInst && typeName == "GameNode") {
-            auto runner = QLangDomain::m_QLang->GetRunner();
-            targetInst = runner->CreateInstance("GameNode");
-            if (targetInst) {
-              targetInst->SetMember("NodePtr", (void *)newNode);
-            }
-          }
-
-          if (targetInst) {
-            script->SetNestedInstance(fieldName, targetInst);
-          }
-        };
-      } else {
+      // Skip internal members like NodePtr
+      if (fieldName == "NodePtr")
         continue;
+
+      // Determine type from typeName (more reliable than typeToken)
+      std::string typeName = memberInfo.typeName;
+
+      if (typeName == "float32" || typeName == "float") {
+        field.Type = PropertyType::Float;
+        field.GetFloat = [clsInstance, fieldName]() {
+          return clsInstance->GetMember<float>(fieldName);
+        };
+        field.SetFloat = [clsInstance, fieldName](float val) {
+          clsInstance->SetMember<float>(fieldName, val);
+        };
+      } else if (typeName == "int32" || typeName == "int") {
+        field.Type = PropertyType::Int;
+        field.GetInt = [clsInstance, fieldName]() {
+          return clsInstance->GetMember<int32_t>(fieldName);
+        };
+        field.SetInt = [clsInstance, fieldName](int val) {
+          clsInstance->SetMember<int32_t>(fieldName, static_cast<int32_t>(val));
+        };
+      } else if (typeName == "bool") {
+        field.Type = PropertyType::Bool;
+        field.GetBool = [clsInstance, fieldName]() {
+          return clsInstance->GetMember<bool>(fieldName);
+        };
+        field.SetBool = [clsInstance, fieldName](bool val) {
+          clsInstance->SetMember<bool>(fieldName, val);
+        };
+      } else if (typeName == "cptr" || typeName == "iptr" ||
+                 typeName == "fptr" || typeName == "bptr") {
+        // Pointer types - skip for now unless it's a class reference
+        continue;
+      } else if (!typeName.empty()) {
+        // T_IDENTIFIER - class reference (stored as pointer)
+        if (typeName == "Vec3") {
+          // Vec3 is embedded, not a pointer - access via struct offset
+          field.Type = PropertyType::Vec3;
+          field.GetVec3 = [clsInstance, fieldName]() {
+            // Get pointer to the Vec3 struct within the class instance
+            void *instancePtr = clsInstance->GetInstancePtr();
+            const auto &members = clsInstance->GetMembers();
+            auto it = members.find(fieldName);
+            if (it == members.end())
+              return glm::vec3(0.0f);
+
+            // The member is at offset within the struct
+            char *memberPtr =
+                static_cast<char *>(instancePtr) + it->second.offset;
+            // Vec3 struct has X, Y, Z as consecutive floats
+            float *floatPtr = reinterpret_cast<float *>(memberPtr);
+            return glm::vec3(floatPtr[0], floatPtr[1], floatPtr[2]);
+          };
+          field.SetVec3 = [clsInstance, fieldName](glm::vec3 val) {
+            void *instancePtr = clsInstance->GetInstancePtr();
+            const auto &members = clsInstance->GetMembers();
+            auto it = members.find(fieldName);
+            if (it == members.end())
+              return;
+
+            char *memberPtr =
+                static_cast<char *>(instancePtr) + it->second.offset;
+            float *floatPtr = reinterpret_cast<float *>(memberPtr);
+            floatPtr[0] = val.x;
+            floatPtr[1] = val.y;
+            floatPtr[2] = val.z;
+          };
+        } else if (isGameNodeClass(typeName)) {
+          // Class reference (stored as pointer in struct)
+          field.Type = PropertyType::Node;
+          field.TargetClass = typeName;
+
+          field.GetNodeName = [clsInstance, fieldName]() {
+            void *ptr = clsInstance->GetPtrMember(fieldName);
+            if (ptr) {
+              // ptr is the class instance's raw memory
+              // If the target class inherits from GameNode, NodePtr is the
+              // first member
+              void **nodePtrLocation = static_cast<void **>(ptr);
+              void *nodePtr = *nodePtrLocation;
+              if (nodePtr) {
+                auto *node = static_cast<GraphNode *>(nodePtr);
+                return node->GetFullName();
+              }
+              std::stringstream ss;
+              ss << "instance@" << ptr;
+              return ss.str();
+            }
+            return std::string("null");
+          };
+          field.ClearNode = [clsInstance, fieldName]() {
+            clsInstance->SetPtrMember(fieldName, nullptr);
+          };
+          field.SetNode = [clsInstance, fieldName,
+                           typeName](GraphNode *newNode) {
+            if (!newNode) {
+              clsInstance->SetPtrMember(fieldName, nullptr);
+              return;
+            }
+            // Scan the dropped node's scripts for matching class type
+            for (auto *sp : newNode->GetScripts()) {
+              if (!sp || !sp->ClsInstance)
+                continue;
+              if (sp->ClsInstance->GetClassName() == typeName) {
+                void *instancePtr = sp->ClsInstance->GetInstancePtr();
+                clsInstance->SetPtrMember(fieldName, instancePtr);
+                std::cout << "[INFO] PropertiesWidget: Set '" << fieldName
+                          << "' to instance of '" << typeName << "' from node '"
+                          << newNode->GetName() << "'" << std::endl;
+                return;
+              }
+            }
+            std::cerr << "[WARNING] PropertiesWidget: Node '"
+                      << newNode->GetName() << "' has no script of type '"
+                      << typeName << "'" << std::endl;
+          };
+        } else {
+          continue; // Unknown class type
+        }
+      } else {
+        continue; // Unsupported type
       }
       m_Fields.push_back(field);
     }
   }
-  */
   resizeEvent(nullptr);
   update();
 }
@@ -655,8 +640,15 @@ void PropertiesWidget::dragMoveEvent(QDragMoveEvent *event) {
           if (field.TargetClass == "GameNode") {
             valid = true; // Any node for base GameNode
           } else {
-            // Must have the specific script
-            valid = draggedNode->HasScript(field.TargetClass);
+            // Check if node has a script with matching class name
+            for (auto *scriptPair : draggedNode->GetScripts()) {
+              if (scriptPair && scriptPair->ClsInstance &&
+                  scriptPair->ClsInstance->GetClassName() ==
+                      field.TargetClass) {
+                valid = true;
+                break;
+              }
+            }
           }
 
           if (valid) {

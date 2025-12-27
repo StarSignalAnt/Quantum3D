@@ -120,10 +120,24 @@ llvm::Type *QJitRunner::GetLLVMType(int tokenType,
     return llvm::PointerType::getUnqual(context);
   case TokenType::T_IDENTIFIER:
     // This could be a class type - look it up
+    // This could be a class type - look it up
     if (!typeName.empty()) {
       auto classIt = m_CompiledClasses.find(typeName);
       if (classIt != m_CompiledClasses.end()) {
         // Return pointer to the struct type for class return values
+        return llvm::PointerType::getUnqual(context);
+      }
+
+      // AUTO-FORWARD DECLARATION SUPPORT
+      // If we don't know the type, assume it's a forward declaration
+      // and allow it as a generic pointer. We track the dependency.
+      if (!m_CurrentScriptPath.empty()) {
+        m_ScriptsPendingType[typeName].push_back(m_CurrentScriptPath);
+        std::cout
+            << "[INFO] QJitRunner: Deferring resolution for type '" << typeName
+            << "' in "
+            << std::filesystem::path(m_CurrentScriptPath).filename().string()
+            << std::endl;
         return llvm::PointerType::getUnqual(context);
       }
     }
@@ -880,23 +894,64 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
         }
       }
 
-      // Look up instance (regular variable)
+      // Look up instance (check local variables first, then class members)
+      llvm::Value *instancePtr = nullptr;
+      std::string className;
+
       auto varIt = m_LocalVariables.find(varName);
-      if (varIt == m_LocalVariables.end()) {
+      if (varIt != m_LocalVariables.end()) {
+        // Found as local variable - get class type
+        auto typeIt = m_VariableTypes.find(varName);
+        if (typeIt == m_VariableTypes.end()) {
+          std::cerr << "[ERROR] QJitRunner: Variable '" << varName
+                    << "' is not a class instance" << std::endl;
+          return nullptr;
+        }
+        className = typeIt->second;
+
+        // Load the instance pointer from the stack variable
+        instancePtr = builder.CreateLoad(builder.getPtrTy(), varIt->second,
+                                         varName + ".ptr");
+      } else if (m_CurrentInstance && !m_CurrentClassName.empty()) {
+        // Check if it's a member of the current class (implicit this.member
+        // access)
+        auto currentClassIt = m_CompiledClasses.find(m_CurrentClassName);
+        if (currentClassIt != m_CompiledClasses.end()) {
+          int outerMemberIdx = FindMemberIndex(currentClassIt->second, varName);
+          if (outerMemberIdx >= 0) {
+            // It's a class member! Load it from this->varName
+            std::cout << "[DEBUG] QJitRunner: '" << varName
+                      << "' is a class member of '" << m_CurrentClassName
+                      << "', loading from this for member access ."
+                      << memberName << std::endl;
+
+            // Get the member's type name (this is the class type like "player")
+            if (outerMemberIdx <
+                static_cast<int>(
+                    currentClassIt->second.memberTypeNames.size())) {
+              className =
+                  currentClassIt->second.memberTypeNames[outerMemberIdx];
+            }
+
+            // Load this->varName (which is a pointer to another class instance)
+            llvm::Value *outerMemberPtr = builder.CreateStructGEP(
+                currentClassIt->second.structType, m_CurrentInstance,
+                static_cast<unsigned>(outerMemberIdx),
+                "this." + varName + ".ptr");
+
+            // Load the class instance pointer from the member
+            instancePtr = builder.CreateLoad(builder.getPtrTy(), outerMemberPtr,
+                                             "this." + varName);
+          }
+        }
+      }
+
+      if (!instancePtr || className.empty()) {
         std::cerr << "[ERROR] QJitRunner: Undefined variable: " << varName
                   << std::endl;
         return nullptr;
       }
 
-      // Look up class type for this instance
-      auto typeIt = m_VariableTypes.find(varName);
-      if (typeIt == m_VariableTypes.end()) {
-        std::cerr << "[ERROR] QJitRunner: Variable '" << varName
-                  << "' is not a class instance" << std::endl;
-        return nullptr;
-      }
-
-      std::string className = typeIt->second;
       auto classIt = m_CompiledClasses.find(className);
       if (classIt == m_CompiledClasses.end()) {
         std::cerr << "[ERROR] QJitRunner: Class '" << className << "' not found"
@@ -912,16 +967,11 @@ llvm::Value *QJitRunner::CompilePrimaryExpr(const std::vector<Token> &tokens,
         return nullptr;
       }
 
-      // GEP to member and load
-      llvm::AllocaInst *alloca = varIt->second;
-      llvm::Value *instancePtr = alloca;
+      std::cout << "[DEBUG] QJitRunner: Accessing " << varName << "."
+                << memberName << " - class '" << className
+                << "' memberIdx=" << memberIdx << std::endl;
 
-      // Class instances are always stored as pointers on the stack, so we must
-      // load the pointer We know it's a class instance because we checked
-      // m_VariableTypes above
-      instancePtr =
-          builder.CreateLoad(builder.getPtrTy(), alloca, varName + ".ptr");
-
+      // GEP to the target member and load
       llvm::Value *memberPtr = builder.CreateStructGEP(
           classInfo.structType, instancePtr, static_cast<unsigned>(memberIdx),
           varName + "." + memberName + ".ptr");
@@ -2109,10 +2159,11 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
             << std::endl;
 
   // Check if already compiled
+  bool isRecompile = false;
   if (m_CompiledClasses.find(className) != m_CompiledClasses.end()) {
-    std::cout << "[DEBUG] QJitRunner: Class '" << className
-              << "' already compiled" << std::endl;
-    return;
+    std::cout << "[INFO] QJitRunner: Recompiling class '" << className << "'"
+              << std::endl;
+    isRecompile = true;
   }
 
   // Check if this is a generic class template (has type parameters)
@@ -2128,8 +2179,6 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   std::string parentClassName;
   if (classNode->HasParent()) {
     parentClassName = classNode->GetParentClassName();
-    std::cout << "[DEBUG] QJitRunner: Class '" << className
-              << "' inherits from '" << parentClassName << "'" << std::endl;
 
     // Check if parent is compiled
     if (m_CompiledClasses.find(parentClassName) == m_CompiledClasses.end()) {
@@ -2140,78 +2189,78 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
     }
   }
 
-  // Get or create struct type (don't create duplicate with suffix like .1)
-  llvm::StructType *structType =
-      llvm::StructType::getTypeByName(context, className);
-  if (!structType) {
-    structType = llvm::StructType::create(context, className);
-  }
-
-  // Collect member types and names
-  std::vector<llvm::Type *> memberTypes;
-  std::vector<std::string> memberNames;
-  std::vector<int> memberTypeTokens;
-  std::vector<std::string> memberTypeNames;
-
-  // First: include parent class members (if any)
-  if (!parentClassName.empty()) {
-    const CompiledClass &parentInfo = m_CompiledClasses[parentClassName];
-    std::cout << "[DEBUG] QJitRunner: Inheriting "
-              << parentInfo.memberNames.size() << " members from parent '"
-              << parentClassName << "'" << std::endl;
-
-    // Copy parent members first
-    for (size_t i = 0; i < parentInfo.memberNames.size(); i++) {
-      memberTypes.push_back(parentInfo.memberTypes[i]);
-      memberNames.push_back(parentInfo.memberNames[i]);
-      memberTypeTokens.push_back(parentInfo.memberTypeTokens[i]);
-      memberTypeNames.push_back(parentInfo.memberTypeNames[i]);
-      std::cout << "[DEBUG]   Inherited member: " << parentInfo.memberNames[i]
-                << std::endl;
-    }
-  }
-
-  // Then: include child class's own members
-  for (const auto &member : classNode->GetMembers()) {
-    llvm::Type *memberType = GetLLVMType(static_cast<int>(member->GetVarType()),
-                                         member->GetTypeName());
-    if (memberType) {
-      memberTypes.push_back(memberType);
-      memberNames.push_back(member->GetName());
-      memberTypeTokens.push_back(static_cast<int>(member->GetVarType()));
-      memberTypeNames.push_back(member->GetTypeName());
-      std::cout << "[DEBUG]   Own member: " << member->GetName()
-                << " (type index " << static_cast<int>(member->GetVarType())
-                << ")" << std::endl;
-    }
-  }
-
-  // Set struct body
-  structType->setBody(memberTypes);
-
-  // Store in registry
   CompiledClass classInfo;
-  classInfo.structType = structType;
-  classInfo.memberNames = memberNames;
-  classInfo.memberTypes = memberTypes;
-  classInfo.memberTypeTokens = memberTypeTokens;
-  classInfo.memberTypeNames = memberTypeNames;
-  classInfo.isStatic = classNode->IsStatic();
-  classInfo.parentClassName = parentClassName; // Store inheritance info
+  llvm::StructType *structType = nullptr;
 
-  // Inherit parent methods if applicable
-  if (!parentClassName.empty()) {
-    const CompiledClass &parentInfo = m_CompiledClasses[parentClassName];
-    for (const auto &method : parentInfo.methods) {
-      classInfo.methods[method.first] = method.second;
-      std::cout << "[DEBUG]   Inherited method: " << method.first << std::endl;
+  if (isRecompile) {
+    // Reuse existing class info and struct type
+    classInfo = m_CompiledClasses[className];
+    structType = classInfo.structType;
+  } else {
+    // Get or create struct type (don't create duplicate with suffix like .1)
+    structType = llvm::StructType::getTypeByName(context, className);
+    if (!structType) {
+      structType = llvm::StructType::create(context, className);
     }
-    for (const auto &retType : parentInfo.methodReturnTypes) {
-      classInfo.methodReturnTypes[retType.first] = retType.second;
+
+    // Collect member types and names
+    std::vector<llvm::Type *> memberTypes;
+    std::vector<std::string> memberNames;
+    std::vector<int> memberTypeTokens;
+    std::vector<std::string> memberTypeNames;
+
+    // First: include parent class members (if any)
+    if (!parentClassName.empty()) {
+      const CompiledClass &parentInfo = m_CompiledClasses[parentClassName];
+
+      // Copy parent members first
+      for (size_t i = 0; i < parentInfo.memberNames.size(); i++) {
+        memberTypes.push_back(parentInfo.memberTypes[i]);
+        memberNames.push_back(parentInfo.memberNames[i]);
+        memberTypeTokens.push_back(parentInfo.memberTypeTokens[i]);
+        memberTypeNames.push_back(parentInfo.memberTypeNames[i]);
+      }
     }
+
+    // Then: include child class's own members
+    for (const auto &member : classNode->GetMembers()) {
+      llvm::Type *memberType = GetLLVMType(
+          static_cast<int>(member->GetVarType()), member->GetTypeName());
+      if (memberType) {
+        memberTypes.push_back(memberType);
+        memberNames.push_back(member->GetName());
+        memberTypeTokens.push_back(static_cast<int>(member->GetVarType()));
+        memberTypeNames.push_back(member->GetTypeName());
+      }
+    }
+
+    // Set struct body only if new
+    if (structType->isOpaque()) {
+      structType->setBody(memberTypes);
+    }
+
+    // Store in registry
+    classInfo.structType = structType;
+    classInfo.memberNames = memberNames;
+    classInfo.memberTypes = memberTypes;
+    classInfo.memberTypeTokens = memberTypeTokens;
+    classInfo.memberTypeNames = memberTypeNames;
+    classInfo.isStatic = classNode->IsStatic();
+    classInfo.parentClassName = parentClassName; // Store inheritance info
+
+    // Inherit parent methods if applicable
+    if (!parentClassName.empty()) {
+      const CompiledClass &parentInfo = m_CompiledClasses[parentClassName];
+      for (const auto &method : parentInfo.methods) {
+        classInfo.methods[method.first] = method.second;
+      }
+      for (const auto &retType : parentInfo.methodReturnTypes) {
+        classInfo.methodReturnTypes[retType.first] = retType.second;
+      }
+    }
+
+    m_CompiledClasses[className] = classInfo;
   }
-
-  m_CompiledClasses[className] = classInfo;
 
   if (classNode->IsStatic()) {
     std::cout << "[DEBUG] QJitRunner: Class '" << className
@@ -2219,7 +2268,7 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
   }
 
   std::cout << "[DEBUG] QJitRunner: Class '" << className << "' compiled with "
-            << memberTypes.size() << " members" << std::endl;
+            << classInfo.memberTypes.size() << " members" << std::endl;
 
   // Pass 1: Create method prototypes
   auto *module = QLVM::GetModule();
@@ -2264,6 +2313,13 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
         llvm::FunctionType::get(returnType, paramTypes, false);
     llvm::Function *func = llvm::cast<llvm::Function>(
         module->getOrInsertFunction(fullName, funcType).getCallee());
+
+    // Fix for recompilation: If function already exists and has a body,
+    // we must clear it to avoid duplicate basic blocks or stale code execution.
+    // preserving the Function* pointer keeps existing references/aliases valid.
+    if (!func->empty()) {
+      func->deleteBody();
+    }
 
     // Check if this method overrides an inherited one (only for non-mangled
     // names) Overloading: same class, different signatures -> different mangled
@@ -3727,7 +3783,7 @@ int QJitRunner::FindMemberIndex(const CompiledClass &classInfo,
 // ============================================================================
 
 std::shared_ptr<QJitProgram>
-QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
+QJitRunner::CompileProgram(std::shared_ptr<QProgram> program, bool accumulate) {
   if (!program)
     return nullptr;
 
@@ -3738,10 +3794,10 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
   m_LoadedModules
       .clear(); // Ensure modules are re-linked into the new LLVM module
 
-  // Clear compiled classes to remove stale entries from previous runs (e.g.
-  // previous scripts) The auto-import loop below will re-populate it with
-  // clean, potentially updated classes from modules.
-  m_CompiledClasses.clear();
+  // Clear compiled classes ONLY if not accumulating
+  if (!accumulate) {
+    m_CompiledClasses.clear();
+  }
 
   // Automatically import all built modules to support the "Clean API"
   // persistence
@@ -3809,10 +3865,14 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
     return nullptr;
   }
 
-  // IMPORTANT: Capture DataLayout BEFORE taking the module, as TakeModule
-  // transfers ownership and invalidates 'module' pointer
-  const llvm::DataLayout &dataLayout = module->getDataLayout();
+  // If we are accumulating, we don't want to take the module yet because
+  // we want to keep adding to it. We mark it as needing recompile.
+  if (accumulate) {
+    m_MasterModuleNeedsRecompile = true;
+    return nullptr;
+  }
 
+  const llvm::DataLayout &dataLayout = module->getDataLayout();
   auto jitProgram = std::make_shared<QJitProgram>(QLVM::TakeModule());
 
   // Register all compiled classes with the JIT program for runtime
@@ -3845,6 +3905,86 @@ QJitRunner::CompileProgram(std::shared_ptr<QProgram> program) {
   }
 
   return jitProgram;
+}
+
+bool QJitRunner::BuildModule(const std::string &path) {
+  // Clear previous errors
+  if (m_ErrorCollector) {
+    m_ErrorCollector->ClearErrors();
+  }
+
+  // Tokenize
+  Tokenizer tokenizer(path, m_ErrorCollector);
+  tokenizer.Tokenize();
+
+  if (m_ErrorCollector->HasErrors()) {
+    std::cerr << "[ERROR] QJitRunner: Tokenization errors in " << path << ":"
+              << std::endl;
+    m_ErrorCollector->ListErrors();
+    return false;
+  }
+
+  // Parse
+  Parser parser(tokenizer.GetTokens(), m_ErrorCollector);
+  auto program = parser.Parse();
+
+  if (m_ErrorCollector->HasErrors()) {
+    std::cerr << "[ERROR] QJitRunner: Parse errors in " << path << ":"
+              << std::endl;
+    m_ErrorCollector->ListErrors();
+    return false;
+  }
+
+  // Compile into current modules (ACCUMULATE)
+  // We pass 'true' to accumulate, so we don't clear m_CompiledClasses
+  // In accumulation mode, CompileProgram returns nullptr if successful (doesn't
+  // take module).
+  CompileProgram(program, true);
+
+  if (m_ErrorCollector->HasErrors()) {
+    std::cerr << "[ERROR] QJitRunner: Compilation errors in " << path << ":"
+              << std::endl;
+    m_ErrorCollector->ListErrors();
+    return false;
+  }
+
+  // Mark master module as needing recompile since we added new code
+  m_MasterModuleNeedsRecompile = true;
+
+  return true;
+}
+
+std::string QJitRunner::CompileScriptIntoMaster(const std::string &path) {
+  m_CurrentScriptPath = path;
+  bool success = BuildModule(path);
+  m_CurrentScriptPath.clear();
+
+  if (success) {
+    // Extract class name from path stem
+    std::filesystem::path p(path);
+    std::string className = p.stem().string();
+
+    // Check if any scripts were waiting for this type
+    auto pendingIt = m_ScriptsPendingType.find(className);
+    if (pendingIt != m_ScriptsPendingType.end()) {
+      std::vector<std::string> dependents = pendingIt->second;
+      m_ScriptsPendingType.erase(pendingIt); // Remove from pending list
+
+      for (const auto &depPath : dependents) {
+        std::cout << "[INFO] QJitRunner: Auto-recompiling dependent script: "
+                  << std::filesystem::path(depPath).filename().string()
+                  << std::endl;
+
+        // Recompile dependent script
+        m_CurrentScriptPath = depPath;
+        BuildModule(depPath);
+        m_CurrentScriptPath.clear();
+      }
+    }
+
+    return className;
+  }
+  return "";
 }
 
 // ============================================================================
@@ -4267,21 +4407,72 @@ std::shared_ptr<QJitProgram> QJitRunner::RunScript(const std::string &path) {
   return program_result;
 }
 
-bool QJitRunner::BuildModule(const std::string &path) {
-  std::filesystem::path p(path);
-  std::string moduleName = p.stem().string();
-  std::filesystem::path binaryPath = p;
-  binaryPath.replace_extension(".qm");
-
-  if (!CompileModule(moduleName, path, binaryPath.string())) {
-    return false;
+std::shared_ptr<QJitProgram> QJitRunner::GetMasterProgram() {
+  // If we have a valid master program and no changes, return it
+  if (m_MasterProgram && !m_MasterModuleNeedsRecompile) {
+    return m_MasterProgram;
   }
 
-  // After building, import it into the persistent registry so the C++ API
-  // can see its classes even if other scripts don't explicitly import it.
-  if (ImportModule(moduleName)) {
-    m_AutoImportModules.insert(moduleName);
-    return true;
+  std::cout << "[INFO] QJitRunner: Building master program..." << std::endl;
+
+  auto *module = QLVM::GetModule();
+  if (!module) {
+    std::cerr << "[ERROR] QJitRunner: No module available" << std::endl;
+    return nullptr;
   }
-  return false;
+
+  // Verify the module
+  std::string errorStr;
+  llvm::raw_string_ostream os(errorStr);
+  if (llvm::verifyModule(*module, &os)) {
+    std::cerr << "[ERROR] QJitRunner: Master module verification failed: "
+              << os.str() << std::endl;
+    return nullptr;
+  }
+
+  // Capture DataLayout
+  const llvm::DataLayout &dataLayout = module->getDataLayout();
+
+  // Create the master program with a CLONE of the accumulated module
+  // This keeps the original module in QLVM for future script accumulation
+  m_MasterProgram = std::make_shared<QJitProgram>(llvm::CloneModule(*module));
+
+  // Register all compiled classes with the master program
+  for (const auto &pair : m_CompiledClasses) {
+    const std::string &clsName = pair.first;
+    const CompiledClass &classInfo = pair.second;
+
+    uint64_t size = dataLayout.getTypeAllocSize(classInfo.structType);
+    std::string ctorName = clsName + "_" + clsName;
+
+    m_MasterProgram->RegisterClass(clsName, classInfo.structType, size,
+                                   ctorName, classInfo.isStatic);
+
+    // Register members with offset info
+    const llvm::StructLayout *layout =
+        dataLayout.getStructLayout(classInfo.structType);
+    for (size_t i = 0; i < classInfo.memberNames.size(); i++) {
+      const std::string &memberName = classInfo.memberNames[i];
+      size_t offset = layout->getElementOffset(i);
+      size_t memberSize = dataLayout.getTypeAllocSize(classInfo.memberTypes[i]);
+      int typeToken = classInfo.memberTypeTokens[i];
+      std::string typeName = i < classInfo.memberTypeNames.size()
+                                 ? classInfo.memberTypeNames[i]
+                                 : "";
+
+      m_MasterProgram->RegisterMember(clsName, memberName, offset, memberSize,
+                                      typeToken, typeName);
+    }
+  }
+
+  // Reset the recompile flag
+  m_MasterModuleNeedsRecompile = false;
+
+  std::cout << "[INFO] QJitRunner: Master program updated from module snapshot"
+            << std::endl;
+
+  // Set this as the global instance for QJClassInstance to use
+  QJitProgram::SetInstance(m_MasterProgram.get());
+
+  return m_MasterProgram;
 }

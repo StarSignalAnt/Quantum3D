@@ -45,6 +45,7 @@ public:
   ~QJitProgram();
 
   static QJitProgram *Instance() { return s_Instance; }
+  static void SetInstance(QJitProgram *instance) { s_Instance = instance; }
 
   void Run();
 

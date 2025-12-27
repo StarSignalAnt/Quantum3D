@@ -61,8 +61,8 @@ public:
   ~QJitRunner();
 
   // Compiles a QProgram into LLVM IR and returns a JIT program
-  std::shared_ptr<QJitProgram>
-  CompileProgram(std::shared_ptr<QProgram> program);
+  std::shared_ptr<QJitProgram> CompileProgram(std::shared_ptr<QProgram> program,
+                                              bool accumulate = false);
 
   // Set base path for module resolution
   void SetBasePath(const std::string &basePath) { m_BasePath = basePath; }
@@ -70,6 +70,10 @@ public:
   // High-level API
   std::shared_ptr<QJitProgram> RunScript(const std::string &path);
   bool BuildModule(const std::string &path);
+
+  // Master module architecture - shared script compilation
+  std::string CompileScriptIntoMaster(const std::string &path);
+  std::shared_ptr<QJitProgram> GetMasterProgram();
 
   // Module system
   bool ImportModule(const std::string &moduleName);
@@ -92,6 +96,15 @@ private:
   // Track variable types for class instances
   std::unordered_map<std::string, std::string>
       m_VariableTypes; // varName -> className
+
+  // Track dependencies for auto-recompilation
+  // Key: Class/Type name that was missing
+  // Value: List of script paths that failed to find this type
+  std::unordered_map<std::string, std::vector<std::string>>
+      m_ScriptsPendingType;
+
+  // Current script being compiled (context)
+  std::string m_CurrentScriptPath;
 
   // Compiled class registry
   std::unordered_map<std::string, CompiledClass> m_CompiledClasses;
@@ -120,6 +133,10 @@ private:
   // Compiled enum registry: EnumName -> {ValueName -> IntValue}
   std::unordered_map<std::string, std::unordered_map<std::string, int>>
       m_CompiledEnums;
+
+  // Master module architecture - shared script compilation
+  std::shared_ptr<QJitProgram> m_MasterProgram;
+  bool m_MasterModuleNeedsRecompile = false;
 
   // Reusable compilation methods
   void CompileCodeBlock(std::shared_ptr<QCode> code);

@@ -13,7 +13,9 @@
 QJitProgram *QJitProgram::s_Instance = nullptr;
 
 QJitProgram::QJitProgram(std::unique_ptr<llvm::Module> module) {
-  s_Instance = this;
+  if (!s_Instance) {
+    s_Instance = this;
+  }
   if (!module) {
     std::cerr << "[ERROR] QJitProgram: Received null module" << std::endl;
     return;

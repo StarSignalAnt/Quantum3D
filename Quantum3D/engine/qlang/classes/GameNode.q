@@ -22,13 +22,11 @@ class GameNode
 
     end 
 
-    method void OnUpdate(float32 dt)
+    method void OnUpdate(float32 dt) virtual
 
         qprintf("GameNode.OnUpdate DT:%f",dt);
         
-        Vec3 turn = new Vec3(0.0,25.0*dt,0.0);
-        Node_Turn(NodePtr,turn);
-
+    
 
     end
 
@@ -41,6 +39,14 @@ class GameNode
     method void OnStop()
 
         qprintf("GameNode.OnStop");
+
+    end 
+
+    // Transform
+
+    method void Turn(Vec3 rotation)
+
+        Node_Turn(NodePtr,rotation);
 
     end 
 

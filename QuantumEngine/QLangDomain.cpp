@@ -1,8 +1,10 @@
 #include "QLangDomain.h"
+#include <algorithm>
 #include <iostream>
 #include <memory>
 #include <variant>
 #include <vector>
+
 
 #include "GraphNode.h"
 #include "Parser.h"
@@ -42,11 +44,9 @@ extern "C" void LV_Node_Turn(void *ptr, void *vec3) {
   [[maybe_unused]] float y = v[1];
   [[maybe_unused]] float z = v[2];
 
-
-
   // Example: Cast ptr to GraphNode and apply rotation
-   auto* node = static_cast<Quantum::GraphNode*>(ptr);
-   node->Turn(glm::vec3(x, y, z));
+  auto *node = static_cast<Quantum::GraphNode *>(ptr);
+  node->Turn(glm::vec3(x, y, z));
 }
 
 // Force MCJIT to be linked - User indicates this fixes the issue in CLI
@@ -98,20 +98,82 @@ std::string GetFileStem(const std::string &path) {
   return std::filesystem::path(path).stem().string();
 }
 
+// ScriptPair Implementation
+namespace Quantum {
+ScriptPair::ScriptPair() {
+  if (QLangDomain::m_QLang) {
+    QLangDomain::m_QLang->RegisterScript(this);
+  }
+}
+
+ScriptPair::~ScriptPair() {
+  if (QLangDomain::m_QLang) {
+    QLangDomain::m_QLang->UnregisterScript(this);
+  }
+}
+} // namespace Quantum
+
 Quantum::ScriptPair *QLangDomain::CompileScript(std::string path) {
 
-  auto cls_name = GetFileStem(path);
+  // Use the master module architecture
+  std::string className = m_Runner->CompileScriptIntoMaster(path);
+  if (className.empty()) {
+    std::cerr << "[ERROR] QLangDomain: Failed to compile script: " << path
+              << std::endl;
+    return nullptr;
+  }
 
-  auto prog = m_Runner->RunScript(path);
+  // Get the master program (which now contains the compiled class)
+  auto prog = m_Runner->GetMasterProgram();
+  if (!prog) {
+    std::cerr << "[ERROR] QLangDomain: Failed to get master program"
+              << std::endl;
+    return nullptr;
+  }
 
-  auto inst = prog->CreateClassInstance(cls_name);
+  // Create instance of the class
+  auto inst = prog->CreateClassInstance(className);
+  if (!inst) {
+    std::cerr << "[ERROR] QLangDomain: Failed to create instance of class '"
+              << className << "'" << std::endl;
+    return nullptr;
+  }
 
   Quantum::ScriptPair *res = new Quantum::ScriptPair;
 
   res->ClsInstance = inst;
   res->ClsProgram = prog;
 
-  return res;
+  // IMPORTANT: Recompiling a script might have updated the master program.
+  // We must update ALL active scripts to use the new master program so they
+  // see the latest code (including recompiled dependencies).
+  UpdateAllScripts();
 
-  int b = 5;
+  return res;
+}
+
+void QLangDomain::RegisterScript(Quantum::ScriptPair *script) {
+  m_ActiveScripts.push_back(script);
+}
+
+void QLangDomain::UnregisterScript(Quantum::ScriptPair *script) {
+  auto it = std::remove(m_ActiveScripts.begin(), m_ActiveScripts.end(), script);
+  if (it != m_ActiveScripts.end()) {
+    m_ActiveScripts.erase(it, m_ActiveScripts.end());
+  }
+}
+
+void QLangDomain::UpdateAllScripts() {
+  auto prog = m_Runner->GetMasterProgram();
+  if (!prog)
+    return;
+
+  std::cout << "[INFO] QLangDomain: Updating " << m_ActiveScripts.size()
+            << " active scripts with new master program" << std::endl;
+
+  for (auto script : m_ActiveScripts) {
+    if (script) {
+      script->ClsProgram = prog;
+    }
+  }
 }

@@ -37,7 +37,7 @@ Texture2D::~Texture2D() {
     }
     if (m_TextureImageView != VK_NULL_HANDLE) {
       vkDestroyImageView(m_DevicePtr->GetDevice(), m_TextureImageView, nullptr);
-    }
+    }                                                               
     if (m_TextureImage != VK_NULL_HANDLE) {
       vkDestroyImage(m_DevicePtr->GetDevice(), m_TextureImage, nullptr);
     }

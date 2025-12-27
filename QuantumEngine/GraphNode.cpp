@@ -1,13 +1,11 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include "GraphNode.h"
 
-
 #include "Mesh3D.h"
 #include "QLangDomain.h"
 #include <algorithm>
 #include <cmath>
 #include <variant>
-
 
 namespace Quantum {
 
@@ -315,24 +313,26 @@ void GraphNode::Turn(glm::vec3 rot) {
   m_WorldMatrixDirty = true;
 }
 
-void GraphNode::AddScript(ScriptPair* cls) {
+void GraphNode::AddScript(ScriptPair *cls) {
+  if (!cls || !cls->ClsInstance) {
+    std::cerr
+        << "[ERROR] GraphNode: Attempted to add null script or invalid instance"
+        << std::endl;
+    return;
+  }
 
   m_QClasses.push_back(cls);
-  cls->ClsInstance->SetPtrMember("NodePtr", (void*)this);
-  
-  m_QClasses.push_back(cls);
-
-
+  cls->ClsInstance->SetPtrMember("NodePtr", (void *)this);
 }
 
 void GraphNode::OnPlay() {
 
   for (auto cls : m_QClasses) {
 
-      cls->ClsProgram->CallMethod(cls->ClsInstance, "Play", {});
+    cls->ClsProgram->CallMethod(cls->ClsInstance, "Play", {});
 
-     //QValue result = runner.CallMethod(node1, "Update", updateArgs);
-    //QLangDomain::m_QLang->RunMethod(cls, "OnPlay");
+    // QValue result = runner.CallMethod(node1, "Update", updateArgs);
+    // QLangDomain::m_QLang->RunMethod(cls, "OnPlay");
   }
   int b = 5;
 }
@@ -343,15 +343,14 @@ void GraphNode::OnUpdate(float dt)
 
 {
 
-  //std::vector<QValue> updateArgs = {dt};
+  // std::vector<QValue> updateArgs = {dt};
 
   for (auto cls : m_QClasses) {
-      cls->ClsProgram->CallMethod(cls->ClsInstance, "OnUpdate", {dt});
+    cls->ClsProgram->CallMethod(cls->ClsInstance, "OnUpdate", {dt});
 
     // QValue result = runner.CallMethod(node1, "Update", updateArgs);
-  //  QLangDomain::m_QLang->RunMethod(cls, "OnUpdate", updateArgs);
+    //  QLangDomain::m_QLang->RunMethod(cls, "OnUpdate", updateArgs);
   }
-
 }
 
 std::string GraphNode::GetFullName() const {
@@ -363,9 +362,8 @@ std::string GraphNode::GetFullName() const {
 
 bool GraphNode::HasScript(const std::string &className) const {
   for (const auto &cls : m_QClasses) {
-    //if (QLangDomain::GetScriptClassName(cls) == className) {
-    //  return true;
-    
+    // if (QLangDomain::GetScriptClassName(cls) == className) {
+    //   return true;
   }
   return false;
 }
@@ -393,8 +391,8 @@ void GraphNode::CopyTo(GraphNode *newNode) {
 
   // Copy Scripts
   for (auto &s : m_QClasses) {
-    //auto newS = QLangDomain::CloneScript(s, this, newNode);
-    //newNode->AddScript(newS);
+    // auto newS = QLangDomain::CloneScript(s, this, newNode);
+    // newNode->AddScript(newS);
   }
 
   // Copy Children
