@@ -71,7 +71,7 @@ private:
   Vivid::VividDevice *m_Device = nullptr;
   uint32_t m_Resolution = 1024;
   float m_FarPlane = 100.0f; // Default far plane for shadow
-  float m_NearPlane = 0.1f;
+  float m_NearPlane = 0.003f;
   bool m_Initialized = false;
 
   // Cube map image

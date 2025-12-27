@@ -36,7 +36,7 @@ bool QValidator::Validate(std::shared_ptr<QProgram> program) {
 
   std::cout << "[DEBUG] QValidator: Starting validation" << std::endl;
 
-  // First pass: collect all declared classes and enums
+  // First pass: collect all declared classes, enums, and forward declarations
   for (const auto &cls : program->GetClasses()) {
     if (cls) {
       m_DeclaredClasses.insert(cls->GetName());
@@ -46,6 +46,10 @@ bool QValidator::Validate(std::shared_ptr<QProgram> program) {
     if (enumDef) {
       m_DeclaredEnums.insert(enumDef->GetName());
     }
+  }
+  // Collect forward declarations - these are valid type names
+  for (const auto &fwdDecl : program->GetForwardDeclarations()) {
+    m_ForwardDeclaredClasses.insert(fwdDecl);
   }
 
   // Second pass: validate each class
@@ -467,7 +471,8 @@ bool QValidator::IsValidTypeName(const std::string &typeName) const {
 
 bool QValidator::IsKnownClass(const std::string &className) const {
   return m_KnownClasses.count(className) > 0 ||
-         m_DeclaredClasses.count(className) > 0;
+         m_DeclaredClasses.count(className) > 0 ||
+         m_ForwardDeclaredClasses.count(className) > 0;
 }
 
 bool QValidator::IsKnownVariable(const std::string &varName) const {

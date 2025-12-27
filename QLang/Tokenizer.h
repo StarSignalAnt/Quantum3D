@@ -48,10 +48,11 @@ enum class TokenType {
   T_NEXT,
   T_WHILE,
   T_WEND,
-  T_NULL,   // null keyword
-  T_STATIC, // static class keyword
-  T_SUPER,  // super keyword for parent class access
-  T_SCOPE,  // :: scope resolution operator
+  T_NULL,    // null keyword
+  T_STATIC,  // static class keyword
+  T_SUPER,   // super keyword for parent class access
+  T_SCOPE,   // :: scope resolution operator
+  T_DECLARE, // declare class forward declaration
 
   // Types
   T_INT32,

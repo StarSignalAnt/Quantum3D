@@ -46,7 +46,12 @@ float calculateShadow(vec3 fragToLight, float currentDepth) {
     float closestDepth = texture(shadowMap, fragToLight).r;
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
     float normalizedCurrent = currentDepth / shadowFarPlane;
-    float bias = 0.01;
+    
+    // Adaptive bias: smaller for close objects to prevent shadow disappearing
+    float baseBias = 0.0005;  // Very small bias for close objects
+    float maxBias = 0.015;
+    float bias = mix(baseBias, maxBias, normalizedCurrent);
+    
     if (normalizedCurrent > 1.0) return 1.0;
     float shadow = (normalizedCurrent - bias > closestDepth) ? 0.0 : 1.0;
     return shadow;

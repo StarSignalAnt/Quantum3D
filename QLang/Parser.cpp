@@ -140,6 +140,31 @@ std::shared_ptr<QProgram> Parser::ParseProgram() {
         std::cout << "[DEBUG] Parser: Parsed enum '" << enumDef->GetName()
                   << "'" << std::endl;
       }
+    } else if (current.type == TokenType::T_DECLARE) {
+      // declare class ClassName - forward declaration
+      Advance(); // consume 'declare'
+      if (Check(TokenType::T_CLASS)) {
+        Advance(); // consume 'class'
+        if (Check(TokenType::T_IDENTIFIER)) {
+          Token classNameToken = Advance();
+          std::string className = classNameToken.value;
+          m_ClassNames.insert(className);
+          m_ForwardDeclaredClasses.insert(className);
+          program->AddForwardDecl(className);
+#if QLANG_DEBUG
+          std::cout << "[DEBUG] ParseProgram() - forward declaration: "
+                    << className << std::endl;
+#endif
+        } else {
+          ReportError("Expected class name after 'declare class'");
+        }
+      } else {
+        ReportError("Expected 'class' after 'declare'");
+      }
+      // Skip optional newline
+      while (Check(TokenType::T_END_OF_LINE)) {
+        Advance();
+      }
     } else if (current.type == TokenType::T_EOF) {
       break;
     } else if (current.type == TokenType::T_END_OF_LINE) {

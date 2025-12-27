@@ -51,8 +51,15 @@ vec3 gridOffsets[20] = vec3[](
 float calculateShadow(vec3 fragToLight, float currentDepth) {
     float shadowFarPlane = ubo.lightRange > 0.0 ? ubo.lightRange : 100.0;
     float normalizedCurrent = currentDepth / shadowFarPlane;
-    float bias = 0.01;
     
+    // Adaptive bias: smaller for close objects to prevent shadow disappearing
+    float baseBias = 0.0005;  // Very small bias for close objects
+    float maxBias = 0.015;
+    float bias = mix(baseBias, maxBias, normalizedCurrent);
+    
+    bias = 0.0001;
+
+
     if (normalizedCurrent > 1.0) return 1.0;
 
     // Optimization: Early exit check with 4 samples

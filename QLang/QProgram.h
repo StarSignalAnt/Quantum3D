@@ -6,6 +6,7 @@
 #include "QEnum.h"
 #include <iostream>
 #include <memory>
+#include <set>
 #include <vector>
 
 // QProgram - top level action node
@@ -79,9 +80,23 @@ public:
     std::cout << "}" << std::endl;
   }
 
+  // Forward declarations (class ClassName;)
+  void AddForwardDecl(const std::string &className) {
+    m_ForwardDeclarations.insert(className);
+  }
+
+  const std::set<std::string> &GetForwardDeclarations() const {
+    return m_ForwardDeclarations;
+  }
+
+  bool IsForwardDeclared(const std::string &className) const {
+    return m_ForwardDeclarations.count(className) > 0;
+  }
+
 private:
   std::shared_ptr<QCode> m_Code;
   std::vector<std::shared_ptr<QClass>> m_Classes;
   std::vector<std::shared_ptr<QEnum>> m_Enums;
   std::vector<std::string> m_Imports;
+  std::set<std::string> m_ForwardDeclarations;
 };

@@ -369,6 +369,8 @@ void Tokenizer::ScanIdentifierOrKeyword() {
     type = TokenType::T_NULL;
   } else if (value == "enum") {
     type = TokenType::T_ENUM;
+  } else if (value == "declare") {
+    type = TokenType::T_DECLARE;
   }
 
   // Construct manually to keep start column

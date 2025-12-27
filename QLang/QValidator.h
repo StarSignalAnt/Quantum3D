@@ -36,11 +36,12 @@ public:
 
 private:
   std::shared_ptr<QErrorCollector> m_ErrorCollector;
-  std::set<std::string> m_KnownClasses;     // Classes from engine/modules
-  std::set<std::string> m_DeclaredClasses;  // Classes in current program
-  std::set<std::string> m_DeclaredEnums;    // Enums in current program
-  std::set<std::string> m_CurrentScopeVars; // Variables in current scope
-  std::set<std::string> m_ClassMembers;     // Members of current class
+  std::set<std::string> m_KnownClasses;           // Classes from engine/modules
+  std::set<std::string> m_DeclaredClasses;        // Classes in current program
+  std::set<std::string> m_ForwardDeclaredClasses; // Forward-declared classes
+  std::set<std::string> m_DeclaredEnums;          // Enums in current program
+  std::set<std::string> m_CurrentScopeVars;       // Variables in current scope
+  std::set<std::string> m_ClassMembers;           // Members of current class
   std::string m_CurrentClassName;
   std::string m_CurrentMethodName;
   std::string m_CurrentMethodReturnType;

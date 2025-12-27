@@ -24,7 +24,6 @@
 #include <string>
 #include <vector>
 
-
 // Parser class
 class Parser {
 public:
@@ -60,6 +59,8 @@ private:
       m_DeclaredVariables; // Track declared variables in current scope
   std::set<std::string>
       m_ClassMemberVariables; // Track class member variables (fields)
+  std::set<std::string>
+      m_ForwardDeclaredClasses; // Track forward-declared class names
   std::vector<std::string>
       m_CurrentTypeParams; // Track current generic parameters (T, K, V)
   std::shared_ptr<QErrorCollector> m_ErrorCollector;
