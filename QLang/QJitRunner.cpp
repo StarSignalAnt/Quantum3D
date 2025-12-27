@@ -2220,6 +2220,10 @@ void QJitRunner::CompileClass(std::shared_ptr<QClass> classNode) {
         memberTypeTokens.push_back(parentInfo.memberTypeTokens[i]);
         memberTypeNames.push_back(parentInfo.memberTypeNames[i]);
       }
+
+      // Copy parent methods
+      classInfo.methods = parentInfo.methods;
+      classInfo.methodReturnTypes = parentInfo.methodReturnTypes;
     }
 
     // Then: include child class's own members
@@ -3204,16 +3208,15 @@ QJitRunner::CompileMethodCall(std::shared_ptr<QMethodCall> methodCall) {
   if (instanceName == "this" || instanceName.empty()) {
     instancePtr = m_CurrentInstance;
     className = m_CurrentClassName;
+    std::cout << "[DEBUG] Method call on THIS: " << className << std::endl;
   } else if (instanceName == "super") {
-    // super::MethodName() - call parent class method with current instance
+    // ... super handling ...
     instancePtr = m_CurrentInstance;
-    // Get parent class name from current class
     auto classIt = m_CompiledClasses.find(m_CurrentClassName);
     if (classIt != m_CompiledClasses.end() &&
         !classIt->second.parentClassName.empty()) {
       className = classIt->second.parentClassName;
-      std::cout << "[DEBUG] QJitRunner: super:: call to parent class '"
-                << className << "'" << std::endl;
+      std::cout << "[DEBUG] Method call on SUPER: " << className << std::endl;
     } else {
       std::cerr << "[ERROR] QJitRunner: Cannot use super:: - class '"
                 << m_CurrentClassName << "' has no parent" << std::endl;
@@ -3221,24 +3224,63 @@ QJitRunner::CompileMethodCall(std::shared_ptr<QMethodCall> methodCall) {
     }
   } else {
     auto varIt = m_LocalVariables.find(instanceName);
-    if (varIt == m_LocalVariables.end()) {
-      std::cerr << "[ERROR] QJitRunner: Undefined instance: " << instanceName
-                << std::endl;
-      return nullptr;
-    }
-    instancePtr = varIt->second;
+    if (varIt != m_LocalVariables.end()) {
+      instancePtr = varIt->second;
 
-    auto typeIt = m_VariableTypes.find(instanceName);
-    if (typeIt == m_VariableTypes.end()) {
-      std::cerr << "[ERROR] QJitRunner: Variable '" << instanceName
-                << "' is not a class instance" << std::endl;
-      return nullptr;
-    }
-    className = typeIt->second;
+      auto typeIt = m_VariableTypes.find(instanceName);
+      if (typeIt == m_VariableTypes.end()) {
+        std::cerr << "[ERROR] QJitRunner: Variable '" << instanceName
+                  << "' is not a class instance" << std::endl;
+        return nullptr;
+      }
+      className = typeIt->second;
 
-    // Load the instance pointer from the stack variable
-    instancePtr = builder.CreateLoad(builder.getPtrTy(), varIt->second,
-                                     instanceName + ".ptr");
+      std::cout << "[DEBUG] Method call on VAR '" << instanceName << "' ("
+                << className << ")" << std::endl;
+
+      // Load the instance pointer from the stack variable
+      instancePtr = builder.CreateLoad(builder.getPtrTy(), varIt->second,
+                                       instanceName + ".ptr");
+    } else {
+      // Check if it's a member of the current class (implicit this.member)
+      bool foundMember = false;
+      if (m_CurrentInstance && !m_CurrentClassName.empty()) {
+        auto currentClassIt = m_CompiledClasses.find(m_CurrentClassName);
+        if (currentClassIt != m_CompiledClasses.end()) {
+          int memberIdx = FindMemberIndex(currentClassIt->second, instanceName);
+          if (memberIdx >= 0) {
+            // It's a class member!
+            foundMember = true;
+            // Get the member's class name
+            if (memberIdx <
+                static_cast<int>(
+                    currentClassIt->second.memberTypeNames.size())) {
+              className = currentClassIt->second.memberTypeNames[memberIdx];
+            }
+
+            std::cout << "[DEBUG] Method call on MEMBER '" << instanceName
+                      << "' (" << className << ") of " << m_CurrentClassName
+                      << std::endl;
+
+            // Load this->memberPtr
+            llvm::Value *memberPtr = builder.CreateStructGEP(
+                currentClassIt->second.structType, m_CurrentInstance,
+                static_cast<unsigned>(memberIdx),
+                "this." + instanceName + ".ptr");
+
+            // Load the actual instance pointer
+            instancePtr = builder.CreateLoad(builder.getPtrTy(), memberPtr,
+                                             "this." + instanceName);
+          }
+        }
+      }
+
+      if (!foundMember) {
+        std::cerr << "[ERROR] QJitRunner: Undefined instance: " << instanceName
+                  << std::endl;
+        return nullptr;
+      }
+    }
   }
 
   if (!instancePtr || className.empty()) {
@@ -3282,8 +3324,23 @@ QJitRunner::CompileMethodCall(std::shared_ptr<QMethodCall> methodCall) {
     return nullptr;
   }
 
+  std::cout << "[DEBUG] QJitRunner: Resolved method '" << methodName
+            << "' to function '" << targetFunc->getName().str() << "'"
+            << std::endl;
+
   // Build final call arguments with 'this' pointer and type conversions
   std::vector<llvm::Value *> callArgs;
+
+  // Ensure 'this' pointer is cast to the expected type (critical for
+  // inheritance)
+  llvm::Type *expectedThisTy = targetFunc->getFunctionType()->getParamType(0);
+  if (instancePtr->getType() != expectedThisTy) {
+    std::cout << "[DEBUG] QJitRunner: Casting instance pointer to expected "
+                 "target type"
+              << std::endl;
+    instancePtr = builder.CreateBitCast(instancePtr, expectedThisTy);
+  }
+
   callArgs.push_back(instancePtr); // 'this' pointer
 
   llvm::FunctionType *ft = targetFunc->getFunctionType();
@@ -3381,12 +3438,22 @@ QJitRunner::FindMethodOverload(const CompiledClass &classInfo,
   llvm::Function *bestMatch = nullptr;
   int bestScore = -1;
 
+  std::cout << "[DEBUG] FindMethodOverload for '" << methodName << "' with "
+            << args.size() << " args" << std::endl;
+
   for (const auto &pair : classInfo.methods) {
     // Check if this is an overload of our target method
     // Either exact match or starts with "MethodName$"
     bool isMatch = (pair.first == methodName) ||
                    (pair.first.length() > prefix.length() &&
                     pair.first.compare(0, prefix.length(), prefix) == 0);
+
+    // Debug print for each candidate
+    if (pair.first.find(methodName) != std::string::npos) {
+      std::cout << "  Candidate: '" << pair.first << "' Match: " << isMatch
+                << " ArgCount: " << (pair.second->arg_size() - 1) << std::endl;
+    }
+
     if (!isMatch) {
       continue;
     }
@@ -3417,12 +3484,14 @@ QJitRunner::FindMethodOverload(const CompiledClass &classInfo,
         score += 5; // Pointer types (class instances, etc.)
       } else {
         compatible = false;
+        std::cout << "    Incompatible arg " << i << std::endl;
       }
     }
 
     if (compatible && score > bestScore) {
       bestScore = score;
       bestMatch = func;
+      std::cout << "    New best match! Score: " << score << std::endl;
     }
   }
 

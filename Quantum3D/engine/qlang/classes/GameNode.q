@@ -46,6 +46,12 @@ class GameNode
 
     method void Turn(Vec3 rotation)
 
+
+        qprintf("GameNode.Turn Called");
+        if (NodePtr == null)
+            qprintf("ERROR: NodePtr is null!");
+            return;
+        end
         Node_Turn(NodePtr,rotation);
 
     end 
