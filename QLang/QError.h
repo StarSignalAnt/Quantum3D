@@ -1,5 +1,6 @@
 #pragma once
 
+#include "QConsole.h"
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -173,15 +174,31 @@ public:
       return;
     }
 
-    std::cout << "=== QLang Errors ===" << std::endl;
-    std::cout << "Total: " << m_Errors.size() << " issue(s) - " << m_FatalCount
-              << " fatal, " << m_ErrorCount << " error(s), " << m_WarningCount
-              << " warning(s)" << std::endl;
+    std::ostringstream summary;
+    summary << "=== QLang Errors ===";
+    std::cout << summary.str() << std::endl;
+    QConsole::PrintError(summary.str());
+
+    summary.str("");
+    summary << "Total: " << m_Errors.size() << " issue(s) - " << m_FatalCount
+            << " fatal, " << m_ErrorCount << " error(s), " << m_WarningCount
+            << " warning(s)";
+    std::cout << summary.str() << std::endl;
+    QConsole::PrintError(summary.str());
     std::cout << std::endl;
 
     for (size_t i = 0; i < m_Errors.size(); i++) {
       const auto &error = m_Errors[i];
-      std::cout << (i + 1) << ". " << error.ToString() << std::endl;
+      std::ostringstream errLine;
+      errLine << (i + 1) << ". " << error.ToString();
+      std::cout << errLine.str() << std::endl;
+
+      // Send to QConsole based on severity
+      if (error.severity == QErrorSeverity::Warning) {
+        QConsole::PrintWarning(errLine.str());
+      } else {
+        QConsole::PrintError(errLine.str());
+      }
 
       // Note: We used to skip runtime errors, but user requested context for
       // them too. if (error.source == "runtime") continue;

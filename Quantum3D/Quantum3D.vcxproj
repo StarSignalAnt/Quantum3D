@@ -127,6 +127,7 @@
     <QtMoc Include="ScriptEditorWindow.h" />
     <QtMoc Include="CodeEditor.h" />
     <QtMoc Include="QLangHighlighter.h" />
+    <ClCompile Include="ConsoleWidget.cpp" />
     <ClCompile Include="Quantum3D.cpp" />
     <ClCompile Include="SceneGraphWidget.cpp" />
     <ClCompile Include="PropertiesWidget.cpp" />
@@ -148,6 +149,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ConsoleWidget.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="EngineGlobals.h" />
     <ClInclude Include="EditorCamera.h" />

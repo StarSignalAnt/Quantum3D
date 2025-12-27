@@ -25,6 +25,7 @@ ViewportWidget *EngineGlobals::Viewport = nullptr;
 SceneGraphWidget *EngineGlobals::SceneGraphPanel = nullptr;
 PropertiesWidget *EngineGlobals::PropertiesPanel = nullptr;
 BrowserWidget *EngineGlobals::BrowserPanel = nullptr;
+ConsoleWidget *EngineGlobals::Console = nullptr;
 Quantum::ScriptEditorWindow *EngineGlobals::ScriptEditor = nullptr;
 
 bool EngineGlobals::m_Playing = false;

@@ -147,6 +147,7 @@
     <ClInclude Include="QClassInstance.h" />
     <ClInclude Include="QDebug.h" />
     <ClInclude Include="QJClassInstance.h" />
+    <ClInclude Include="QValidator.h" />
     <ClInclude Include="Tokenizer.h" />
     <ClInclude Include="QActionNode.h" />
     <ClInclude Include="QNode.h" />
@@ -177,6 +178,7 @@
     </ClCompile>
     <ClCompile Include="QJClassInstance.cpp" />
     <ClCompile Include="QLang.cpp" />
+    <ClCompile Include="QValidator.cpp" />
     <ClCompile Include="Tokenizer.cpp" />
     <ClCompile Include="Parser.cpp" />
     <ClCompile Include="QLVM.cpp" />

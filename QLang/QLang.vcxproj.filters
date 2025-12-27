@@ -90,6 +90,9 @@
     <ClInclude Include="QJClassInstance.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="QValidator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="QLang.cpp">
@@ -121,6 +124,9 @@
     </ClCompile>
     <ClCompile Include="QJClassInstance.cpp">
       <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="QValidator.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

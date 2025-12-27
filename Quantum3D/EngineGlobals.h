@@ -13,6 +13,7 @@ class ViewportWidget;
 class SceneGraphWidget;
 class PropertiesWidget;
 class BrowserWidget;
+class ConsoleWidget;
 
 namespace Quantum {
 class ScriptEditorWindow;
@@ -40,6 +41,7 @@ public:
   static SceneGraphWidget *SceneGraphPanel;
   static PropertiesWidget *PropertiesPanel;
   static BrowserWidget *BrowserPanel;
+  static ConsoleWidget *Console;
   static Quantum::ScriptEditorWindow *ScriptEditor;
 
   // === Gizmo State ===

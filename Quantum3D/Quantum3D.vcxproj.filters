@@ -76,6 +76,9 @@
     <ClCompile Include="QLangSymbols.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="ConsoleWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="SceneGraphWidget.h">
@@ -120,6 +123,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="CodeEditorTheme.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ConsoleWidget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

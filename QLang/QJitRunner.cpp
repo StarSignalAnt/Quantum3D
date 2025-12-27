@@ -17,11 +17,13 @@
 #include "QReturn.h"
 
 #include "Parser.h"
+#include "QConsole.h"
 #include "QLVM.h"
 #include "QLVMContext.h"
 #include "QProgram.h"
 #include "QStatement.h"
 #include "QStaticRegistry.h"
+#include "QValidator.h"
 #include "QVariableDecl.h"
 #include "Tokenizer.h"
 
@@ -3987,8 +3989,7 @@ bool QJitRunner::BuildModule(const std::string &path) {
   tokenizer.Tokenize();
 
   if (m_ErrorCollector->HasErrors()) {
-    std::cerr << "[ERROR] QJitRunner: Tokenization errors in " << path << ":"
-              << std::endl;
+    QConsole::PrintError("QJitRunner: Tokenization errors in " + path);
     m_ErrorCollector->ListErrors();
     return false;
   }
@@ -3998,10 +3999,23 @@ bool QJitRunner::BuildModule(const std::string &path) {
   auto program = parser.Parse();
 
   if (m_ErrorCollector->HasErrors()) {
-    std::cerr << "[ERROR] QJitRunner: Parse errors in " << path << ":"
-              << std::endl;
+    QConsole::PrintError("QJitRunner: Parse errors in " + path);
     m_ErrorCollector->ListErrors();
-    return false;
+    
+  }
+
+  // Validate the parsed AST
+  QValidator validator(m_ErrorCollector);
+  // Register already-compiled classes as known types
+  for (const auto &pair : m_CompiledClasses) {
+    validator.RegisterKnownClass(pair.first);
+  }
+  validator.Validate(program);
+
+  if (m_ErrorCollector->HasErrors()) {
+    QConsole::PrintError("QJitRunner: Validation errors in " + path);
+    m_ErrorCollector->ListErrors();
+
   }
 
   // Compile into current modules (ACCUMULATE)
@@ -4011,14 +4025,17 @@ bool QJitRunner::BuildModule(const std::string &path) {
   CompileProgram(program, true);
 
   if (m_ErrorCollector->HasErrors()) {
-    std::cerr << "[ERROR] QJitRunner: Compilation errors in " << path << ":"
-              << std::endl;
+    QConsole::PrintError("QJitRunner: Compilation errors in " + path);
     m_ErrorCollector->ListErrors();
-    return false;
+    //return false;
   }
 
   // Mark master module as needing recompile since we added new code
   m_MasterModuleNeedsRecompile = true;
+
+  // Log success
+  std::filesystem::path p(path);
+  QConsole::Print("Compiled: " + p.filename().string());
 
   return true;
 }
@@ -4026,7 +4043,7 @@ bool QJitRunner::BuildModule(const std::string &path) {
 std::string QJitRunner::CompileScriptIntoMaster(const std::string &path) {
   m_CurrentScriptPath = path;
   bool success = BuildModule(path);
-  m_CurrentScriptPath.clear();
+   m_CurrentScriptPath.clear();
 
   if (success) {
     // Extract class name from path stem

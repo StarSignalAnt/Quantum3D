@@ -1,5 +1,7 @@
 #include "Quantum3D.h"
+#include "../../../QLang/QLang/QConsole.h"
 #include "BrowserWidget.h"
+#include "ConsoleWidget.h"
 #include "EngineGlobals.h"
 #include "PropertiesWidget.h"
 #include "QLangDomain.h"
@@ -14,6 +16,7 @@
 #include <memory>
 #include <variant>
 #include <vector>
+
 
 Quantum3D::Quantum3D(QWidget *parent) : QMainWindow(parent) {
   setupMenu();
@@ -63,8 +66,17 @@ void Quantum3D::setupDockWidgets() {
   addDockWidget(Qt::BottomDockWidgetArea, m_browserDock);
   EngineGlobals::BrowserPanel = m_browserWidget;
 
-  // Create Script Editor (a separate main window)
-//  EngineGlobals::ScriptEditor = new Quantum::ScriptEditorWindow(this);
+  // Create Console dock widget
+  m_consoleWidget = new ConsoleWidget(this);
+  m_consoleDock = new QDockWidget(tr("Console"), this);
+  m_consoleDock->setWidget(m_consoleWidget);
+  m_consoleDock->setAllowedAreas(Qt::AllDockWidgetAreas);
+  addDockWidget(Qt::BottomDockWidgetArea, m_consoleDock);
+  EngineGlobals::Console = m_consoleWidget;
+
+  // Tabify console with browser so they share the bottom area
+  tabifyDockWidget(m_browserDock, m_consoleDock);
+  m_browserDock->raise(); // Browser visible by default
 
   // Connect BrowserWidget model import signal to ViewportWidget slot
   connect(m_browserWidget, &BrowserWidget::ModelImported, m_viewportWidget,
@@ -85,4 +97,16 @@ void Quantum3D::setupDockWidgets() {
   resizeDocks({m_sceneGraphDock}, {280}, Qt::Horizontal);
   resizeDocks({m_propertiesDock}, {280}, Qt::Horizontal);
   resizeDocks({m_browserDock}, {200}, Qt::Vertical);
+
+  // Hook up QLang console delegate to forward output to ConsoleWidget
+  // This connects QLang's QConsole to the Qt console widget
+  QConsole::SetPrintDelegate(
+      [this](const std::string &msg, QConsoleLevel level) {
+        if (m_consoleWidget) {
+          m_consoleWidget->PrintWithLevel(msg, static_cast<int>(level));
+        }
+      });
+
+  // Print startup message
+  m_consoleWidget->Print("Quantum3D Console initialized.");
 }
