@@ -9,6 +9,8 @@ public:
   QuantumMenu(QWidget *parent = nullptr);
   ~QuantumMenu();
 
+  QAction *GetTerrainEditorAction() const { return m_terrainEditorAction; }
+
 private:
   void setupMenus();
 
@@ -25,8 +27,10 @@ private:
   QAction *m_pasteAction;          // Added
   QAction *m_alignNodeToCamAction; // Added
   QAction *m_alignCamToNodeAction; // Added
+  QAction *m_terrainEditorAction;  // Added
   QAction *m_scriptEditorAction;
 
   QMenu *m_createMenu;
   QAction *m_createWaterAction;
+  QAction *m_createTerrainAction;
 };

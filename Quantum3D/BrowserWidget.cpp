@@ -173,13 +173,25 @@ void BrowserListWidget::mouseMoveEvent(QMouseEvent *event) {
 void BrowserListWidget::startDrag(QListWidgetItem *item) {
   QString filePath = item->data(Qt::UserRole).toString();
 
-  // Only allow dragging .q files
-  if (!filePath.endsWith(".q", Qt::CaseInsensitive)) {
+  // Check if this is a draggable file type
+  bool isScript = filePath.endsWith(".q", Qt::CaseInsensitive);
+  bool isImage = filePath.endsWith(".png", Qt::CaseInsensitive) ||
+                 filePath.endsWith(".jpg", Qt::CaseInsensitive) ||
+                 filePath.endsWith(".jpeg", Qt::CaseInsensitive) ||
+                 filePath.endsWith(".bmp", Qt::CaseInsensitive) ||
+                 filePath.endsWith(".tga", Qt::CaseInsensitive);
+
+  if (!isScript && !isImage) {
     return;
   }
 
   QMimeData *mimeData = new QMimeData();
-  mimeData->setData("application/x-qlang-script", filePath.toUtf8());
+
+  if (isScript) {
+    mimeData->setData("application/x-qlang-script", filePath.toUtf8());
+  } else if (isImage) {
+    mimeData->setData("application/x-texture-image", filePath.toUtf8());
+  }
   mimeData->setText(filePath);
 
   QDrag *drag = new QDrag(this);

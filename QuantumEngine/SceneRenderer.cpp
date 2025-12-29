@@ -8,6 +8,7 @@
 #include "Mesh3D.h"
 #include "RenderingPipelines.h"
 #include "RotateGizmo.h"
+#include "TerrainNode.h"
 #include "Texture2D.h"
 #include "TranslateGizmo.h"
 #include "VividApplication.h"
@@ -133,6 +134,23 @@ void SceneRenderer::Initialize() {
       "engine/shaders/PLGizmoUnlit.frag.spv", gizmoConfig,
       Vivid::PipelineType::Mesh3D);
 
+  // Register PLTerrainGizmo Pipeline (blending enabled)
+  Vivid::BlendConfig terrainGizmoConfig;
+  terrainGizmoConfig.blendEnable = VK_TRUE;
+  terrainGizmoConfig.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+  terrainGizmoConfig.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+  terrainGizmoConfig.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+  terrainGizmoConfig.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+  terrainGizmoConfig.depthTestEnable = VK_TRUE;
+  terrainGizmoConfig.depthWriteEnable = VK_FALSE;
+  terrainGizmoConfig.cullMode = VK_CULL_MODE_NONE;
+  terrainGizmoConfig.pushConstantSize = 80;
+
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLTerrainGizmo", "engine/shaders/PLTerrainGizmo.vert.spv",
+      "engine/shaders/PLTerrainGizmo.frag.spv", terrainGizmoConfig,
+      Vivid::PipelineType::Mesh3D);
+
   if (RenderingPipelines::Get().HasPipeline("PLSimple")) {
     std::cout << "[SceneRenderer] PLSimple pipeline registered successfully"
               << std::endl;
@@ -157,6 +175,7 @@ void SceneRenderer::Initialize() {
   std::cout << "[SceneRenderer] Initializing gizmos..." << std::endl;
   m_TranslateGizmo = std::make_unique<TranslateGizmo>(m_Device);
   m_RotateGizmo = std::make_unique<RotateGizmo>(m_Device);
+  m_TerrainGizmo = std::make_unique<TerrainGizmo>(m_Device);
 
   // Default to Translate gizmo
   m_ActiveGizmo = m_TranslateGizmo.get();
@@ -192,8 +211,8 @@ void SceneRenderer::Initialize() {
   RenderingPipelines::Get().RegisterPipeline(
       "PLWater", "engine/shaders/PLWater.vert.spv",
       "engine/shaders/PLWater.frag.spv", opaqueConfig,
-      Vivid::PipelineType::Mesh3D); // Water is opaque for now (or use blend if
-                                    // desired)
+      Vivid::PipelineType::Mesh3D); // Water is opaque for now (or use blend
+                                    // if desired)
 
   if (RenderingPipelines::Get().HasPipeline("PLWater")) {
     std::cout << "[SceneRenderer] PLWater pipeline registered successfully"
@@ -236,6 +255,20 @@ void SceneRenderer::Initialize() {
       "engine/shaders/PLWater.frag.spv", additiveConfig,
       Vivid::PipelineType::Mesh3D);
   std::cout << "[SceneRenderer] PLWater_Additive pipeline registered"
+            << std::endl;
+
+  // Register PLTerrain pipeline for layered terrain rendering
+  RenderingPipelines::Get().RegisterPipeline(
+      "PLTerrain", "engine/shaders/PLTerrain.vert.spv",
+      "engine/shaders/PLTerrain.frag.spv", opaqueConfig,
+      Vivid::PipelineType::Mesh3D);
+
+  // Set terrain descriptor layouts for RenderingPipelines
+  std::vector<VkDescriptorSetLayout> terrainLayouts = {m_GlobalSetLayout,
+                                                       m_TerrainSetLayout};
+  RenderingPipelines::Get().SetTerrainLayouts(terrainLayouts);
+  std::cout << "[SceneRenderer] PLTerrain pipeline registered with terrain "
+               "layouts"
             << std::endl;
 
   // Register debugging wireframe pipeline
@@ -294,6 +327,10 @@ void SceneRenderer::Shutdown() {
     buffer.reset();
   }
   m_GizmoUniformBuffer.reset();
+  m_TranslateGizmo.reset();
+  m_RotateGizmo.reset();
+  m_TerrainGizmo.reset();
+  m_ActiveGizmo = nullptr;
 
   if (m_DescriptorPool != VK_NULL_HANDLE && m_Device) {
     std::cout << "[SceneRenderer] Destroying descriptor pool..." << std::endl;
@@ -315,6 +352,14 @@ void SceneRenderer::Shutdown() {
     vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_MaterialSetLayout,
                                  nullptr);
     m_MaterialSetLayout = VK_NULL_HANDLE;
+  }
+
+  if (m_TerrainSetLayout != VK_NULL_HANDLE && m_Device) {
+    std::cout << "[SceneRenderer] Destroying terrain descriptor set layout..."
+              << std::endl;
+    vkDestroyDescriptorSetLayout(m_Device->GetDevice(), m_TerrainSetLayout,
+                                 nullptr);
+    m_TerrainSetLayout = VK_NULL_HANDLE;
   }
 
   std::cout << "[SceneRenderer] Shutting down RenderingPipelines..."
@@ -442,7 +487,29 @@ void SceneRenderer::CreateDescriptorSetLayout() {
         "Failed to create Material Descriptor Set Layout!");
   }
 
-  std::cout << "[SceneRenderer] Descriptor Layouts Created (Global & Material)"
+  // --- SET 2: TERRAIN (16 layer textures: 4 layers × 4 textures each) ---
+  VkDescriptorSetLayoutBinding terrainBindings[16];
+  for (int i = 0; i < 16; i++) {
+    terrainBindings[i].binding = i;
+    terrainBindings[i].descriptorType =
+        VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    terrainBindings[i].descriptorCount = 1;
+    terrainBindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    terrainBindings[i].pImmutableSamplers = nullptr;
+  }
+
+  VkDescriptorSetLayoutCreateInfo terrainInfo{};
+  terrainInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  terrainInfo.bindingCount = 16;
+  terrainInfo.pBindings = terrainBindings;
+
+  if (vkCreateDescriptorSetLayout(m_Device->GetDevice(), &terrainInfo, nullptr,
+                                  &m_TerrainSetLayout) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Terrain Descriptor Set Layout!");
+  }
+
+  std::cout << "[SceneRenderer] Descriptor Layouts Created (Global, Material, "
+               "Terrain)"
             << std::endl;
 }
 
@@ -705,6 +772,12 @@ void SceneRenderer::ResizeUniformBuffers(size_t requiredDraws) {
 
 void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
                                 float time) {
+  // Check and refresh any dirty terrain descriptors BEFORE command recording
+  // This must happen before any command buffer recording starts
+  if (m_SceneGraph && m_SceneGraph->GetRoot()) {
+    CheckAndRefreshDirtyTerrains(m_SceneGraph->GetRoot());
+  }
+
   // Reset draw indices at the start of the frame
   // (RenderWaterPasses also resets this, but may be skipped if no water)
   m_CurrentDrawIndex = 0;
@@ -839,6 +912,22 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
       m_ActiveGizmo->Render(this, cmd, view, proj);
     }
   }
+
+  // Render Terrain Gizmo (Brush) if in Terrain Mode
+  if (m_ShowTerrainGizmo && m_TerrainGizmo) {
+    auto camera = m_SceneGraph->GetCurrentCamera();
+    if (camera) {
+      glm::mat4 view = camera->GetWorldMatrix();
+      float aspect = (float)width / (float)height;
+      glm::mat4 proj =
+          glm::perspective(glm::radians(45.0f), aspect, 0.1f, 1000.0f);
+      proj[1][1] *= -1;
+
+      // Temporary fixed position as requested - REMOVED
+      // m_TerrainGizmo->SetPosition(glm::vec3(0.0f, 0.1f, 0.0f));
+      m_TerrainGizmo->Render(this, cmd, view, proj);
+    }
+  }
 }
 
 void SceneRenderer::DrawGizmoMesh(VkCommandBuffer cmd,
@@ -920,6 +1009,12 @@ bool SceneRenderer::IsGizmoDragging() const {
   return false;
 }
 
+void SceneRenderer::SetTerrainGizmoSize(float size) {
+  if (m_TerrainGizmo) {
+    m_TerrainGizmo->SetSize(size);
+  }
+}
+
 void SceneRenderer::SetGizmoSpace(GizmoSpace space) {
   if (m_ActiveGizmo) {
     m_ActiveGizmo->SetSpace(space);
@@ -927,6 +1022,11 @@ void SceneRenderer::SetGizmoSpace(GizmoSpace space) {
 }
 
 void SceneRenderer::SetGizmoType(GizmoType type) {
+  if (type == GizmoType::None) {
+    m_ActiveGizmo = nullptr;
+    return;
+  }
+
   GizmoBase *newGizmo = nullptr;
 
   switch (type) {
@@ -940,6 +1040,8 @@ void SceneRenderer::SetGizmoType(GizmoType type) {
     // Not implemented yet, fall back to translate
     newGizmo = m_TranslateGizmo.get();
     break;
+  default:
+    return;
   }
 
   if (newGizmo && newGizmo != m_ActiveGizmo) {
@@ -1190,14 +1292,26 @@ void SceneRenderer::RenderNode(VkCommandBuffer cmd, GraphNode *node, int width,
                                     &globalSet, 1, &dynamicOffset);
           }
 
-          // Bind the MATERIAL descriptor set (Set 1)
-          VkDescriptorSet materialSet = m_DefaultMaterialSet;
-          if (material && material->HasDescriptorSet()) {
-            materialSet = material->GetDescriptorSet();
+          // Bind Set 1: TERRAIN or MATERIAL descriptor set
+          // Check if this node is a TerrainNode - bind terrain descriptor set
+          auto *terrainNode = dynamic_cast<TerrainNode *>(node);
+          if (terrainNode &&
+              terrainNode->GetDescriptorSet() != VK_NULL_HANDLE) {
+            // Terrain node - bind terrain descriptor set (16 textures)
+            VkDescriptorSet terrainSet = terrainNode->GetDescriptorSet();
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    meshPipeline->GetPipelineLayout(), 1, 1,
+                                    &terrainSet, 0, nullptr);
+          } else {
+            // Standard material - bind material descriptor set (6 textures)
+            VkDescriptorSet materialSet = m_DefaultMaterialSet;
+            if (material && material->HasDescriptorSet()) {
+              materialSet = material->GetDescriptorSet();
+            }
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    meshPipeline->GetPipelineLayout(), 1, 1,
+                                    &materialSet, 0, nullptr);
           }
-          vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  meshPipeline->GetPipelineLayout(), 1, 1,
-                                  &materialSet, 0, nullptr);
 
           mesh->Bind(cmd);
           uint32_t indexCount = static_cast<uint32_t>(mesh->GetIndexCount());
@@ -1250,9 +1364,130 @@ void SceneRenderer::RefreshMaterialTextures() {
   std::cout << "[SceneRenderer] RefreshMaterialTextures: Complete" << std::endl;
 }
 
+void SceneRenderer::CheckAndRefreshDirtyTerrains(GraphNode *node) {
+  if (!node)
+    return;
+
+  auto *terrainNode = dynamic_cast<TerrainNode *>(node);
+  if (terrainNode) {
+    // Process any pending texture loads from the UI thread on the render thread
+    terrainNode->ProcessPendingUpdates();
+
+    if (terrainNode->NeedsDescriptorUpdate()) {
+      // We found a dirty terrain, update its descriptor set
+      CreateMaterialDescriptorSetsRecursive(terrainNode);
+    }
+  }
+
+  for (const auto &child : node->GetChildren()) {
+    CheckAndRefreshDirtyTerrains(child.get());
+  }
+}
+
 void SceneRenderer::CreateMaterialDescriptorSetsRecursive(GraphNode *node) {
   if (!node)
     return;
+
+  // Check if this is a TerrainNode - allocate terrain descriptor set
+  auto *terrainNode = dynamic_cast<TerrainNode *>(node);
+  if (terrainNode && (terrainNode->GetDescriptorSet() == VK_NULL_HANDLE ||
+                      terrainNode->NeedsDescriptorUpdate())) {
+    bool wasAlreadyAllocated =
+        terrainNode->GetDescriptorSet() != VK_NULL_HANDLE;
+    VkDescriptorSet terrainSet = terrainNode->GetDescriptorSet();
+
+    // Only allocate a new descriptor set if we don't have one
+    if (!wasAlreadyAllocated) {
+      VkDescriptorSetAllocateInfo terrainAllocInfo{};
+      terrainAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      terrainAllocInfo.descriptorPool = m_DescriptorPool;
+      terrainAllocInfo.descriptorSetCount = 1;
+      terrainAllocInfo.pSetLayouts = &m_TerrainSetLayout;
+
+      if (vkAllocateDescriptorSets(m_Device->GetDevice(), &terrainAllocInfo,
+                                   &terrainSet) != VK_SUCCESS) {
+        // Failed to allocate, skip this terrain
+        return;
+      }
+      terrainNode->SetDescriptorSet(terrainSet);
+    }
+
+    // Always re-write descriptor set with current textures
+    {
+      // Write terrain layer textures to descriptor set
+      std::vector<VkDescriptorImageInfo> imageInfos(16);
+      std::vector<VkWriteDescriptorSet> writes(16);
+
+      for (int layer = 0; layer < 4; layer++) {
+        const auto &terrainLayer = terrainNode->GetLayer(layer);
+
+        // Binding 0-3: Layer color maps
+        int colorIdx = layer * 4 + 0;
+        imageInfos[colorIdx].imageLayout =
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[colorIdx].imageView =
+            terrainLayer.colorMap ? terrainLayer.colorMap->GetImageView()
+                                  : m_DefaultTexture->GetImageView();
+        imageInfos[colorIdx].sampler = terrainLayer.colorMap
+                                           ? terrainLayer.colorMap->GetSampler()
+                                           : m_DefaultTexture->GetSampler();
+
+        // Binding 1-5-9-13: Layer normal maps
+        int normalIdx = layer * 4 + 1;
+        imageInfos[normalIdx].imageLayout =
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[normalIdx].imageView =
+            terrainLayer.normalMap ? terrainLayer.normalMap->GetImageView()
+                                   : m_DefaultTexture->GetImageView();
+        imageInfos[normalIdx].sampler =
+            terrainLayer.normalMap ? terrainLayer.normalMap->GetSampler()
+                                   : m_DefaultTexture->GetSampler();
+
+        // Binding 2-6-10-14: Layer specular maps
+        int specIdx = layer * 4 + 2;
+        imageInfos[specIdx].imageLayout =
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[specIdx].imageView =
+            terrainLayer.specularMap ? terrainLayer.specularMap->GetImageView()
+                                     : m_DefaultTexture->GetImageView();
+        imageInfos[specIdx].sampler =
+            terrainLayer.specularMap ? terrainLayer.specularMap->GetSampler()
+                                     : m_DefaultTexture->GetSampler();
+
+        // Binding 3-7-11-15: Layer blend maps
+        int mapIdx = layer * 4 + 3;
+        imageInfos[mapIdx].imageLayout =
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageInfos[mapIdx].imageView =
+            terrainLayer.layerMap ? terrainLayer.layerMap->GetImageView()
+                                  : m_DefaultTexture->GetImageView();
+        imageInfos[mapIdx].sampler = terrainLayer.layerMap
+                                         ? terrainLayer.layerMap->GetSampler()
+                                         : m_DefaultTexture->GetSampler();
+      }
+
+      // Build write descriptor sets
+      for (int i = 0; i < 16; i++) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = terrainSet;
+        writes[i].dstBinding = i;
+        writes[i].dstArrayElement = 0;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[i].descriptorCount = 1;
+        writes[i].pImageInfo = &imageInfos[i];
+      }
+
+      vkUpdateDescriptorSets(m_Device->GetDevice(),
+                             static_cast<uint32_t>(writes.size()),
+                             writes.data(), 0, nullptr);
+
+      std::cout << "[SceneRenderer] Updated terrain descriptor set for: "
+                << terrainNode->GetName() << std::endl;
+    }
+
+    // Clear the dirty flag after update
+    terrainNode->ClearDescriptorDirty();
+  }
 
   for (const auto &mesh : node->GetMeshes()) {
     if (mesh) {

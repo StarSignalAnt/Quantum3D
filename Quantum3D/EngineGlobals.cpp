@@ -3,8 +3,10 @@
 #include "../QuantumEngine/GraphNode.h"
 #include "../QuantumEngine/QLangDomain.h"
 #include "../QuantumEngine/SceneGraph.h"
+#include "../QuantumEngine/TerrainNode.h"
 #include "PropertiesWidget.h"
 #include "SceneGraphWidget.h"
+#include "TerrainEditorWidget.h"
 #include "ViewportWidget.h"
 #include <iostream>
 
@@ -27,12 +29,16 @@ PropertiesWidget *EngineGlobals::PropertiesPanel = nullptr;
 BrowserWidget *EngineGlobals::BrowserPanel = nullptr;
 ConsoleWidget *EngineGlobals::Console = nullptr;
 Quantum::ScriptEditorWindow *EngineGlobals::ScriptEditor = nullptr;
+TerrainEditorWidget *EngineGlobals::TerrainEditor = nullptr;
+Quantum::SceneRenderer *EngineGlobals::Renderer = nullptr;
 
 bool EngineGlobals::m_Playing = false;
 
 // Gizmo State
 CoordinateSpace EngineGlobals::CurrentSpace = CoordinateSpace::Local;
 GizmoType EngineGlobals::CurrentGizmoType = GizmoType::Translate;
+Quantum::EditorMode EngineGlobals::CurrentEditorMode =
+    Quantum::EditorMode::Scene;
 
 // === Selection Functions ===
 
@@ -61,6 +67,12 @@ void EngineGlobals::SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node) {
   // Notify the properties panel
   if (PropertiesPanel) {
     PropertiesPanel->SetNode(node.get());
+  }
+
+  // Update terrain editor if selected node is a terrain
+  if (TerrainEditor) {
+    auto *terrainNode = dynamic_cast<Quantum::TerrainNode *>(node.get());
+    TerrainEditor->SetTerrain(terrainNode);
   }
 }
 
@@ -101,6 +113,9 @@ void EngineGlobals::SetGizmoMode(GizmoType type) {
   case GizmoType::Scale:
     typeName = "Scale";
     break;
+  case GizmoType::None:
+    typeName = "None";
+    break;
   }
 
   std::cout << "[EngineGlobals] Gizmo mode: " << typeName << std::endl;
@@ -112,6 +127,17 @@ void EngineGlobals::SetGizmoMode(GizmoType type) {
 }
 
 GizmoType EngineGlobals::GetGizmoMode() { return CurrentGizmoType; }
+
+void EngineGlobals::SetEditorMode(Quantum::EditorMode mode) {
+  if (CurrentEditorMode != mode) {
+    CurrentEditorMode = mode;
+    std::cout << "[EngineGlobals] Editor Mode set to: "
+              << (mode == Quantum::EditorMode::Scene ? "Scene" : "Terrain")
+              << std::endl;
+  }
+}
+
+Quantum::EditorMode EngineGlobals::GetEditorMode() { return CurrentEditorMode; }
 
 void EngineGlobals::OnPlay() {
 

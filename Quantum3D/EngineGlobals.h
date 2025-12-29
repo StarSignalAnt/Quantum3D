@@ -7,6 +7,7 @@
 namespace Quantum {
 class SceneGraph;
 class GraphNode;
+class SceneRenderer;
 } // namespace Quantum
 
 class ViewportWidget;
@@ -14,16 +15,17 @@ class SceneGraphWidget;
 class PropertiesWidget;
 class BrowserWidget;
 class ConsoleWidget;
+class TerrainEditorWidget;
 
 namespace Quantum {
 class ScriptEditorWindow;
 }
 
-// Coordinate space for gizmo transformations
-enum class CoordinateSpace { Local, Global };
+// Editor Mode
+#include "EditorCommon.h"
 
-// Interaction mode for gizmos
-enum class GizmoType { Translate, Rotate, Scale };
+// Editor Mode
+#include "EditorCommon.h"
 
 class EngineGlobals {
 public:
@@ -43,10 +45,13 @@ public:
   static BrowserWidget *BrowserPanel;
   static ConsoleWidget *Console;
   static Quantum::ScriptEditorWindow *ScriptEditor;
+  static TerrainEditorWidget *TerrainEditor;
+  static Quantum::SceneRenderer *Renderer;
 
   // === Gizmo State ===
   static CoordinateSpace CurrentSpace;
   static GizmoType CurrentGizmoType;
+  static Quantum::EditorMode CurrentEditorMode;
 
   // === Selection Functions ===
   static void SetSelectedNode(std::shared_ptr<Quantum::GraphNode> node);
@@ -59,6 +64,9 @@ public:
 
   static void SetGizmoMode(GizmoType type);
   static GizmoType GetGizmoMode();
+
+  static void SetEditorMode(Quantum::EditorMode mode);
+  static Quantum::EditorMode GetEditorMode();
 
   static void OnPlay();
   static void OnStop();

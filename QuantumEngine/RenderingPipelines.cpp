@@ -104,6 +104,8 @@ void RenderingPipelines::RegisterPipeline(const std::string &name,
   info.blendConfig = blendConfig;
   info.pipelineType = pipelineType;
   info.pipeline = nullptr;
+  // Mark terrain pipelines to use terrain descriptor layout (16 textures)
+  info.useTerrainLayout = (name.find("Terrain") != std::string::npos);
   m_Pipelines[name] = std::move(info);
 
   std::cout << "[RenderingPipelines] Pipeline '" << name
@@ -141,9 +143,22 @@ Vivid::VividPipeline *RenderingPipelines::GetPipeline(const std::string &name) {
               << std::endl;
 
     try {
+      // Select descriptor layouts: terrain uses 16-texture layout, others use
+      // standard
+      const auto &layouts =
+          it->second.useTerrainLayout && !m_TerrainDescriptorSetLayouts.empty()
+              ? m_TerrainDescriptorSetLayouts
+              : m_DescriptorSetLayouts;
+
+      if (it->second.useTerrainLayout) {
+        std::cout << "[RenderingPipelines]   Using terrain descriptor layout "
+                     "(16 textures)"
+                  << std::endl;
+      }
+
       it->second.pipeline = std::make_unique<Vivid::VividPipeline>(
           m_Device, it->second.vertShaderPath, it->second.fragShaderPath,
-          m_DescriptorSetLayouts, m_RenderPass, it->second.blendConfig,
+          layouts, m_RenderPass, it->second.blendConfig,
           it->second.pipelineType);
       it->second.pipeline->SetName(name);
 
@@ -170,6 +185,13 @@ std::vector<std::string> RenderingPipelines::GetPipelineNames() const {
     names.push_back(pair.first);
   }
   return names;
+}
+
+void RenderingPipelines::SetTerrainLayouts(
+    const std::vector<VkDescriptorSetLayout> &layouts) {
+  m_TerrainDescriptorSetLayouts = layouts;
+  std::cout << "[RenderingPipelines] Terrain descriptor layouts set ("
+            << layouts.size() << " layouts)" << std::endl;
 }
 
 } // namespace Quantum

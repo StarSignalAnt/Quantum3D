@@ -26,8 +26,11 @@ public:
   // Get view matrix from underlying camera
   glm::mat4 GetViewMatrix() const;
 
+  // Get projection matrix (needs aspect ratio)
+  glm::mat4 GetProjectionMatrix(float aspectRatio) const;
+
   // Position accessors
-  void SetPosition(const glm::vec3& pos);
+  void SetPosition(const glm::vec3 &pos);
   glm::vec3 GetPosition() const;
 
   // Set initial rotation state if needed

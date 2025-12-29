@@ -5,12 +5,16 @@
 
 class QAction;
 class QActionGroup;
+class QComboBox;
 
 // Gizmo mode enum
 enum class GizmoMode { Translate, Rotate, Scale };
 
 // Coordinate space mode
 enum class CoordinateMode { Local, Global };
+
+// Editor mode enum
+#include "EditorCommon.h"
 
 class QuantumToolBar : public QToolBar {
   Q_OBJECT
@@ -23,11 +27,15 @@ public:
   CoordinateMode GetCurrentCoordinateMode() const {
     return m_currentCoordinateMode;
   }
+  Quantum::EditorMode GetCurrentEditorMode() const {
+    return m_currentEditorMode;
+  }
 
 signals:
   void gizmoModeChanged(GizmoMode mode);
   void coordinateModeChanged(CoordinateMode mode);
   void playStateChanged(bool isPlaying);
+  void editorModeChanged(Quantum::EditorMode mode);
 
 private slots:
   void onLocalClicked();
@@ -37,6 +45,7 @@ private slots:
   void onScaleClicked();
   void onPlayClicked();
   void onStopClicked();
+  void onEditorModeChanged(int index);
 
 private:
   void setupToolBar();
@@ -59,4 +68,8 @@ private:
   // Play control actions
   QAction *m_playAction;
   QAction *m_stopAction;
+
+  // Editor mode selector
+  QComboBox *m_editorModeCombo;
+  Quantum::EditorMode m_currentEditorMode = Quantum::EditorMode::Scene;
 };

@@ -12,6 +12,7 @@ class ViewportWidget;
 class QuantumMenu;
 class QuantumToolBar;
 class ConsoleWidget;
+class TerrainEditorWidget;
 
 class Quantum3D : public QMainWindow {
   Q_OBJECT
@@ -20,10 +21,16 @@ public:
   Quantum3D(QWidget *parent = nullptr);
   ~Quantum3D();
 
+private slots:
+  void onEditorModeChanged(int mode);
+  void updateApp();
+
 private:
   void setupDockWidgets();
   void setupMenu();
   void setupToolBar();
+
+  QTimer *m_updateTimer;
 
   Ui::Quantum3DClass ui;
 
@@ -38,6 +45,7 @@ private:
   QDockWidget *m_propertiesDock;
   QDockWidget *m_browserDock;
   QDockWidget *m_consoleDock;
+  QDockWidget *m_terrainEditorDock;
 
   // Widget contents
   SceneGraphWidget *m_sceneGraphWidget;
@@ -45,4 +53,5 @@ private:
   BrowserWidget *m_browserWidget;
   ViewportWidget *m_viewportWidget;
   ConsoleWidget *m_consoleWidget;
+  TerrainEditorWidget *m_terrainEditorWidget;
 };

@@ -3,6 +3,8 @@
 #include "stdafx.h"
 #include <QAction>
 #include <QActionGroup>
+#include <QComboBox>
+#include <QLabel>
 #include <QtGui/QIcon>
 #include <iostream>
 
@@ -107,6 +109,18 @@ void QuantumToolBar::setupToolBar() {
 
   // Add separator after play controls
   addSeparator();
+
+  // === Editor Mode Selector ===
+  addWidget(new QLabel(" Mode: ", this));
+  m_editorModeCombo = new QComboBox(this);
+  m_editorModeCombo->addItem("Scene Edit");
+  m_editorModeCombo->addItem("Terrain Edit");
+  m_editorModeCombo->setToolTip("Editor Mode");
+  m_editorModeCombo->setFixedWidth(100);
+  addWidget(m_editorModeCombo);
+  connect(m_editorModeCombo,
+          QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          &QuantumToolBar::onEditorModeChanged);
 }
 
 void QuantumToolBar::onLocalClicked() {
@@ -155,4 +169,11 @@ void QuantumToolBar::onStopClicked() {
   std::cout << "[QuantumToolBar] Stop clicked - stopping game" << std::endl;
   EngineGlobals::OnStop();
   emit playStateChanged(false);
+}
+
+void QuantumToolBar::onEditorModeChanged(int index) {
+  m_currentEditorMode = static_cast<Quantum::EditorMode>(index);
+  std::cout << "[QuantumToolBar] Editor mode changed to: "
+            << (index == 0 ? "Scene Edit" : "Terrain Edit") << std::endl;
+  emit editorModeChanged(m_currentEditorMode);
 }

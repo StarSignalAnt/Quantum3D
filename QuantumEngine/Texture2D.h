@@ -2,6 +2,7 @@
 
 #include "VividDevice.h"
 #include <string>
+#include <vector>
 #include <vulkan/vulkan.h>
 
 namespace Vivid {
@@ -29,6 +30,10 @@ public:
 
   int GetWidth() const { return m_Width; }
   int GetHeight() const { return m_Height; }
+
+  // Read pixels back to CPU
+  std::vector<unsigned char> GetPixels();
+  void SetPixels(const std::vector<unsigned char> &pixels);
 
   // Invalidate cached descriptor set (call when descriptor pool is
   // destroyed/recreated)

@@ -53,11 +53,20 @@ public:
   // Get first light position (or default if no lights)
   glm::vec3 GetLightPosition() const;
 
+  // Update Scene Logic
+  void Update(float dt);
+
   // Ray Casting
   struct Ray {
     glm::vec3 origin;
     glm::vec3 direction;
   };
+
+  /// <summary>
+  /// Finds and returns the first TerrainNode in the scene, or nullptr if none
+  /// exists.
+  /// </summary>
+  std::shared_ptr<GraphNode> GetTerrainNode() const;
 
   /// <summary>
   /// Casts a ray from mouse coordinates and returns the closest intersected

@@ -2,6 +2,7 @@
 #include "CameraNode.h"
 #include "LightNode.h"
 #include "Mesh3D.h"
+#include "TerrainNode.h"
 #include "glm/gtc/matrix_transform.hpp"
 #include "pch.h"
 #include <algorithm>
@@ -15,6 +16,12 @@ namespace Quantum {
 SceneGraph::SceneGraph() { m_Root = std::make_shared<GraphNode>("Root"); }
 
 SceneGraph::~SceneGraph() { Clear(); }
+
+void SceneGraph::Update(float dt) {
+  if (m_Root) {
+    m_Root->OnUpdate(dt);
+  }
+}
 
 std::shared_ptr<GraphNode> SceneGraph::CreateNode(const std::string &name,
                                                   GraphNode *parent) {
@@ -85,6 +92,30 @@ GraphNode *SceneGraph::FindNodeByPointer(void *ptr) const {
       found = node;
     }
   });
+  return found;
+}
+
+std::shared_ptr<GraphNode> SceneGraph::GetTerrainNode() const {
+  std::shared_ptr<GraphNode> found = nullptr;
+
+  std::function<void(std::shared_ptr<GraphNode>)> traverse =
+      [&](std::shared_ptr<GraphNode> node) {
+        if (!node || found)
+          return;
+
+        if (dynamic_cast<TerrainNode *>(node.get())) {
+          found = node;
+          return;
+        }
+
+        for (const auto &child : node->GetChildren()) {
+          traverse(child);
+          if (found)
+            return;
+        }
+      };
+
+  traverse(m_Root);
   return found;
 }
 

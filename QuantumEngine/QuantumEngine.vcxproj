@@ -117,7 +117,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Quantum\Quantum3D\include;C:\Quantum\QLang\QLang;C:\Quantum\Assimp\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Quantum\CL\include;C:\Quantum\Quantum3D\include;C:\Quantum\QLang\QLang;C:\Quantum\Assimp\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -126,8 +126,8 @@
       <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
     <Lib>
-      <AdditionalDependencies>glfw3.lib;vulkan-1.lib;assimp-vc143-mt.lib;QLang.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\Quantum\Quantum3D\x64\Debug;C:\Quantum\Assimp\lib\x64;C:\VulkanSDK\1.4.328.1\Lib;C:\Quantum\Quantum3D\New folder;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>glfw3.lib;vulkan-1.lib;assimp-vc143-mt.lib;QLang.lib;OpenCL.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\Quantum\CL\lib;C:\Quantum\Quantum3D\x64\Debug;C:\Quantum\Assimp\lib\x64;C:\VulkanSDK\1.4.328.1\Lib;C:\Quantum\Quantum3D\New folder;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -152,6 +152,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AppUI.h" />
+    <ClInclude Include="CLBase.h" />
     <ClInclude Include="DockLayout.h" />
     <ClInclude Include="DockNode.h" />
     <ClInclude Include="DockTypes.h" />
@@ -161,6 +162,7 @@
     <ClInclude Include="IButton.h" />
     <ClInclude Include="IDock.h" />
     <ClInclude Include="IHorizontalScroller.h" />
+    <ClInclude Include="Intersections.h" />
     <ClInclude Include="ISplitter.h" />
     <ClInclude Include="IVerticalScroller.h" />
     <ClInclude Include="IWindow.h" />
@@ -168,6 +170,8 @@
     <ClInclude Include="QLangDomain.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="stb_truetype.h" />
+    <ClInclude Include="TerrainLayer.h" />
+    <ClInclude Include="TerrainNode.h" />
     <ClInclude Include="Texture2D.h" />
     <ClInclude Include="ThemeDarkUI.h" />
     <ClInclude Include="UIControl.h" />
@@ -200,6 +204,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AppUI.cpp" />
+    <ClCompile Include="CLBase.cpp" />
     <ClCompile Include="DockLayout.cpp" />
     <ClCompile Include="DockNode.cpp" />
     <ClCompile Include="Font.cpp" />
@@ -208,6 +213,7 @@
     <ClCompile Include="IButton.cpp" />
     <ClCompile Include="IDock.cpp" />
     <ClCompile Include="IHorizontalScroller.cpp" />
+    <ClCompile Include="Intersections.cpp" />
     <ClCompile Include="ISplitter.cpp" />
     <ClCompile Include="IVerticalScroller.cpp" />
     <ClCompile Include="IWindow.cpp" />
@@ -226,6 +232,7 @@
     </ClCompile>
     <ClCompile Include="stb_image_impl.cpp" />
     <ClCompile Include="stb_truetype_impl.cpp" />
+    <ClCompile Include="TerrainNode.cpp" />
     <ClCompile Include="Texture2D.cpp" />
     <ClCompile Include="ThemeDarkUI.cpp" />
     <ClCompile Include="UIControl.cpp" />

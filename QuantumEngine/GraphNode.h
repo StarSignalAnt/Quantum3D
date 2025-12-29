@@ -14,7 +14,6 @@ namespace Quantum {
 // Forward declaration
 class Mesh3D;
 
-
 class ScriptPair;
 
 /// <summary>
@@ -93,17 +92,15 @@ public:
   size_t GetMeshCount() const { return m_Meshes.size(); }
   bool HasMeshes() const { return !m_Meshes.empty(); }
 
-  const std::vector<ScriptPair*> &GetScripts() const {
-    return m_QClasses;
-  }
+  const std::vector<ScriptPair *> &GetScripts() const { return m_QClasses; }
 
-  void AddScript(ScriptPair* cls);
+  void AddScript(ScriptPair *cls);
 
   void Turn(glm::vec3 value);
 
   void OnPlay();
   void OnStop();
-  void OnUpdate(float dt);
+  virtual void OnUpdate(float dt);
 
   // Full hierarchical name (e.g., scene.node.Suzanne)
   std::string GetFullName() const;
@@ -147,7 +144,7 @@ private:
   std::string m_SourcePath;
 
   // scripts
-  std::vector<ScriptPair*> m_QClasses;
+  std::vector<ScriptPair *> m_QClasses;
 
   void SetParent(GraphNode *parent);
   void InvalidateChildTransforms();

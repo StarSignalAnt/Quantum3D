@@ -1,6 +1,5 @@
 #include "Texture2D.h"
 #include "VividBuffer.h"
-#include "pch.h"
 #include "stb_image.h"
 #include <iostream>
 #include <stdexcept>
@@ -37,7 +36,7 @@ Texture2D::~Texture2D() {
     }
     if (m_TextureImageView != VK_NULL_HANDLE) {
       vkDestroyImageView(m_DevicePtr->GetDevice(), m_TextureImageView, nullptr);
-    }                                                               
+    }
     if (m_TextureImage != VK_NULL_HANDLE) {
       vkDestroyImage(m_DevicePtr->GetDevice(), m_TextureImage, nullptr);
     }
@@ -69,7 +68,8 @@ void Texture2D::CreateTextureImage(const std::string &path) {
 
   m_DevicePtr->CreateImage(m_Width, m_Height, m_Format, VK_IMAGE_TILING_OPTIMAL,
                            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                               VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_IMAGE_USAGE_SAMPLED_BIT |
+                               VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_TextureImage,
                            m_TextureImageMemory);
 
@@ -98,7 +98,8 @@ void Texture2D::CreateTextureImageFromData(const unsigned char *pixels,
 
   m_DevicePtr->CreateImage(width, height, m_Format, VK_IMAGE_TILING_OPTIMAL,
                            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                               VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_IMAGE_USAGE_SAMPLED_BIT |
+                               VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_TextureImage,
                            m_TextureImageMemory);
 
@@ -186,4 +187,76 @@ VkDescriptorSet Texture2D::GetDescriptorSet(VkDescriptorPool pool,
 
   return m_DescriptorSet;
 }
+
+std::vector<unsigned char> Texture2D::GetPixels() {
+  if (m_TextureImage == VK_NULL_HANDLE || m_Width <= 0 || m_Height <= 0) {
+    return {};
+  }
+
+  VkDeviceSize imageSize = m_Width * m_Height * 4;
+  std::vector<unsigned char> pixels(imageSize);
+
+  // Create staging buffer to copy pixels to
+  VividBuffer stagingBuffer(m_DevicePtr, imageSize,
+                            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  // Transition image to TRANSFER_SRC_OPTIMAL
+  m_DevicePtr->TransitionImageLayout(m_TextureImage, m_Format,
+                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+  // Copy image to buffer
+  m_DevicePtr->CopyImageToBuffer(m_TextureImage, stagingBuffer.GetBuffer(),
+                                 static_cast<uint32_t>(m_Width),
+                                 static_cast<uint32_t>(m_Height));
+
+  // Transition back to SHADER_READ_ONLY_OPTIMAL
+  m_DevicePtr->TransitionImageLayout(m_TextureImage, m_Format,
+                                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  // Map and read
+  stagingBuffer.Map();
+  void *data = stagingBuffer.GetMappedMemory();
+  memcpy(pixels.data(), data, static_cast<size_t>(imageSize));
+  stagingBuffer.Unmap();
+
+  return pixels;
+}
+
+void Texture2D::SetPixels(const std::vector<unsigned char> &pixels) {
+  if (m_TextureImage == VK_NULL_HANDLE || m_Width <= 0 || m_Height <= 0 ||
+      pixels.size() != m_Width * m_Height * 4) {
+    return;
+  }
+
+  VkDeviceSize imageSize = pixels.size();
+
+  // Create staging buffer
+  VividBuffer stagingBuffer(m_DevicePtr, imageSize,
+                            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+  // Write data to buffer
+  stagingBuffer.WriteToBuffer(const_cast<unsigned char *>(pixels.data()));
+
+  // Transition to TRANSFER_DST_OPTIMAL
+  m_DevicePtr->TransitionImageLayout(m_TextureImage, m_Format,
+                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  // Copy buffer to image
+  m_DevicePtr->CopyBufferToImage(stagingBuffer.GetBuffer(), m_TextureImage,
+                                 static_cast<uint32_t>(m_Width),
+                                 static_cast<uint32_t>(m_Height));
+
+  // Transition back to SHADER_READ_ONLY_OPTIMAL
+  m_DevicePtr->TransitionImageLayout(m_TextureImage, m_Format,
+                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
 } // namespace Vivid

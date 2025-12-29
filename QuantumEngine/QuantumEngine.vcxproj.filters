@@ -147,6 +147,10 @@
     <ClInclude Include="RotateGizmo.h" />
     <ClInclude Include="WaterNode.h" />
     <ClInclude Include="DirectionalShadowMap.h" />
+    <ClInclude Include="TerrainLayer.h" />
+    <ClInclude Include="TerrainNode.h" />
+    <ClInclude Include="CLBase.h" />
+    <ClInclude Include="Intersections.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core Sources -->
@@ -269,6 +273,9 @@
     <ClCompile Include="QLangDomain.cpp" />
     <ClCompile Include="WaterNode.cpp" />
     <ClCompile Include="DirectionalShadowMap.cpp" />
+    <ClCompile Include="TerrainNode.cpp" />
+    <ClCompile Include="CLBase.cpp" />
+    <ClCompile Include="Intersections.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

@@ -1,6 +1,7 @@
 #include "ViewportWidget.h"
 #include "EditorCamera.h"
 #include "SceneGraphWidget.h"
+#include "TerrainEditorWidget.h"
 #include "stdafx.h"
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -40,6 +41,9 @@ ViewportWidget::ViewportWidget(QWidget *parent) : QWidget(parent) {
     EngineGlobals::EditorScene = std::make_shared<Quantum::SceneGraph>();
   }
   m_SceneGraph = EngineGlobals::EditorScene;
+
+  // Enable mouse tracking for hover events (gizmo update)
+  setMouseTracking(true);
 }
 
 ViewportWidget::~ViewportWidget() { cleanupVulkan(); }
@@ -79,6 +83,7 @@ void ViewportWidget::initVulkan() {
     m_SceneRenderer =
         std::make_unique<Quantum::SceneRenderer>(m_Device, m_Renderer);
     m_SceneRenderer->Initialize();
+    EngineGlobals::Renderer = m_SceneRenderer.get();
 
     // Create 2D renderer for debug overlay
     m_Draw2D =
@@ -158,11 +163,11 @@ void ViewportWidget::initScene() {
     // intuitive face mapping (Face 5)
     l2->SetRange(100.0f);
     m_MainLight2 = l2;
-     m_SceneGraph->AddLight(l2);
+    m_SceneGraph->AddLight(l2);
 
     m_MainLight->SetType(Quantum::LightNode::LightType::Directional);
 
-//    m_SceneGraph->AddLight(m_MainLight);
+    //    m_SceneGraph->AddLight(m_MainLight);
 
     if (m_TestModel) {
       m_TestModel->SetLocalScale(0.01f);
@@ -360,6 +365,8 @@ void ViewportWidget::renderFrame() {
             glm::radians(45.0f), static_cast<float>(width()) / height(), 0.01f,
             1000.0f);
         m_SceneRenderer->SetGizmoViewState(view, proj, width(), height());
+        // Update gizmo state based on mode
+        UpdateGizmoType();
       }
 
       EngineGlobals::OnUpdate(m_DeltaTime);
@@ -459,19 +466,30 @@ void ViewportWidget::mousePressEvent(QMouseEvent *event) {
       std::cout << "Selected Light: " << hitLight->GetName() << std::endl;
     }
     // Second, check if gizmo wants to handle this click
-    else if (m_SceneRenderer && m_SceneRenderer->OnGizmoMouseClicked(
-                                    mouseX, mouseY, true, width(), height())) {
-      // Gizmo consumed the click, don't do node selection
-    } else if (m_SceneGraph) {
-      // Gizmo didn't consume, do normal node selection
-      std::shared_ptr<Quantum::GraphNode> selected = m_SceneGraph->SelectEntity(
-          event->position().x(), event->position().y(), width(), height());
+    // Only allow gizmo interaction and selection in Scene Mode
+    if (EngineGlobals::GetEditorMode() == Quantum::EditorMode::Scene) {
+      if (m_SceneRenderer && m_SceneRenderer->OnGizmoMouseClicked(
+                                 mouseX, mouseY, true, width(), height())) {
+        // Gizmo consumed the click, don't do node selection
+      } else if (EngineGlobals::GetEditorMode() ==
+                     Quantum::EditorMode::Terrain &&
+                 EngineGlobals::TerrainEditor) {
+        // Terrain Painting start
+        glm::vec3 hitPos = m_SceneRenderer->GetTerrainGizmoPosition();
+        EngineGlobals::TerrainEditor->Paint(hitPos);
+      } else if (m_SceneGraph) {
+        // Gizmo didn't consume, do normal node selection
+        std::shared_ptr<Quantum::GraphNode> selected =
+            m_SceneGraph->SelectEntity(event->position().x(),
+                                       event->position().y(), width(),
+                                       height());
 
-      SetSelectedNode(selected);
-      if (selected) {
-        std::cout << "Selected Node: " << selected->GetName() << std::endl;
-      } else {
-        std::cout << "Selection Cleared" << std::endl;
+        SetSelectedNode(selected);
+        if (selected) {
+          std::cout << "Selected Node: " << selected->GetName() << std::endl;
+        } else {
+          std::cout << "Selection Cleared" << std::endl;
+        }
       }
     }
   }
@@ -511,6 +529,58 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent *event) {
   if (m_SceneRenderer) {
     m_SceneRenderer->OnGizmoMouseMoved(static_cast<int>(event->position().x()),
                                        static_cast<int>(event->position().y()));
+
+    // Terrain Painting
+    static int logCounter = 0;
+    if (logCounter++ % 60 == 0) {
+      // std::cout << "[Viewport] Mode: " << (int)EngineGlobals::GetEditorMode()
+      // << std::endl;
+    }
+
+    if (EngineGlobals::GetEditorMode() == Quantum::EditorMode::Terrain) {
+      // Raycast to find terrain intersection
+      if (m_EditorCamera) {
+        glm::mat4 view = m_EditorCamera->GetViewMatrix();
+        float aspectRatio =
+            static_cast<float>(width()) / static_cast<float>(height());
+        
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f),
+            (float)width() / (float)height(), 0.1f, 100.0f);
+        projection[1][1] *= -1; // Match SceneRenderer Y-flip
+
+        float rX = (2.0f * event->position().x()) / width() - 1.0f;
+        float rY = (2.0f * event->position().y()) / height() - 1.0f;
+
+        glm::vec4 rayClip = glm::vec4(rX, rY, -1.0, 1.0);
+        glm::vec4 rayEye = glm::inverse(projection) * rayClip;
+        rayEye = glm::vec4(rayEye.x, rayEye.y, -1.0, 0.0);
+
+        glm::vec3 rayWor = glm::vec3(glm::inverse(view) * rayEye) * 10000.0f;
+      //  rayWor = glm::normalize(rayWor);
+
+        glm::vec3 cameraPos = m_EditorCamera->GetPosition();
+
+        // Raycast against terrain mesh instead of Y=0 plane
+        if (m_SceneRenderer) {
+          CastResult hit = m_SceneRenderer->RaycastTerrain(cameraPos, rayWor);
+          if (hit.Hit) {
+            glm::vec3 hitPos = hit.HitPoint;
+
+            // Update Gizmo
+            std::cout << "Setting Terrain gizmo" << std::endl;
+            m_SceneRenderer->SetTerrainGizmoPosition(hitPos);
+
+            // If dragging, paint
+            if ((event->buttons() & Qt::LeftButton) &&
+                EngineGlobals::TerrainEditor) {
+              EngineGlobals::TerrainEditor->Paint(hitPos);
+            }
+
+            update(); // Request redraw
+          }
+        }
+      }
+    }
   }
 
   if (m_IsLooking) {
@@ -627,6 +697,25 @@ void ViewportWidget::UpdateGizmoSpace() {
 }
 
 void ViewportWidget::UpdateGizmoType() {
+  auto mode = EngineGlobals::GetEditorMode();
+
+  if (mode == Quantum::EditorMode::Terrain) {
+    if (m_SceneRenderer) {
+      m_SceneRenderer->SetGizmoType(Quantum::GizmoType::None);
+      m_SceneRenderer->SetShowTerrainGizmo(true);
+
+      if (EngineGlobals::TerrainEditor) {
+        m_SceneRenderer->SetTerrainGizmoSize(
+            EngineGlobals::TerrainEditor->GetBrushSize());
+      }
+    }
+    return;
+  }
+
+  if (m_SceneRenderer) {
+    m_SceneRenderer->SetShowTerrainGizmo(false);
+  }
+
   if (m_SceneRenderer) {
     // Map EngineGlobals::GizmoType to Quantum::GizmoType
     auto engineType = EngineGlobals::GetGizmoMode();
@@ -640,6 +729,10 @@ void ViewportWidget::UpdateGizmoType() {
       break;
     case GizmoType::Scale:
       gizmoType = Quantum::GizmoType::Scale;
+      break;
+
+    case GizmoType::None:
+      gizmoType = Quantum::GizmoType::None;
       break;
     default:
       gizmoType = Quantum::GizmoType::Translate;

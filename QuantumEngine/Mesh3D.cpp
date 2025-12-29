@@ -174,6 +174,31 @@ void Mesh3D::Bind(VkCommandBuffer commandBuffer) const {
                        VK_INDEX_TYPE_UINT32);
 }
 
+void Mesh3D::UpdateVertexBuffer() {
+  if (!m_Finalized || !m_VertexBuffer)
+    return;
+
+  // Assuming HOST_VISIBLE | HOST_COHERENT
+  // Optimization: In a real persistent mapped scenario, we wouldn't Map/Unmap
+  // every time. But for now, this avoids recreating the buffer.
+  m_VertexBuffer->Map();
+  m_VertexBuffer->WriteToBuffer((void *)m_Vertices.data(),
+                                sizeof(Vertex3D) * m_Vertices.size());
+  m_VertexBuffer->Unmap();
+
+  // Increment version so caching systems know to rebuild
+  ++m_GeometryVersion;
+}
+
+void Mesh3D::UpdateVertex(size_t index) {
+  if (!m_Finalized || !m_VertexBuffer || index >= m_Vertices.size())
+    return;
+
+  size_t offset = index * sizeof(Vertex3D);
+  m_VertexBuffer->WriteToBuffer((void *)&m_Vertices[index], sizeof(Vertex3D),
+                                offset);
+}
+
 // ========== Utilities ==========
 
 std::vector<uint32_t> Mesh3D::GetIndexData() const {
@@ -232,8 +257,6 @@ void Mesh3D::RecalculateNormals() {
       vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
     }
   }
-
-  m_Finalized = false;
 }
 
 void Mesh3D::RecalculateTangents() {
@@ -285,19 +308,12 @@ void Mesh3D::RecalculateTangents() {
     // Gram-Schmidt orthonormalize tangent
     t = glm::normalize(t - n * glm::dot(n, t));
 
-    // Handedness check not strictly needed if we store explicit bitangent,
-    // but good to keep orthogonal.
-    // For now just normalize bitangent too.
-    // Note: To be perfectly accurate we should re-compute bitangent as cross(n,
-    // t) * handedness but if we are just storing what was accumulated:
     if (glm::length(b) > 0.0001f)
       b = glm::normalize(b);
 
     m_Vertices[i].tangent = t;
     m_Vertices[i].bitangent = b;
   }
-
-  m_Finalized = false;
 }
 
 std::shared_ptr<Mesh3D> Mesh3D::CreateUnitCube() {

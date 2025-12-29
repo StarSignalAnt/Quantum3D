@@ -1,9 +1,12 @@
 #pragma once
 #include "DirectionalShadowMap.h"
 #include "GizmoBase.h"
+#include "Intersections.h"
 #include "PointShadowMap.h"
 #include "SceneGraph.h"
 #include "ShadowPipeline.h"
+#include "TerrainGizmo.h"
+#include "TerrainNode.h"
 #include "Texture2D.h"
 #include "VividBuffer.h"
 #include "VividDevice.h"
@@ -57,9 +60,15 @@ public:
     return m_MaterialSetLayout;
   }
   VkDescriptorSetLayout GetGlobalSetLayout() const { return m_GlobalSetLayout; }
+  VkDescriptorSetLayout GetTerrainSetLayout() const {
+    return m_TerrainSetLayout;
+  }
 
   // Refresh material textures (called after model import)
   void RefreshMaterialTextures();
+
+  // Check for dirty terrain nodes and refresh their descriptors
+  void CheckAndRefreshDirtyTerrains(GraphNode *node);
 
   // Shadow control
   bool IsShadowsEnabled() const { return m_ShadowsEnabled; }
@@ -98,12 +107,72 @@ public:
   bool IsGizmoDragging() const;
   void SetGizmoSpace(GizmoSpace space);
   void SetGizmoType(GizmoType type);
+  void SetShowTerrainGizmo(bool show) { m_ShowTerrainGizmo = show; }
+  void SetTerrainGizmoSize(float size);
+  glm::vec3 GetTerrainGizmoPosition() const {
+    if (m_TerrainGizmo)
+      return m_TerrainGizmo->GetPosition();
+    return glm::vec3(0.0f);
+  }
+  void SetTerrainGizmoPosition(const glm::vec3 &position) {
+    if (m_TerrainGizmo) {
+      m_TerrainGizmo->SetPosition(position);
+      // Update gizmo to conform to terrain
+      if (m_SceneGraph) {
+        auto terrain = m_SceneGraph->GetTerrainNode();
+        if (terrain) {
+          m_TerrainGizmo->UpdateToTerrain(
+              dynamic_cast<TerrainNode *>(terrain.get()));
+        }
+      }
+    }
+  }
+
+  /// Update terrain gizmo to conform to terrain (call after sculpting)
+  void UpdateTerrainGizmo() {
+    if (m_TerrainGizmo && m_SceneGraph) {
+      auto terrain = m_SceneGraph->GetTerrainNode();
+      if (terrain) {
+        m_TerrainGizmo->UpdateToTerrain(
+            dynamic_cast<TerrainNode *>(terrain.get()));
+      }
+    }
+  }
+
+  /// Raycast against the terrain mesh
+  /// Returns CastResult with Hit=true if terrain was hit
+  CastResult RaycastTerrain(const glm::vec3 &rayOrigin,
+                            const glm::vec3 &rayDir) {
+    if (!m_TerrainGizmo || !m_SceneGraph) {
+      return CastResult{false};
+    }
+
+    auto terrain = m_SceneGraph->GetTerrainNode();
+    if (!terrain) {
+      return CastResult{false};
+    }
+
+    auto *terrainNode = dynamic_cast<TerrainNode *>(terrain.get());
+    if (!terrainNode) {
+      return CastResult{false};
+    }
+
+    const auto &meshes = terrainNode->GetMeshes();
+    if (meshes.empty() || !meshes[0]) {
+      return CastResult{false};
+    }
+
+    // Use TerrainGizmo's Intersections instance for raycasting
+    return m_TerrainGizmo->RaycastTerrain(terrainNode, rayOrigin, rayDir);
+  }
 
 private:
   // Gizmo instances (all types stored, one active at a time)
-  std::unique_ptr<class GizmoBase> m_TranslateGizmo;
-  std::unique_ptr<class GizmoBase> m_RotateGizmo;
+  std::unique_ptr<class TranslateGizmo> m_TranslateGizmo;
+  std::unique_ptr<class RotateGizmo> m_RotateGizmo;
+  std::unique_ptr<class TerrainGizmo> m_TerrainGizmo;
   GizmoBase *m_ActiveGizmo = nullptr; // Points to active gizmo (not owning)
+  bool m_ShowTerrainGizmo = false;
   void CreateDescriptorSetLayout();
   void CreateDescriptorPool();
   void CreateDescriptorSets();
@@ -129,6 +198,8 @@ private:
   // Vulkan resources
   VkDescriptorSetLayout m_GlobalSetLayout = VK_NULL_HANDLE;
   VkDescriptorSetLayout m_MaterialSetLayout = VK_NULL_HANDLE;
+  VkDescriptorSetLayout m_TerrainSetLayout =
+      VK_NULL_HANDLE; // 16 bindings for terrain layers
   VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
   std::vector<VkDescriptorSet>
       m_GlobalDescriptorSets; // [Frame * Lights + Light]

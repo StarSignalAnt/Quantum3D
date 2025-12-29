@@ -93,6 +93,10 @@ glm::mat4 EditorCamera::GetViewMatrix() const {
   return glm::mat4(1.0f);
 }
 
+glm::mat4 EditorCamera::GetProjectionMatrix(float aspectRatio) const {
+  return glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 1000.0f);
+}
+
 void EditorCamera::SetPosition(const glm::vec3 &pos) {
   if (m_Camera) {
     m_Camera->SetLocalPosition(pos);

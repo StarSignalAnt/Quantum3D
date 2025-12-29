@@ -2,8 +2,10 @@
 #include "../QuantumEngine/CameraNode.h"
 #include "../QuantumEngine/GraphNode.h"
 #include "../QuantumEngine/SceneSerializer.h"
+#include "../QuantumEngine/TerrainNode.h"
 #include "../QuantumEngine/WaterNode.h"
 #include "BrowserWidget.h"
+#include "CreateTerrainDialog.h"
 #include "EngineGlobals.h"
 #include "SceneGraphWidget.h"
 #include "ScriptEditorWindow.h"
@@ -27,11 +29,9 @@ void QuantumMenu::setupMenus() {
   m_openSceneAction = m_fileMenu->addAction(tr("&Open Scene..."));
   m_openSceneAction->setShortcut(QKeySequence::Open);
 
-
   // Save Scene
   m_saveSceneAction = m_fileMenu->addAction(tr("&Save Scene..."));
   m_saveSceneAction->setShortcut(QKeySequence::Save);
- 
 
   m_fileMenu->addSeparator();
 
@@ -207,6 +207,9 @@ void QuantumMenu::setupMenus() {
 
   // View Menu
   m_viewMenu = addMenu(tr("&View"));
+  m_terrainEditorAction = m_viewMenu->addAction(tr("&Terrain Editor"));
+  m_terrainEditorAction->setCheckable(true);
+  m_terrainEditorAction->setChecked(false); // Default hidden
 
   // Create Menu
   m_createMenu = addMenu(tr("&Create"));
@@ -238,6 +241,49 @@ void QuantumMenu::setupMenus() {
         }
         if (EngineGlobals::Viewport) {
           EngineGlobals::Viewport->RefreshMaterials();
+        }
+      }
+    }
+  });
+
+  m_createTerrainAction = m_createMenu->addAction(tr("Terrain"));
+  connect(m_createTerrainAction, &QAction::triggered, []() {
+    if (EngineGlobals::EditorScene &&
+        EngineGlobals::EditorScene->GetTerrainNode()) {
+      QMessageBox::warning(nullptr, "Creation Failed",
+                           "Only one terrain node is allowed per "
+                           "scene.\nPlease delete the existing terrain first.");
+      return;
+    }
+    CreateTerrainDialog dialog;
+    if (dialog.exec() == QDialog::Accepted) {
+      if (EngineGlobals::EditorScene) {
+        auto terrain = std::make_shared<Quantum::TerrainNode>(
+            "Terrain", dialog.GetWidth(), dialog.GetDepth(),
+            dialog.GetDivisions(), dialog.GetLayers());
+
+        if (EngineGlobals::Viewport) {
+          terrain->Initialize(EngineGlobals::Viewport->GetDevice());
+        }
+
+        Quantum::GraphNode *parent = EngineGlobals::EditorScene->GetRoot();
+        if (EngineGlobals::SceneGraphPanel) {
+          auto selected = EngineGlobals::SceneGraphPanel->GetSelectedNode();
+          if (selected) {
+            parent = selected;
+          }
+        }
+
+        if (parent) {
+          parent->AddChild(terrain);
+          if (EngineGlobals::SceneGraphPanel) {
+            EngineGlobals::SceneGraphPanel->RefreshTree();
+            EngineGlobals::SceneGraphPanel->OnExternalSelectionChanged(
+                terrain.get());
+          }
+          if (EngineGlobals::Viewport) {
+            EngineGlobals::Viewport->RefreshMaterials();
+          }
         }
       }
     }

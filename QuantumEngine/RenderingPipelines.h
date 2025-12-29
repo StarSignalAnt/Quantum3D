@@ -75,6 +75,11 @@ public:
   /// </summary>
   std::vector<std::string> GetPipelineNames() const;
 
+  /// <summary>
+  /// Set terrain-specific descriptor layouts (16 textures for layered terrain).
+  /// </summary>
+  void SetTerrainLayouts(const std::vector<VkDescriptorSetLayout> &layouts);
+
 private:
   RenderingPipelines() = default;
   ~RenderingPipelines();
@@ -85,12 +90,15 @@ private:
     Vivid::BlendConfig blendConfig;
     Vivid::PipelineType pipelineType;
     std::unique_ptr<Vivid::VividPipeline> pipeline;
+    bool useTerrainLayout =
+        false; // Use terrain descriptor layout (16 textures)
   };
 
   Vivid::VividDevice *m_Device = nullptr;
   VkRenderPass m_RenderPass = VK_NULL_HANDLE;
 
   std::vector<VkDescriptorSetLayout> m_DescriptorSetLayouts;
+  std::vector<VkDescriptorSetLayout> m_TerrainDescriptorSetLayouts;
   bool m_Initialized = false;
 
   std::unordered_map<std::string, PipelineInfo> m_Pipelines;

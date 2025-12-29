@@ -16,7 +16,7 @@ enum class GizmoAxis { None = 0, X, Y, Z };
 enum class GizmoSpace { Local, Global };
 
 // Gizmo tool type
-enum class GizmoType { Translate, Rotate, Scale };
+enum class GizmoType { None, Translate, Rotate, Scale };
 
 // Ray structure for picking
 struct Ray {

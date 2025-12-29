@@ -342,14 +342,21 @@ void GraphNode::OnStop() {}
 void GraphNode::OnUpdate(float dt)
 
 {
-
-  // std::vector<QValue> updateArgs = {dt};
-
+  // Update scripts
   for (auto cls : m_QClasses) {
-    cls->ClsProgram->CallMethod(cls->ClsInstance, "OnUpdate", {dt});
+    if (cls && cls->ClsProgram && cls->ClsInstance) {
+      cls->ClsProgram->CallMethod(cls->ClsInstance, "OnUpdate", {dt});
+    }
+  }
 
-    // QValue result = runner.CallMethod(node1, "Update", updateArgs);
-    //  QLangDomain::m_QLang->RunMethod(cls, "OnUpdate", updateArgs);
+  // Virtual OnUpdate for C++ derived classes (like TerrainNode)
+  // This is where TerrainNode::OnUpdate gets called if this is a TerrainNode
+
+  // Propagate to children
+  for (auto &child : m_Children) {
+    if (child) {
+      child->OnUpdate(dt);
+    }
   }
 }
 

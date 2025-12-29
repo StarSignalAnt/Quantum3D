@@ -71,6 +71,8 @@ public:
                              VkImageLayout oldLayout, VkImageLayout newLayout);
   void CopyBufferToImage(VkBuffer buffer, VkImage image, uint32_t width,
                          uint32_t height);
+  void CopyImageToBuffer(VkImage image, VkBuffer buffer, uint32_t width,
+                         uint32_t height);
   VkImageView CreateImageView(VkImage image, VkFormat format);
 
   VkCommandBuffer BeginSingleTimeCommands();

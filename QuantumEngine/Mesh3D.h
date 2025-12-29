@@ -80,6 +80,10 @@ public:
   size_t GetTriangleCount() const { return m_Triangles.size(); }
   size_t GetIndexCount() const { return m_Triangles.size() * 3; }
 
+  /// Version counter incremented when geometry changes (for caching systems)
+  uint64_t GetGeometryVersion() const { return m_GeometryVersion; }
+  void MarkGeometryDirty() { ++m_GeometryVersion; }
+
   // Material
   void SetMaterial(std::shared_ptr<Material> material);
   std::shared_ptr<Material> GetMaterial() const { return m_Material; }
@@ -103,6 +107,13 @@ public:
 
   // Bind buffers to command buffer for rendering
   void Bind(VkCommandBuffer commandBuffer) const;
+
+  // Optimizations for dynamic meshes (e.g., Terrain Sculpting)
+  // Updates the GPU buffer with current vertex data.
+  // If useStaging is false, writes directly to mapped memory (faster for small
+  // frequent updates if HOST_VISIBLE)
+  void UpdateVertexBuffer();
+  void UpdateVertex(size_t index);
 
   // Calculate normals from triangle data
   void RecalculateNormals();
@@ -138,6 +149,9 @@ private:
   // Bounds
   glm::vec3 m_BoundsMin;
   glm::vec3 m_BoundsMax;
+
+  // Geometry version for cache invalidation
+  uint64_t m_GeometryVersion = 0;
 
   // Helpers
   std::vector<uint32_t> GetIndexData() const;
