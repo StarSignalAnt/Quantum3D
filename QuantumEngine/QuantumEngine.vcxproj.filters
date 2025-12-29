@@ -151,6 +151,11 @@
     <ClInclude Include="TerrainNode.h" />
     <ClInclude Include="CLBase.h" />
     <ClInclude Include="Intersections.h" />
+    <ClInclude Include="include\xatlas\xatlas.h" />
+    <ClInclude Include="LightmapBaker.h" />
+    <ClInclude Include="LightmapFile.h" />
+    <ClInclude Include="LightmapUVGenerator.h" />
+    <ClInclude Include="CLLightmapper.h" />
   </ItemGroup>
   <ItemGroup>
     <!-- Core Sources -->
@@ -276,6 +281,11 @@
     <ClCompile Include="TerrainNode.cpp" />
     <ClCompile Include="CLBase.cpp" />
     <ClCompile Include="Intersections.cpp" />
+    <ClCompile Include="include\xatlas\xatlas.cpp" />
+    <ClCompile Include="LightmapBaker.cpp" />
+    <ClCompile Include="LightmapFile.cpp" />
+    <ClCompile Include="LightmapUVGenerator.cpp" />
+    <ClCompile Include="CLLightmapper.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

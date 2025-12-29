@@ -19,7 +19,7 @@ VkVertexInputBindingDescription Vertex3D::GetBindingDescription() {
 
 std::vector<VkVertexInputAttributeDescription>
 Vertex3D::GetAttributeDescriptions() {
-  std::vector<VkVertexInputAttributeDescription> attributeDescriptions(5);
+  std::vector<VkVertexInputAttributeDescription> attributeDescriptions(6);
 
   // Position
   attributeDescriptions[0].binding = 0;
@@ -39,17 +39,23 @@ Vertex3D::GetAttributeDescriptions() {
   attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
   attributeDescriptions[2].offset = offsetof(Vertex3D, uv);
 
-  // Tangent
+  // UV2 (Lightmap)
   attributeDescriptions[3].binding = 0;
   attributeDescriptions[3].location = 3;
-  attributeDescriptions[3].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attributeDescriptions[3].offset = offsetof(Vertex3D, tangent);
+  attributeDescriptions[3].format = VK_FORMAT_R32G32_SFLOAT;
+  attributeDescriptions[3].offset = offsetof(Vertex3D, uv2);
 
-  // Bitangent
+  // Tangent
   attributeDescriptions[4].binding = 0;
   attributeDescriptions[4].location = 4;
   attributeDescriptions[4].format = VK_FORMAT_R32G32B32_SFLOAT;
-  attributeDescriptions[4].offset = offsetof(Vertex3D, bitangent);
+  attributeDescriptions[4].offset = offsetof(Vertex3D, tangent);
+
+  // Bitangent
+  attributeDescriptions[5].binding = 0;
+  attributeDescriptions[5].location = 5;
+  attributeDescriptions[5].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescriptions[5].offset = offsetof(Vertex3D, bitangent);
 
   return attributeDescriptions;
 }
@@ -405,6 +411,26 @@ bool Mesh3D::Intersect(const glm::mat4 &modelMatrix, const glm::vec3 &rayOrigin,
     outDistance = closestT;
   }
   return hit;
+}
+
+// ========== Lightmap Support ==========
+
+void Mesh3D::SetLightmapUV(size_t vertexIndex, const glm::vec2 &lightmapUV) {
+  if (vertexIndex < m_Vertices.size()) {
+    m_Vertices[vertexIndex].uv2 = lightmapUV;
+    m_HasLightmapUVs = true;
+  }
+}
+
+glm::vec2 Mesh3D::GetLightmapUV(size_t vertexIndex) const {
+  if (vertexIndex < m_Vertices.size()) {
+    return m_Vertices[vertexIndex].uv2;
+  }
+  return glm::vec2(0.0f);
+}
+
+void Mesh3D::SetLightmap(std::shared_ptr<Vivid::Texture2D> lightmap) {
+  m_Lightmap = lightmap;
 }
 
 } // namespace Quantum

@@ -4,8 +4,9 @@
 layout(location = 0) in vec3 fragWorldPos;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec2 fragUV;
-layout(location = 3) in vec3 fragTangent;
-layout(location = 4) in vec3 fragBitangent;
+layout(location = 3) in vec2 fragUV2;    // Lightmap UV coordinates
+layout(location = 4) in vec3 fragTangent;
+layout(location = 5) in vec3 fragBitangent;
 
 // Uniforms - MUST match vertex shader UBO layout and C++ struct
 layout(set = 0, binding = 0) uniform UniformBufferObject {
@@ -33,6 +34,9 @@ layout(set = 1, binding = 3) uniform sampler2D roughnessMap;
 // Shadow cube map (Set 0 - Global Light Data)
 layout(set = 0, binding = 1) uniform samplerCube shadowMap;
 layout(set = 0, binding = 2) uniform sampler2D dirShadowMap;
+
+// Lightmap texture (Set 1 - Binding 5, same slot as refraction for non-water meshes)
+layout(set = 1, binding = 5) uniform sampler2D lightmapTex;
 
 // Output
 layout(location = 0) out vec4 outColor;
@@ -272,6 +276,18 @@ void main() {
     // Ambient (small amount so fully shadowed areas aren't completely black)
     vec3 ambient = vec3(0.03) * albedo;
     
+    // Check if mesh has lightmap (UV2 non-zero)
+    bool hasLightmap = (fragUV2.x > 0.0 || fragUV2.y > 0.0);
+    
+    if (hasLightmap) {
+        // Baked lighting: albedo * lightmap (no real-time lighting)
+        vec3 lightmapColor = texture(lightmapTex, fragUV2).rgb;
+        vec3 color = albedo * lightmapColor + ambient;
+        outColor = vec4(color, 1.0);
+        return;
+    }
+    
+    // Real-time lighting path (no lightmap)
     vec3 color = ambient + Lo;
 
     outColor = vec4(color, 1.0);

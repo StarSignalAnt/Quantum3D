@@ -4,8 +4,9 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
-layout(location = 3) in vec3 inTangent;
-layout(location = 4) in vec3 inBitangent;
+layout(location = 3) in vec2 inUV2;      // Lightmap UV (unused in shadow)
+layout(location = 4) in vec3 inTangent;
+layout(location = 5) in vec3 inBitangent;
 
 // Push constants for shadow pass
 // Push constants

@@ -10,26 +10,28 @@
 namespace Quantum {
 
 /// <summary>
-/// Vertex data for 3D meshes with position, normal, UV, and tangent.
+/// Vertex data for 3D meshes with position, normal, UV, UV2, and tangent.
+/// UV2 is used for lightmap coordinates.
 /// </summary>
 struct Vertex3D {
   glm::vec3 position;
   glm::vec3 normal;
   glm::vec2 uv;
+  glm::vec2 uv2; // Lightmap UV coordinates
   glm::vec3 tangent;
   glm::vec3 bitangent;
 
   Vertex3D()
-      : position(0.0f), normal(0.0f, 1.0f, 0.0f), uv(0.0f), tangent(0.0f),
-        bitangent(0.0f) {}
+      : position(0.0f), normal(0.0f, 1.0f, 0.0f), uv(0.0f), uv2(0.0f),
+        tangent(0.0f), bitangent(0.0f) {}
 
   Vertex3D(const glm::vec3 &pos)
-      : position(pos), normal(0.0f, 1.0f, 0.0f), uv(0.0f), tangent(0.0f),
-        bitangent(0.0f) {}
+      : position(pos), normal(0.0f, 1.0f, 0.0f), uv(0.0f), uv2(0.0f),
+        tangent(0.0f), bitangent(0.0f) {}
 
   Vertex3D(const glm::vec3 &pos, const glm::vec3 &norm,
            const glm::vec2 &texCoord)
-      : position(pos), normal(norm), uv(texCoord), tangent(0.0f),
+      : position(pos), normal(norm), uv(texCoord), uv2(0.0f), tangent(0.0f),
         bitangent(0.0f) {}
 
   // Vulkan vertex input binding description
@@ -126,6 +128,14 @@ public:
   glm::vec3 GetBoundsMax() const { return m_BoundsMax; }
   void RecalculateBounds();
 
+  // Lightmap support
+  void SetLightmapUV(size_t vertexIndex, const glm::vec2 &lightmapUV);
+  glm::vec2 GetLightmapUV(size_t vertexIndex) const;
+  bool HasLightmapUVs() const { return m_HasLightmapUVs; }
+  void SetHasLightmapUVs(bool has) { m_HasLightmapUVs = has; }
+  void SetLightmap(std::shared_ptr<Vivid::Texture2D> lightmap);
+  std::shared_ptr<Vivid::Texture2D> GetLightmap() const { return m_Lightmap; }
+
   // Ray-mesh intersection for picking
   // Returns true if ray hits mesh, with distance in outDistance
   bool Intersect(const glm::mat4 &modelMatrix, const glm::vec3 &rayOrigin,
@@ -152,6 +162,10 @@ private:
 
   // Geometry version for cache invalidation
   uint64_t m_GeometryVersion = 0;
+
+  // Lightmap data
+  std::shared_ptr<Vivid::Texture2D> m_Lightmap;
+  bool m_HasLightmapUVs = false;
 
   // Helpers
   std::vector<uint32_t> GetIndexData() const;

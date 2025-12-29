@@ -4,8 +4,9 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;     // Unused
 layout(location = 2) in vec2 inUV;         // Used for Alpha (x)
-layout(location = 3) in vec3 inTangent;    // Used as per-vertex color (RGB)
-layout(location = 4) in vec3 inBitangent;  // Unused
+layout(location = 3) in vec2 inUV2;        // Unused
+layout(location = 4) in vec3 inTangent;    // Used as per-vertex color (RGB)
+layout(location = 5) in vec3 inBitangent;  // Unused
 
 // Push constants for MVP and color
 layout(push_constant) uniform PushConstants {
@@ -22,3 +23,4 @@ void main() {
     fragAlpha = inUV.x;
     fragColor = inTangent;  // Per-vertex color from tangent
 }
+

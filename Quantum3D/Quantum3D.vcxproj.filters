@@ -88,6 +88,9 @@
     <ClCompile Include="..\QuantumEngine\TerrainGizmo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="LightmapBakeDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="SceneGraphWidget.h">
@@ -144,6 +147,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\QuantumEngine\TerrainGizmo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LightmapBakeDialog.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -5,7 +5,6 @@
 #include <variant>
 #include <vector>
 
-
 #include "GraphNode.h"
 #include "Parser.h"
 
@@ -49,12 +48,9 @@ extern "C" void LV_Node_Turn(void *ptr, void *vec3) {
   node->Turn(glm::vec3(x, y, z));
 }
 
-// Force MCJIT to be linked - User indicates this fixes the issue in CLI
-namespace {
-struct ForceMCJITLink {
-  ForceMCJITLink() { LLVMLinkInMCJIT(); }
-} g_ForceMCJIT;
-} // namespace
+// Note: LLVMLinkInMCJIT() is called in QLVM::InitLLVM() - do NOT call it here
+// as a static initializer, as it causes crashes in Release mode due to
+// LLVM's static initialization order dependencies.
 
 QLangDomain *QLangDomain::m_QLang = nullptr;
 
@@ -83,15 +79,19 @@ QLangDomain::QLangDomain(const std::string &projectPath) {
 
   m_Runner->SetBasePath("engine/qlang/classes");
 
+  std::cout << "[DEBUG] Building Vec3.q..." << std::endl;
   m_Runner->BuildModule("engine/qlang/classes/Vec3.q");
+  std::cout << "[DEBUG] Vec3.q done" << std::endl;
 
+  std::cout << "[DEBUG] Building matrix.q..." << std::endl;
   m_Runner->BuildModule("engine/qlang/classes/matrix.q");
+  std::cout << "[DEBUG] matrix.q done" << std::endl;
 
+  std::cout << "[DEBUG] Building gamenode.q..." << std::endl;
   m_Runner->BuildModule("engine/qlang/classes/gamenode.q");
+  std::cout << "[DEBUG] gamenode.q done" << std::endl;
 
-  int b = 5;
-
-  // exit(1);
+  std::cout << "[DEBUG] QLangDomain constructor complete" << std::endl;
 }
 
 std::string GetFileStem(const std::string &path) {

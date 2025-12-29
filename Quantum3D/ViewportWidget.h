@@ -85,6 +85,9 @@ public:
   void UpdateGizmoSpace(); // Called by EngineGlobals when space changes
   void UpdateGizmoType();  // Called by EngineGlobals when gizmo mode changes
   Vivid::VividDevice *GetDevice() const { return m_Device; }
+  Quantum::SceneRenderer *GetSceneRenderer() const {
+    return m_SceneRenderer.get();
+  }
   void RefreshMaterials(); // Recreate material descriptor sets after scene load
   void SetEditorCameraRotation(float pitch,
                                float yaw); // Sync editor camera rotation

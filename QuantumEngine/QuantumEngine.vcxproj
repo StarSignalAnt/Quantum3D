@@ -136,12 +136,12 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;GLM_ENABLE_EXPERIMENTAL;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Quantum\Quantum3D\QLang;C:\Quantum\Assimp\include;C:\VulkanSDK\1.4.328.1\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Quantum\CL\include;C:\Quantum\Quantum3D\include;C:\Quantum\QLang\QLang;C:\Quantum\Assimp\include;$(VULKAN_SDK)\Include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -149,10 +149,15 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(VULKAN_SDK)\Lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
+    <Lib>
+      <AdditionalDependencies>glfw3.lib;vulkan-1.lib;assimp-vc143-mt.lib;QLang.lib;OpenCL.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\Quantum\CL\lib;C:\Quantum\Quantum3D\x64\Release;C:\Quantum\Assimp\lib\x64;C:\VulkanSDK\1.4.328.1\Lib;C:\Quantum\Quantum3D\New folder;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AppUI.h" />
     <ClInclude Include="CLBase.h" />
+    <ClInclude Include="CLLightmapper.h" />
     <ClInclude Include="DockLayout.h" />
     <ClInclude Include="DockNode.h" />
     <ClInclude Include="DockTypes.h" />
@@ -162,10 +167,14 @@
     <ClInclude Include="IButton.h" />
     <ClInclude Include="IDock.h" />
     <ClInclude Include="IHorizontalScroller.h" />
+    <ClInclude Include="include\xatlas\xatlas.h" />
     <ClInclude Include="Intersections.h" />
     <ClInclude Include="ISplitter.h" />
     <ClInclude Include="IVerticalScroller.h" />
     <ClInclude Include="IWindow.h" />
+    <ClInclude Include="LightmapBaker.h" />
+    <ClInclude Include="LightmapFile.h" />
+    <ClInclude Include="LightmapUVGenerator.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="QLangDomain.h" />
     <ClInclude Include="stb_image.h" />
@@ -205,6 +214,7 @@
   <ItemGroup>
     <ClCompile Include="AppUI.cpp" />
     <ClCompile Include="CLBase.cpp" />
+    <ClCompile Include="CLLightmapper.cpp" />
     <ClCompile Include="DockLayout.cpp" />
     <ClCompile Include="DockNode.cpp" />
     <ClCompile Include="Font.cpp" />
@@ -213,10 +223,14 @@
     <ClCompile Include="IButton.cpp" />
     <ClCompile Include="IDock.cpp" />
     <ClCompile Include="IHorizontalScroller.cpp" />
+    <ClCompile Include="include\xatlas\xatlas.cpp" />
     <ClCompile Include="Intersections.cpp" />
     <ClCompile Include="ISplitter.cpp" />
     <ClCompile Include="IVerticalScroller.cpp" />
     <ClCompile Include="IWindow.cpp" />
+    <ClCompile Include="LightmapBaker.cpp" />
+    <ClCompile Include="LightmapFile.cpp" />
+    <ClCompile Include="LightmapUVGenerator.cpp" />
     <ClCompile Include="LightNode.cpp" />
     <ClCompile Include="QLangDomain.cpp" />
     <ClCompile Include="SceneGraph.cpp" />

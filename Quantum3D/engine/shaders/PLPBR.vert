@@ -4,8 +4,9 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
-layout(location = 3) in vec3 inTangent;
-layout(location = 4) in vec3 inBitangent;
+layout(location = 3) in vec2 inUV2;      // Lightmap UV coordinates
+layout(location = 4) in vec3 inTangent;
+layout(location = 5) in vec3 inBitangent;
 
 // Uniform buffer (Global frame data) - MUST match C++ UniformBufferObject
 layout(set = 0, binding = 0) uniform UniformBufferObject {
@@ -27,8 +28,9 @@ layout(set = 0, binding = 0) uniform UniformBufferObject {
 layout(location = 0) out vec3 fragWorldPos;
 layout(location = 1) out vec3 fragNormal;
 layout(location = 2) out vec2 fragUV;
-layout(location = 3) out vec3 fragTangent;
-layout(location = 4) out vec3 fragBitangent;
+layout(location = 3) out vec2 fragUV2;   // Lightmap UV coordinates
+layout(location = 4) out vec3 fragTangent;
+layout(location = 5) out vec3 fragBitangent;
 
 // Clip distance for water clipping
 out float gl_ClipDistance[1];
@@ -40,6 +42,7 @@ void main() {
     
     // UVs
     fragUV = inUV;
+    fragUV2 = inUV2;  // Pass lightmap UVs to fragment shader
     
     // Normal Matrix (to handle non-uniform scaling correctly)
     mat3 normalMatrix = transpose(inverse(mat3(ubo.model)));
@@ -59,3 +62,4 @@ void main() {
     float waterHeight = 0.0;
     gl_ClipDistance[0] = (worldPos.y - waterHeight) * ubo.clipPlaneDir;
 }
+

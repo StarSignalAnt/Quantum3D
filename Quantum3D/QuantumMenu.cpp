@@ -1,18 +1,18 @@
 #include "QuantumMenu.h"
-#include "../QuantumEngine/CameraNode.h"
-#include "../QuantumEngine/GraphNode.h"
-#include "../QuantumEngine/SceneSerializer.h"
 #include "../QuantumEngine/TerrainNode.h"
 #include "../QuantumEngine/WaterNode.h"
 #include "BrowserWidget.h"
 #include "CreateTerrainDialog.h"
 #include "EngineGlobals.h"
+#include "LightmapBakeDialog.h"
+#include "SceneGraph.h"
 #include "SceneGraphWidget.h"
 #include "ScriptEditorWindow.h"
 #include "ViewportWidget.h"
 #include "stdafx.h"
 #include <QFileDialog>
 #include <QMessageBox>
+
 
 // Clipboard for node copy/paste
 static std::shared_ptr<Quantum::GraphNode> s_ClipboardNode = nullptr;
@@ -300,6 +300,16 @@ void QuantumMenu::setupMenus() {
       EngineGlobals::ScriptEditor->raise();
       EngineGlobals::ScriptEditor->activateWindow();
     }
+  });
+
+  // Rendering Menu
+  m_renderingMenu = addMenu(tr("&Rendering"));
+  m_bakeLightmapsAction = m_renderingMenu->addAction(tr("Bake &Lightmaps..."));
+  connect(m_bakeLightmapsAction, &QAction::triggered, this, [this]() {
+    // Create and show the self-contained bake dialog
+    auto *dialog = new LightmapBakeDialog(this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
   });
 
   // Help Menu

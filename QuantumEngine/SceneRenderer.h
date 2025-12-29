@@ -2,6 +2,7 @@
 #include "DirectionalShadowMap.h"
 #include "GizmoBase.h"
 #include "Intersections.h"
+#include "LightmapBaker.h"
 #include "PointShadowMap.h"
 #include "SceneGraph.h"
 #include "ShadowPipeline.h"
@@ -166,7 +167,30 @@ public:
     return m_TerrainGizmo->RaycastTerrain(terrainNode, rayOrigin, rayDir);
   }
 
+  // ========== Lightmap Baking ==========
+
+  /// Bake lightmaps for all meshes in the current scene
+  /// Returns true if baking was successful
+  bool BakeLightmaps(const BakeSettings &settings = BakeSettings(),
+                     LightmapBaker::ProgressCallback callback = nullptr) {
+    if (!m_SceneGraph || !m_Device) {
+      return false;
+    }
+    return m_LightmapBaker.Bake(m_Device, m_SceneGraph, settings, callback);
+  }
+
+  /// Check if lightmaps have been baked
+  bool HasBakedLightmaps() const {
+    return !m_LightmapBaker.GetBakedLightmaps().empty();
+  }
+
+  /// Get the lightmap baker for advanced access
+  LightmapBaker &GetLightmapBaker() { return m_LightmapBaker; }
+  const LightmapBaker &GetLightmapBaker() const { return m_LightmapBaker; }
+
 private:
+  // Lightmap baker instance
+  LightmapBaker m_LightmapBaker;
   // Gizmo instances (all types stored, one active at a time)
   std::unique_ptr<class TranslateGizmo> m_TranslateGizmo;
   std::unique_ptr<class RotateGizmo> m_RotateGizmo;

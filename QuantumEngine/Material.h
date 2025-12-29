@@ -78,6 +78,10 @@ public:
   bool HasDescriptorSet() const { return m_DescriptorSet != VK_NULL_HANDLE; }
   VkDescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
 
+  /// Invalidate the descriptor set so it gets recreated on next render
+  /// Call this after dynamically changing textures (e.g., lightmap baking)
+  void InvalidateDescriptorSet() { m_DescriptorSet = VK_NULL_HANDLE; }
+
   // Standard texture slot names
   static constexpr const char *SLOT_ALBEDO = "albedo";
   static constexpr const char *SLOT_NORMAL = "normal";
