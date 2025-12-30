@@ -62,6 +62,14 @@ SceneRenderer::~SceneRenderer() {
   Shutdown();
 }
 
+void SceneRenderer::BeginFrame() {
+  // Reset draw indices at the very start of the frame
+  // This ensures Water Passes and Main Scene use sequential UBO offsets
+  m_CurrentDrawIndex = 0;
+  m_GizmoDrawIndex = 0;
+  m_CurrentFrameIndex = (m_CurrentFrameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
 void SceneRenderer::Initialize() {
   std::cout << "[SceneRenderer] Initialize() called" << std::endl;
 
@@ -779,12 +787,12 @@ void SceneRenderer::RenderScene(VkCommandBuffer cmd, int width, int height,
   }
 
   // Reset draw indices at the start of the frame
-  // (RenderWaterPasses also resets this, but may be skipped if no water)
-  m_CurrentDrawIndex = 0;
+  // REMOVED: Managed by BeginFrame() to avoid overwriting water pass UBO data
+  // m_CurrentDrawIndex = 0;
   m_CurrentPipeline = nullptr; // Reset pipeline tracking to force rebind
   m_CurrentTexture = nullptr;  // Reset texture tracking
-  m_GizmoDrawIndex = 0;        // Reset gizmo draw index
-  m_AnimationAngle = time;     // Update animation time
+  // m_GizmoDrawIndex = 0;     // Managed by BeginFrame()
+  m_AnimationAngle = time; // Update animation time
 
   // Only log once per second to avoid spam
   static int frameCount = 0;
@@ -2439,9 +2447,9 @@ void SceneRenderer::RenderWaterPasses(VkCommandBuffer cmd, float time) {
   }
 
   // Reset draw index at the start of the frame (ONLY place this should happen)
-  // Water passes + main scene will all use sequential UBO offsets
-  m_CurrentDrawIndex = 0;
-  m_CurrentFrameIndex = 0;
+  // REMOVED: Managed by BeginFrame()
+  // m_CurrentDrawIndex = 0;
+  // m_CurrentFrameIndex = 0; // Managed by BeginFrame()
 
   // Calculate viewport aspect from global frame size for water camera
   // projections

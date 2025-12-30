@@ -39,6 +39,9 @@ public:
   // Initialize rendering resources
   void Initialize();
 
+  // Reset frame state (call at start of frame)
+  void BeginFrame();
+
   // Cleanup rendering resources
   void Shutdown();
 

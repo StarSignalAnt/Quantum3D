@@ -344,6 +344,7 @@ void ViewportWidget::renderFrame() {
   if (m_Renderer && m_Renderer->BeginFrameCommandBuffer()) {
     // Phase 1: Shadow pass (before main render pass)
     if (m_SceneRenderer) {
+      m_SceneRenderer->BeginFrame();
       m_SceneRenderer->RenderShadowPass(m_Renderer->GetCommandBuffer());
       // Water passes (reflection/refraction) also go here
       m_SceneRenderer->RenderWaterPasses(m_Renderer->GetCommandBuffer(),
@@ -543,9 +544,10 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent *event) {
         glm::mat4 view = m_EditorCamera->GetViewMatrix();
         float aspectRatio =
             static_cast<float>(width()) / static_cast<float>(height());
-        
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f),
-            (float)width() / (float)height(), 0.1f, 100.0f);
+
+        glm::mat4 projection =
+            glm::perspective(glm::radians(45.0f),
+                             (float)width() / (float)height(), 0.1f, 100.0f);
         projection[1][1] *= -1; // Match SceneRenderer Y-flip
 
         float rX = (2.0f * event->position().x()) / width() - 1.0f;
@@ -556,7 +558,7 @@ void ViewportWidget::mouseMoveEvent(QMouseEvent *event) {
         rayEye = glm::vec4(rayEye.x, rayEye.y, -1.0, 0.0);
 
         glm::vec3 rayWor = glm::vec3(glm::inverse(view) * rayEye) * 10000.0f;
-      //  rayWor = glm::normalize(rayWor);
+        //  rayWor = glm::normalize(rayWor);
 
         glm::vec3 cameraPos = m_EditorCamera->GetPosition();
 

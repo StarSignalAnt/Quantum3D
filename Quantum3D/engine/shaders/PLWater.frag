@@ -149,8 +149,8 @@ void main() {
     float distortStrength = 0.02; // Reduced strength for realism
     vec2 distortion = tangentNormal.xy * distortStrength;
 
-    // Reflection UV: flip X to correct horizontal mirroring
-    vec2 reflectUV = vec2(1.0 - ndc.x, ndc.y) + distortion;
+    // Reflection UV: standard projective mapping (no flip needed if camera is mirrored correctly)
+    vec2 reflectUV = ndc + distortion;
     vec2 refractUV = ndc + distortion;
 
     // Clamp UVs to avoid artifacts
@@ -159,20 +159,20 @@ void main() {
     refractUV.x = clamp(refractUV.x, 0.001, 0.999);
     refractUV.y = clamp(refractUV.y, 0.001, 0.999);
 
-    vec3 reflectionColor = texture(reflectionMap, reflectUV).rgb * 3.0;  // Amplified 3x
+    vec3 reflectionColor = texture(reflectionMap, reflectUV).rgb; // Removed 3.0x boost
     vec3 refractionColor = texture(refractionMap, refractUV).rgb;
 
-    // Tint refraction with base color
-    refractionColor = mix(refractionColor, baseColor * refractionColor, 0.5);
+    // Tint refraction with base color (multiplicative)
+    // refractionColor = mix(refractionColor, baseColor * refractionColor, 0.5);
+    refractionColor *= baseColor; 
 
     // Simple Fresnel using scalar factor
     float NdotV = max(dot(N, V), 0.0);
     float fresnelFactor = pow(1.0 - NdotV, 3.0);
     fresnelFactor = clamp(fresnelFactor, 0.0, 1.0);
 
-    // Blend: use fixed 50/50 mix for consistent reflection + refraction visibility
-    // (Original Fresnel blend: refraction at direct angles, reflection at grazing)
-    vec3 waterColor = mix(refractionColor, reflectionColor, 0.5);
+    // Blend using Fresnel
+    vec3 waterColor = mix(refractionColor, reflectionColor, fresnelFactor);
 
     // --- PBR Specular (no shadows) ---
     vec3 L = normalize(ubo.lightPos - fragWorldPos);
